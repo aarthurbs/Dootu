@@ -28,7 +28,7 @@ apagar: `docs/video-ops/checkpoints/2026-08-12-graph.py.bak` e `2026-08-12-test_
 — restaurar = copiar os dois de volta para `video-worker/` com o nome original. Detalhes e
 números em `docs/video-ops/PROGRESSO.md` (12/08/2026).
 
-**Rotina diária obrigatória: `CHECKLIST-DIARIO.md`** (raiz do projeto) — por onde abrir o
+**Rotina diária obrigatória: `docs/02-Execution/CHECKLIST-DIARIO.md`** — por onde abrir o
 site, a bateria de verificação antes de commitar, o commit e o backup do fim do dia.
 
 Este arquivo é o ponto de retomada. Ler antes de mexer em qualquer coisa:
@@ -176,7 +176,7 @@ você** (item 6), que destrava o benchmark de legendas. Nada será instalado ant
 - **F1.3 calendário:** adiado. Reavaliar com pelo menos 20 posts agendados ou conflitos reais.
 - **Fase 3 APIs:** só no go/no-go da semana 12. TikTok sem auditoria publica apenas privado;
   Meta exige backend, token e URL pública da mídia. Se aprovado, Supabase Edge
-  Functions/Vault/RLS conforme `docs/ARQUITETURA.md`; o navegador nunca recebe segredo.
+  Functions/Vault/RLS conforme `docs/01-Wiki/ARQUITETURA.md`; o navegador nunca recebe segredo.
 
 ## Comandos de retomada
 

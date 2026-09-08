@@ -1,6 +1,6 @@
 # CONTRATO — execução do PLANO-qualidade-clip-tiktok
 
-**Data:** 2026-09-03 · **Executa:** `docs/PLANO-qualidade-clip-tiktok.md`
+**Data:** 2026-09-03 · **Executa:** `docs/02-Execution/PLANO-qualidade-clip-tiktok.md`
 **Este arquivo é a fonte da verdade da entrega.** O plano diz *o que* e *por quê*; aqui está o
 contrato exato — nome, assinatura, valor literal — para que cada arquivo tenha **um escritor só**
 e as provas saibam o que cobrar.
@@ -35,7 +35,7 @@ COR_TAGS = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:ran
 ### 0.2 Risco 4 do plano: **SIM, existe dupla compressão** — MEDIDA em 2026-09-08, e é IRRELEVANTE
 
 > **A cadeia descrita abaixo está certa; o veredito de "maior lastro de qualidade" estava
-> errado — e o erro foi não ter medido.** Medido agora (`docs/PLANO-3-dupla-compressao.md` §8):
+> errado — e o erro foi não ter medido.** Medido agora (`docs/02-Execution/PLANO-3-dupla-compressao.md` §8):
 > o ENCODE 1 é `libx264 crf=23.0 preset=medium` e custa **47,46 dB PSNR / 0,9932 SSIM** contra
 > o stream copy do mesmo trecho. Praticamente transparente. Baixar o CRF compraria +2,4 dB por
 > +78% de arquivo. **Decisão: não mexer** — o parágrafo "Não é consertado aqui" segue valendo,

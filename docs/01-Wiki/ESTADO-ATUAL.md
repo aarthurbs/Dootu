@@ -62,8 +62,8 @@ atualização — conferir com `git status --short` e `git diff`.
 
 - **Bloqueado:** CP6 do `PLANO-2-fundo-visivel.md` — conferir a escala de uma fonte REAL
   (`source_scale`/`sourceWarning`). Precisa de rede e passa pelo portão de direitos.
-- `docs/operacao-cortes/INDEX.md` aponta para `LICOES.md` e `../_templates/clip.md`; em disco
-  existem `docs/Licoes.md` e `docs/_modelo-clip.md`. Links quebrados, fora do escopo desta
+- `docs/01-Wiki/operacao-cortes/INDEX.md` aponta para `LICOES.md` e `../_templates/clip.md`; em disco
+  existem `docs/01-Wiki/Licoes.md` e `docs/_modelo-clip.md`. Links quebrados, fora do escopo desta
   correção — não alterado.
 
 ## Próximo passo exato

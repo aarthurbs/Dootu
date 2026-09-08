@@ -5,7 +5,7 @@ terminar legitimamente em **"medi e não vou mexer"** — e isso seria um desfec
 uma falha. Faça os Planos 1 e 2 antes: eles são pequenos e fecham pendência de verdade.
 
 **Origem:** pendência (b) do relatório de 2026-09-04 e §0.2 do
-`docs/CONTRATO-qualidade-clip.md`, que a chama de *"o maior lastro de qualidade que sobra
+`docs/03-Decisions/CONTRATO-qualidade-clip.md`, que a chama de *"o maior lastro de qualidade que sobra
 depois desta entrega"*.
 
 ---

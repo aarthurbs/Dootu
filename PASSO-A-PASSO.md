@@ -177,7 +177,7 @@ site que diz onde o motor está.
 
 - **Não publique a raiz do repositório.** Root Directory é `web`. (Passo 2)
 - **Não coloque o motor na nuvem ainda.** Falta a Prova A: ninguém testou se o
-  YouTube atende o yt-dlp de um IP de datacenter. Está em `docs/LANCAMENTO-decisoes.md`.
+  YouTube atende o yt-dlp de um IP de datacenter. Está em `docs/03-Decisions/LANCAMENTO-decisoes.md`.
 - **Não comite o `.env`.** Já está protegido; mantenha assim.
 - **Não abra o motor para a internet** (túnel, ngrok, porta no roteador). Ele não
   tem autenticação e viraria um proxy de download público.
@@ -202,7 +202,7 @@ git add -A; git commit -m "..."; git push    # 3. publica
 ## Quando um dia for lançar de verdade
 
 Nada disso é para agora. O que muda está escrito em
-**`docs/LANCAMENTO-decisoes.md`**: as duas provas que precisam de resposta (o
+**`docs/03-Decisions/LANCAMENTO-decisoes.md`**: as duas provas que precisam de resposta (o
 yt-dlp funciona de IP de datacenter? qual a postura de direitos autorais?) e, no
 fim, a receita de publicar o motor com Fly.io + Turnstile — que já está pronta no
 repositório (`cloud/Dockerfile`, `.dockerignore`) e não precisa ser reescrita.

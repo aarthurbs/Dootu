@@ -3,7 +3,7 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If
 > anything in "STOP conditions" occurs, stop and report — do not improvise. When
-> done, update the status row for this plan in `plans/README.md`.
+> done, update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: Open `index.html` and confirm the exact current
 > text of `parseMoney` (lines ~3388-3392 as of 2026-07-02) matches the "Current state" excerpt
@@ -15,7 +15,7 @@
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: MED
-- **Depends on**: `plans/001-verification-baseline.md` (uses `node tools/verify.mjs` and appends to `tools/test-pure.mjs`)
+- **Depends on**: `docs/02-Execution/plans/001-verification-baseline.md` (uses `node tools/verify.mjs` and appends to `tools/test-pure.mjs`)
 - **Category**: bug
 - **Planned at**: commit `2fd798d`, 2026-07-01
 
@@ -75,7 +75,7 @@ exactly how the shipped `fatParseCusto` already behaves (its own comment documen
 a different rule, that's a separate decision.
 
 > **Update 2026-07-02**: the maintainer DID decide on a smarter rule —
-> `plans/008-unified-decimal-dot-rule.md` upgrades **both** parsers (this one and
+> `docs/02-Execution/plans/008-unified-decimal-dot-rule.md` upgrades **both** parsers (this one and
 > `fatParseCusto`) to treat dot-separated 3-digit groups (`1.234`) as thousands,
 > AFTER this plan lands. Execute this plan exactly as written anyway (it is the
 > stepping stone and its tests remain valid); do NOT implement plan 008's rule here.
@@ -180,7 +180,7 @@ Machine-checkable. ALL must hold:
       `node -e "const h=require('fs').readFileSync('index.html','utf8');const m=h.slice(h.indexOf('function parseMoney'),h.indexOf('function parseMoney')+260);process.exit(m.includes(\"includes(',')\")?0:1)"` → exit 0.
 - [ ] `fatParseCusto` is unchanged (still present at its location).
 - [ ] `git status` shows only `index.html` and `tools/test-pure.mjs` modified.
-- [ ] `plans/README.md` status row for 002 updated to DONE.
+- [ ] `docs/02-Execution/plans/README.md` status row for 002 updated to DONE.
 
 ## STOP conditions
 

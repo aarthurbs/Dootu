@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the next
 > step. If anything in the "STOP conditions" section occurs, stop and report — do
 > not improvise. When done, update the status row for this plan in
-> `plans/README.md`.
+> `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: This repo has ONE commit plus uncommitted
 > working-tree changes, so `git diff` is not a reliable drift signal. Instead,
@@ -272,7 +272,7 @@ Machine-checkable. ALL must hold:
 - [ ] `node tools/test-pure.mjs` exits 0 with all `✓`.
 - [ ] Files exist: `tools/verify.mjs`, `tools/test-pure.mjs`, `.editorconfig`.
 - [ ] `git status` shows only these three new files added — no existing file modified.
-- [ ] `plans/README.md` status row for 001 updated to DONE.
+- [ ] `docs/02-Execution/plans/README.md` status row for 001 updated to DONE.
 
 ## STOP conditions
 

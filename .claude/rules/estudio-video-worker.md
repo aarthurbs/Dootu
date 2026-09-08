@@ -8,7 +8,7 @@ description: Regras ativas do renderizador Python do Estúdio (FFmpeg/ASS, yt-dl
 
 # Estúdio de Vídeos — `video-worker/` (regras ATIVAS)
 
-Histórico, medições e armadilhas completas: `docs/archive/HISTORICO-estudio-video.md`
+Histórico, medições e armadilhas completas: `docs/01-Wiki/archive/HISTORICO-estudio-video.md`
 (grep lá antes de mexer num número — cada um tem uma medição atrás).
 
 ## Restrições de arquitetura (invioláveis)

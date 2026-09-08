@@ -3,7 +3,7 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If
 > anything in "STOP conditions" occurs, stop and report — do not improvise. When
-> done, update the status row for this plan in `plans/README.md`.
+> done, update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: Open `index.html` and confirm the exact current
 > text of each "Current state" excerpt below (three separate regions). This repo
@@ -16,8 +16,8 @@
 - **Priority**: P2
 - **Effort**: S
 - **Risk**: LOW
-- **Depends on**: `plans/001-verification-baseline.md`. Best done **after**
-  `plans/002` since both edit `index.html` and `tools/test-pure.mjs` (no line
+- **Depends on**: `docs/02-Execution/plans/001-verification-baseline.md`. Best done **after**
+  `docs/02-Execution/plans/002` since both edit `index.html` and `tools/test-pure.mjs` (no line
   overlap, but sequential avoids confusion).
 - **Category**: bug
 - **Planned at**: commit `2fd798d`, 2026-07-01
@@ -260,7 +260,7 @@ Machine-checkable. ALL must hold:
       prints `matches: 3`).
 - [ ] `fatLoadFile`, `load`, `loadProjects`, `parseMoney` are unchanged.
 - [ ] `git status` shows only `index.html` and `tools/test-pure.mjs` modified.
-- [ ] `plans/README.md` status row for 003 updated to DONE.
+- [ ] `docs/02-Execution/plans/README.md` status row for 003 updated to DONE.
 
 ## STOP conditions
 

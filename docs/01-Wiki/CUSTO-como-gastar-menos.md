@@ -53,7 +53,7 @@ Abra uma **sessão nova** (`/clear`) e cole isto. Numa sessão limpa isto custa 
 que custaria numa sessão longa.
 
 ```
-Leia docs/CUSTO-como-gastar-menos.md e faça só a tarefa 3 dele: enxugar o CLAUDE.md.
+Leia docs/01-Wiki/CUSTO-como-gastar-menos.md e faça só a tarefa 3 dele: enxugar o CLAUDE.md.
 
 Ele tem 92,5 KB (~23 mil tokens) e entra no contexto em toda mensagem de toda sessão.
 Alvo: ~8 mil tokens, sem perder nada load-bearing.

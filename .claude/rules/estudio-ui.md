@@ -8,7 +8,7 @@ description: Regras ativas da tela do Estúdio de Vídeos (5 telas, INTAKE, Cent
 
 # Estúdio de Vídeos — tela (`video-ops.js` / `.css`) — regras ATIVAS
 
-Histórico e medições: `docs/archive/HISTORICO-estudio-video.md`.
+Histórico e medições: `docs/01-Wiki/archive/HISTORICO-estudio-video.md`.
 
 ## As CINCO telas, e nada além (decisão do usuário, 2026-08-21)
 `data-view="video-ops"` / `#video-ops-root` / CSS externo `video-ops.css`.

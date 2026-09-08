@@ -3,7 +3,7 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If
 > anything in "STOP conditions" occurs, stop and report — do not improvise. When
-> done, update the status row for this plan in `plans/README.md`.
+> done, update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: This repo has ONE commit plus uncommitted
 > working-tree changes, so `git diff` is not a reliable drift signal. Open
@@ -15,7 +15,7 @@
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: LOW (NCM is 8 digits and CEST is 7 digits **by definition** — the rules are not heuristics)
-- **Depends on**: `plans/001-verification-baseline.md` (appends tests to `tools/test-pure.mjs`). Do after plans 002/003 if those are in flight (all append to the same test file).
+- **Depends on**: `docs/02-Execution/plans/001-verification-baseline.md` (appends tests to `tools/test-pure.mjs`). Do after plans 002/003 if those are in flight (all append to the same test file).
 - **Category**: bug
 - **Planned at**: commit `2fd798d`, 2026-07-02
 
@@ -215,7 +215,7 @@ ALL must hold:
       `node -e "const h=require('fs').readFileSync('index.html','utf8');const i=h.indexOf('function fatValidateGroups');const s=h.slice(i,i+1400);process.exit(s.includes('\\\\d{8}')&&s.includes('\\\\d{7}')?0:1)"` → exit 0.
 - [ ] Manual check 2 (bad CEST blocks Gerar) done and recorded in your report.
 - [ ] `git status` shows only `index.html` and `tools/test-pure.mjs` modified.
-- [ ] `plans/README.md` status row for 006 updated.
+- [ ] `docs/02-Execution/plans/README.md` status row for 006 updated.
 
 ## STOP conditions
 

@@ -3,10 +3,10 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If
 > anything in "STOP conditions" occurs, stop and report — do not improvise. When
-> done, update the status row for this plan in `plans/README.md`.
+> done, update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: This plan assumes **Plan 002 is DONE** (check its
-> status row in `plans/README.md`). Open `index.html` and confirm `parseMoney`
+> status row in `docs/02-Execution/plans/README.md`). Open `index.html` and confirm `parseMoney`
 > matches the "expected post-002 shape" excerpt below and `fatParseCusto` matches
 > its excerpt. On mismatch of either, STOP.
 
@@ -15,7 +15,7 @@
 - **Priority**: P2
 - **Effort**: S
 - **Risk**: MED (money-input ambiguity — the rule below is a documented decision; see "The decided rule")
-- **Depends on**: `plans/001-verification-baseline.md` AND `plans/002-fix-parsemoney-decimal-dot.md` (must be DONE first)
+- **Depends on**: `docs/02-Execution/plans/001-verification-baseline.md` AND `docs/02-Execution/plans/002-fix-parsemoney-decimal-dot.md` (must be DONE first)
 - **Category**: bug
 - **Planned at**: commit `2fd798d`, 2026-07-02
 
@@ -197,7 +197,7 @@ ALL must hold:
 - [ ] Both functions contain the group regex. Check:
       `node -e "const h=require('fs').readFileSync('index.html','utf8');const n=(h.match(/\[1-9\]\\\\d\{0,2\}\(\\\\.\\\\d\{3\}\)\+/g)||[]).length;console.log('matches:',n);process.exit(n===2?0:1)"` → `matches: 2`, exit 0.
 - [ ] `git status` shows only `index.html` and `tools/test-pure.mjs` modified.
-- [ ] `plans/README.md` status row for 008 updated.
+- [ ] `docs/02-Execution/plans/README.md` status row for 008 updated.
 
 ## STOP conditions
 

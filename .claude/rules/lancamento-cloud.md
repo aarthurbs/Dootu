@@ -8,8 +8,8 @@ description: Regras ativas da Fase 1 do lançamento público (só a ANÁLISE vai
 
 # Lançamento público, Fase 1 — `cloud/` e `web/` (regras ATIVAS)
 
-Histórico completo: `docs/archive/HISTORICO-lancamento-fase1.md`.
-Passos manuais: `PASSO-A-PASSO.md` · portão da Fase 0: `docs/LANCAMENTO-decisoes.md`.
+Histórico completo: `docs/01-Wiki/archive/HISTORICO-lancamento-fase1.md`.
+Passos manuais: `PASSO-A-PASSO.md` · portão da Fase 0: `docs/03-Decisions/LANCAMENTO-decisoes.md`.
 
 ## O que vai ao ar, e só isso
 `probe()` + `candidates()` — metadados públicos, capítulos, legenda e heatmap.

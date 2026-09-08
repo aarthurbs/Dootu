@@ -4,7 +4,7 @@
 único cuja solução já está **medida funcionando**. Não depende dos Planos 2 e 3.
 
 **Origem:** pendência (a) do relatório de 2026-09-04. Corrige o §0.3 do
-`docs/CONTRATO-qualidade-clip.md`, que já está marcado como errado lá.
+`docs/03-Decisions/CONTRATO-qualidade-clip.md`, que já está marcado como errado lá.
 
 ---
 
@@ -17,7 +17,7 @@ O trabalho anterior morreu por estouro de gasto depois de ~672k tokens. Este pla
   fatias de implementação. No máximo um `Agent` só-leitura para uma busca pontual.
 - **NÃO leia por inteiro:** `CLAUDE.md` (centenas de linhas de bullets densos),
   `video-worker/serve.py` (~1700 linhas), `video-ops.js`, `studio/src/preset.js`,
-  `docs/CONTRATO-qualidade-clip.md`.
+  `docs/03-Decisions/CONTRATO-qualidade-clip.md`.
 - **Leia SÓ estes trechos** — é tudo que o plano toca:
 
 | arquivo | trecho | por quê |
@@ -197,7 +197,7 @@ Depois de cada um, **a suíte tem de estar verde**. Sessão que morre retoma do 
 - **CP3** — renomear para `finish_video` (3 pontos). `.\provas.ps1`
 - **CP4** — checks P1-P8 escritos em `test_worker.py`. `.\provas.ps1`
 - **CP5** — sabotagens 1-4 conferidas em cópia temporária; §0.3 do
-  `docs/CONTRATO-qualidade-clip.md` atualizado (hoje diz "não consertado de propósito");
+  `docs/03-Decisions/CONTRATO-qualidade-clip.md` atualizado (hoje diz "não consertado de propósito");
   `CLAUDE.md` com a contagem nova.
 
 **O `.\provas.ps1` compara o total com a linha `Checks:` do `CLAUDE.md` e falha se divergir** —

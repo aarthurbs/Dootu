@@ -6,7 +6,7 @@ description: Regras ativas da camada de edição Remotion (preset, Clip.jsx, car
 
 # Estúdio de Vídeos — `studio/` (regras ATIVAS)
 
-Histórico e medições: `docs/archive/HISTORICO-estudio-video.md`.
+Histórico e medições: `docs/01-Wiki/archive/HISTORICO-estudio-video.md`.
 
 ## Fronteira
 `studio/` tem `package.json` próprio e **não é servido ao site**. O `index.html`

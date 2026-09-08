@@ -3,7 +3,7 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If
 > anything in "STOP conditions" occurs, stop and report — do not improvise. When
-> done, update the status row for this plan in `plans/README.md`.
+> done, update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: This repo has ONE commit plus uncommitted
 > working-tree changes, so `git diff` is not a reliable drift signal. Open
@@ -15,7 +15,7 @@
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: LOW
-- **Depends on**: none (`plans/001` recommended first so the syntax gate exists, but not required)
+- **Depends on**: none (`docs/02-Execution/plans/001` recommended first so the syntax gate exists, but not required)
 - **Category**: bug
 - **Planned at**: commit `2fd798d`, 2026-07-02
 
@@ -159,7 +159,7 @@ ALL must hold:
       `node -e "const h=require('fs').readFileSync('index.html','utf8');const i=h.indexOf('function fatAddGroupWithSkus');process.exit(h.slice(i,i+900).includes('.every(')?0:1)"` → exit 0.
 - [ ] Manual test Step 2.3 shows exactly one pre-filled group (record this in your report).
 - [ ] `git status` shows only `index.html` modified.
-- [ ] `plans/README.md` status row for 005 updated.
+- [ ] `docs/02-Execution/plans/README.md` status row for 005 updated.
 
 ## STOP conditions
 

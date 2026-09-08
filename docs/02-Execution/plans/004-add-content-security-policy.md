@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving on. The
 > **manual browser test is mandatory** for this plan — a wrong CSP silently breaks
 > the app. If anything in "STOP conditions" occurs, stop and report. When done,
-> update the status row for this plan in `plans/README.md`.
+> update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: Open `index.html` lines 1-11 and confirm the
 > `<head>` still contains the `<meta charset>`, `<meta name="viewport">`, and the
@@ -187,7 +187,7 @@ ALL must hold:
       exercised.
 - [ ] `git status` shows only `index.html` (and `tools/verify.mjs` if Step 2 done)
       modified — no inline script/style refactor.
-- [ ] `plans/README.md` status row for 004 updated to DONE.
+- [ ] `docs/02-Execution/plans/README.md` status row for 004 updated to DONE.
 
 ## STOP conditions
 

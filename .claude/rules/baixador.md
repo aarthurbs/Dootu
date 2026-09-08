@@ -6,7 +6,7 @@ description: Regras ativas da extensão + helper local (porta 8770), TikTok e si
 
 # Ponte Baixador → Estúdio — `baixador/` (regras ATIVAS)
 
-Histórico e medições: `docs/archive/HISTORICO-estudio-video.md`.
+Histórico e medições: `docs/01-Wiki/archive/HISTORICO-estudio-video.md`.
 
 Mundo **separado** do Estúdio (porta **8770**). Caminho:
 aba do YouTube/TikTok → extensão → helper → yt-dlp → sidecar → Estúdio.

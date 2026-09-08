@@ -3,7 +3,7 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If
 > anything in "STOP conditions" occurs, stop and report — do not improvise. When
-> done, update the status row for this plan in `plans/README.md`.
+> done, update the status row for this plan in `docs/02-Execution/plans/README.md`.
 >
 > **Drift check (run first)**: This repo has ONE commit plus uncommitted
 > working-tree changes, so `git diff` is not a reliable drift signal. Open
@@ -15,7 +15,7 @@
 - **Priority**: P2
 - **Effort**: S
 - **Risk**: LOW
-- **Depends on**: `plans/001-verification-baseline.md` for the automated test; the
+- **Depends on**: `docs/02-Execution/plans/001-verification-baseline.md` for the automated test; the
   code change itself has no dependency.
 - **Category**: bug
 - **Planned at**: commit `2fd798d`, 2026-07-02
@@ -167,7 +167,7 @@ ALL must hold:
       `node -e "const h=require('fs').readFileSync('index.html','utf8');const i=h.indexOf('function fatPersist');process.exit(h.slice(i,i+800).includes('removeItem(FAT_XLSX_KEY)')?0:1)"` → exit 0.
 - [ ] The four Plan-007 assertions exist and pass (if Plan 001 done).
 - [ ] `git status` shows only `index.html` (and `tools/test-pure.mjs`) modified.
-- [ ] `plans/README.md` status row for 007 updated.
+- [ ] `docs/02-Execution/plans/README.md` status row for 007 updated.
 
 ## STOP conditions
 
