@@ -1,0 +1,780 @@
+"""Provas do grafo de execução mínimo (graph.py), com mídia SINTÉTICA.
+
+Nenhum conteúdo protegido: o vídeo vem dos geradores internos do FFmpeg (testsrc2 + sine),
+igual ao test_worker.py.
+
+O que este script prova (e falha alto se não for verdade):
+   1. estado: criação, gravação, leitura e ida-e-volta sem perder campo
+   2. estado inexistente            -> load_state devolve None
+   3. estado pela metade / inválido -> erro CLARO, nunca estado meio-lido
+   4. stateVersion desconhecido     -> erro claro
+   5. entrada inválida              -> nó de falha com o código do contrato em errors
+   6. caminho fora da raiz          -> path_outside_root
+   7. falta de espaço               -> no_space ANTES de renderizar
+   8. idempotência                  -> segunda execução reaproveita, não renderiza de novo
+   9. retomada                      -> continua do nó salvo, sem repetir o que já concluiu
+  10. anti-loop                     -> teto por nó, teto de transições e nó fora do grafo
+  11. aprovação humana              -> para em awaiting_approval e não segue sozinho
+  12. caminho feliz ponta a ponta   -> 1080x1920 H.264/AAC dentro da tolerância
+  13. caminho tradicional intocado  -> worker.main/process_job e o result.json seguem iguais
+                                       (artefato comparado INTEIRO: chaves e tipos, não rótulo)
+  14. confinamento na retomada      -> raiz movida continua válida; estado adulterado
+                                       (input_path com "..", output_path de outra pasta)
+                                       vira path_outside_root, nunca escrita silenciosa
+  15. tipo de campo no estado       -> transitions:"muitas"/attempts:[] recusados na leitura
+  16. exceção não prevista          -> registrada com o nó e RE-LEVANTADA, nunca engolida;
+                                       OSError não é relatado como "o FFmpeg quebrou"
+  17. queda != laço                 -> 3 quedas no render não queimam a cota: ainda retomável
+  18/19. faxina                     -> nó "falhar" morto removido; `reserve` só onde é usado
+  20. contrato do artefato          -> grafo e worker produzem as MESMAS chaves e valores,
+                                       e renderVersion inválido falha nos DOIS com o mesmo código
+  21. CLI honesta                   -> "job.json ilegível" só quando o job.json é ilegível
+
+Uso:
+    py -3.12 video-worker\\test_graph.py
+    py -3.12 video-worker\\test_graph.py --keep
+"""
+
+import argparse
+import contextlib
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import graph  # noqa: E402
+import worker  # noqa: E402
+
+CHECKS = []
+PULADOS = []
+
+
+def check(label, ok):
+    CHECKS.append((label, bool(ok)))
+    return bool(ok)
+
+
+def pulado(label, motivo):
+    PULADOS.append("%s (%s)" % (label, motivo))
+
+
+def fail(msg):
+    print("FALHOU: " + msg)
+    sys.exit(1)
+
+
+def make_source(path, seconds, width, height, audio=True):
+    def produce(dest):
+        args = ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc2=size=%dx%d:rate=30:duration=%d" % (width, height, seconds)]
+        if audio:
+            args += ["-f", "lavfi", "-i", "sine=frequency=330:duration=%d" % seconds]
+        args += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"]
+        args += (["-c:a", "aac", "-b:a", "96k", "-shortest"] if audio else ["-an"])
+        args += ["-movflags", "+faststart", "-f", "mp4", dest]
+        worker.run_ffmpeg(args)
+    return worker.write_atomic(path, produce)
+
+
+def build_job(job_id, job_type, rel_input, digest, folder=None, file_name=None, options=None):
+    return {
+        "contractVersion": 1, "jobId": job_id, "type": job_type,
+        "createdAt": "2026-08-05T00:00:00Z", "state": "pending",
+        "attempts": 0, "maxAttempts": 3,
+        "input": {"path": rel_input, "sha256": digest},
+        "output": {"folder": folder or ".", "fileName": file_name or (job_id + ".mp4")},
+        "options": options or {"overwrite": False},
+    }
+
+
+def variant_options(variant_id, in_sec, out_sec, reframe, platform, target):
+    return {"inSec": in_sec, "outSec": out_sec, "reframe": reframe, "variantId": variant_id,
+            "platform": platform,
+            "placement": "tiktok_video" if platform == "tiktok" else "ig_reels",
+            "renderVersion": 1, "targetSec": target, "overwrite": False}
+
+
+def last_code(st):
+    return st.errors[-1]["code"] if st.errors else None
+
+
+def arquivos_de(pasta):
+    """Retrato (caminho relativo -> tamanho) para provar que uma raiz NÃO foi tocada."""
+    retrato = {}
+    for base, _dirs, nomes in os.walk(pasta):
+        for nome in nomes:
+            caminho = os.path.join(base, nome)
+            retrato[os.path.relpath(caminho, pasta)] = os.path.getsize(caminho)
+    return retrato
+
+
+def node_crash(st, root):
+    """Queda dura: BaseException não é 'erro previsto', então nada marca o job como falho."""
+    raise SystemExit("queda simulada durante o render")
+
+
+def node_explode(st, root):
+    raise RuntimeError("erro não previsto de propósito")
+
+
+def node_os_error(st, root):
+    raise OSError(13, "acesso negado pelo sistema")
+
+
+def node_self_loop(st, root):
+    """Nó que devolve a si mesmo: é exatamente o laço que a guarda tem de cortar."""
+    return "validar_job"
+
+
+def aceita_reserve(fn):
+    code = getattr(fn, "__code__", None)
+    return bool(code) and "reserve" in code.co_varnames[:code.co_argcount]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--keep", action="store_true")
+    args = parser.parse_args()
+
+    tem_ffmpeg = os.path.exists(worker.FFMPEG)
+    root = tempfile.mkdtemp(prefix="video-graph-testes-")
+    fora = tempfile.mkdtemp(prefix="video-graph-fora-")
+    fontes = os.path.join(root, "Fontes originais")
+    variantes = os.path.join(root, "Variantes")
+    for folder in (fontes, variantes, os.path.join(root, "_jobs", "pending")):
+        os.makedirs(folder, exist_ok=True)
+    print("FFmpeg: %s%s" % (worker.FFMPEG, "" if tem_ffmpeg else "  (AUSENTE)"))
+    print("raiz:   %s\nfora:   %s\n" % (root, fora))
+
+    # ---------------------------------------------------------------- 1. estado
+    st = graph.new_state(build_job("t_estado", "render_variant", "Fontes originais/x.mp4", "a" * 64))
+    check("1. estado nasce em pending, no primeiro nó, sem transição",
+          st.status == "pending" and st.current_node == graph.FIRST_NODE and st.transitions == 0)
+    check("1. estado nasce com stateVersion e carimbos",
+          st.stateVersion == graph.STATE_VERSION and st.created_at and st.updated_at)
+    st.completed_nodes.append("validar_job")
+    st.attempts["validar_job"] = 1
+    st.errors.append({"node": "validar_job", "code": "job_invalid", "message": "m", "at": "x"})
+    st.result = {"jobId": "t_estado", "state": "running"}
+    st.input_path, st.output_path, st.transitions = "a.mp4", "b.mp4", 3
+    graph.save_state(root, st)
+    caminho_estado = graph.state_path(root, "t_estado")
+    check("1. estado é gravado em <root>/_state/<job_id>.json",
+          os.path.exists(caminho_estado)
+          and os.path.dirname(caminho_estado) == os.path.join(root, "_state"))
+    volta = graph.load_state(root, "t_estado")
+    check("1. ida e volta preserva todos os campos", volta.to_dict() == st.to_dict())
+    check("1. ida e volta preserva os tipos",
+          isinstance(volta.attempts, dict) and isinstance(volta.completed_nodes, list)
+          and isinstance(volta.transitions, int))
+
+    # ---------------------------------------------------------------- 2. inexistente
+    check("2. estado inexistente -> None", graph.load_state(root, "nunca_existiu") is None)
+
+    # ---------------------------------------------------------------- 3. quebrado
+    parcial = graph.state_path(root, "t_parcial")
+    with open(parcial, "w", encoding="utf-8") as handle:
+        handle.write('{"stateVersion": 1, "job_id": "t_parcial", "opera')
+    try:
+        graph.load_state(root, "t_parcial")
+        check("3. JSON pela metade -> erro claro", False)
+    except graph.GraphError as err:
+        check("3. JSON pela metade -> erro claro", "ilegível" in str(err))
+    with open(graph.state_path(root, "t_naodict"), "w", encoding="utf-8") as handle:
+        handle.write("[1, 2, 3]")
+    try:
+        graph.load_state(root, "t_naodict")
+        check("3. JSON que não é objeto -> erro claro", False)
+    except graph.GraphError:
+        check("3. JSON que não é objeto -> erro claro", True)
+    worker.write_json_atomic(graph.state_path(root, "t_campo"),
+                            {"stateVersion": 1, "job_id": "t_campo", "operation": "ingest",
+                             "campo_que_nao_existe": 1})
+    try:
+        graph.load_state(root, "t_campo")
+        check("3. campo desconhecido no estado -> erro claro", False)
+    except graph.GraphError as err:
+        check("3. campo desconhecido no estado -> erro claro", "inesperados" in str(err))
+
+    # ---------------------------------------------------------------- 4. versão
+    worker.write_json_atomic(graph.state_path(root, "t_versao"),
+                            {"stateVersion": 999, "job_id": "t_versao", "operation": "ingest"})
+    try:
+        graph.load_state(root, "t_versao")
+        check("4. stateVersion desconhecido -> erro claro", False)
+    except graph.GraphError as err:
+        check("4. stateVersion desconhecido -> erro claro", "stateVersion" in str(err))
+
+    # ---------------------------------------------------------------- 5. entrada inválida
+    st = graph.start(root, build_job("t_inexistente", "ingest",
+                                     "Fontes originais/nao-existe.mp4", "a" * 64))
+    check("5. entrada inexistente -> failed com input_missing",
+          st.status == "failed" and last_code(st) == "input_missing")
+    check("5. o nó que falhou fica registrado em failed_nodes",
+          st.failed_nodes == ["executar_ingest"] and st.current_node == "falhar")
+    check("5. falha registra mensagem legível e carimbo",
+          "não encontrado" in st.errors[-1]["message"] and st.errors[-1]["at"])
+    check("5. falha não produz artefato nem result done", not st.result.get("artifacts"))
+    vazio = os.path.join(fontes, "vazio.mp4")
+    open(vazio, "wb").close()
+    st = graph.start(root, build_job("t_vazio", "ingest", "Fontes originais/vazio.mp4", "0" * 64))
+    check("5. entrada vazia -> input_empty", last_code(st) == "input_empty")
+    ruim = build_job("t_contrato", "ingest", "Fontes originais/vazio.mp4", "0" * 64)
+    ruim["contractVersion"] = 99
+    st = graph.start(root, ruim)
+    check("5. contractVersion errado -> contract_version no nó validar_job",
+          last_code(st) == "contract_version" and st.failed_nodes == ["validar_job"])
+
+    # ---------------------------------------------------------------- 6. fora da raiz
+    externo = os.path.join(fora, "externo.mp4")
+    with open(externo, "wb") as handle:
+        handle.write(b"conteudo")
+    st = graph.start(root, build_job("t_fora", "render_variant", externo, "b" * 64,
+                                     folder="Variantes", file_name="fora.mp4",
+                                     options=variant_options("var_f", 0, 3, "crop", "tiktok", 3)))
+    check("6. entrada absoluta externa -> path_outside_root",
+          last_code(st) == "path_outside_root" and st.failed_nodes == ["validar_entrada"])
+    st = graph.start(root, build_job("t_travessia", "ingest",
+                                     "Fontes originais/../../externo.mp4", "b" * 64))
+    check("6. travessia com .. -> path_outside_root", last_code(st) == "path_outside_root")
+
+    # ------------------------------------------- 14. estado envenenado (ALTO 1)
+    # Caminho vindo do ESTADO passa por inside_root no momento do uso, em toda execução.
+    envenenado = build_job("t_veneno_in", "render_variant", "Fontes originais/x.mp4", "d" * 64,
+                           folder="Variantes", file_name="veneno.mp4",
+                           options=variant_options("var_v", 0, 3, "crop", "tiktok", 3))
+    st = graph.new_state(envenenado)
+    st.current_node, st.input_path, st.output_path = "renderizar", "..\\fora.mp4", "Variantes/v.mp4"
+    graph.save_state(root, st)
+    graph.resume(root, "t_veneno_in")
+    st = graph.load_state(root, "t_veneno_in")
+    check("14b. input_path adulterado com .. -> path_outside_root, não render",
+          st.status == "failed" and last_code(st) == "path_outside_root"
+          and "renderizar" not in st.completed_nodes)
+    st = graph.new_state(build_job("t_veneno_out", "render_variant", "Fontes originais/x.mp4",
+                                   "d" * 64, folder="Variantes", file_name="veneno.mp4",
+                                   options=variant_options("var_v", 0, 3, "crop", "tiktok", 3)))
+    st.current_node = "renderizar"
+    st.input_path = "Fontes originais/x.mp4"
+    st.output_path = os.path.join(fora, "roubado.mp4")   # absoluto de outra pasta
+    graph.save_state(root, st)
+    graph.resume(root, "t_veneno_out")
+    st = graph.load_state(root, "t_veneno_out")
+    check("14c. output_path absoluto de outra pasta -> path_outside_root, nada escrito lá",
+          st.status == "failed" and last_code(st) == "path_outside_root"
+          and not os.path.exists(os.path.join(fora, "roubado.mp4")))
+
+    # ------------------------------------------- 15. tipo de campo no estado (MÉDIO 4)
+    for campo, valor in (("transitions", "muitas"), ("attempts", []),
+                         ("completed_nodes", "texto"), ("original_request", "[]")):
+        bruto = {"stateVersion": 1, "job_id": "t_tipo", "operation": "ingest", campo: valor}
+        worker.write_json_atomic(graph.state_path(root, "t_tipo"), bruto)
+        try:
+            graph.load_state(root, "t_tipo")
+            check("15. estado com %s inválido -> erro claro" % campo, False)
+        except graph.GraphError as err:
+            check("15. estado com %s inválido -> erro claro" % campo, campo in str(err))
+    worker.write_json_atomic(graph.state_path(root, "t_tipo"),
+                             {"stateVersion": 1, "job_id": "t_tipo", "operation": "ingest",
+                              "attempts": {"validar_job": "duas"}})
+    try:
+        graph.load_state(root, "t_tipo")
+        check("15. attempts com valor não-inteiro -> erro claro", False)
+    except graph.GraphError as err:
+        check("15. attempts com valor não-inteiro -> erro claro", "attempts" in str(err))
+
+    # ------------------------------- 16. exceção não prevista (MÉDIO 5 + BAIXO 9)
+    nos_estouro = dict(graph.NODES)
+    nos_estouro["validar_job"] = node_explode
+    st = graph.new_state(build_job("t_estouro", "ingest", "x", "e" * 64))
+    try:
+        graph.run(root, st, nodes=nos_estouro)
+        check("16. exceção não prevista é re-levantada, não engolida", False)
+    except RuntimeError:
+        check("16. exceção não prevista é re-levantada, não engolida", True)
+    disco = graph.load_state(root, "t_estouro")
+    check("16. a tentativa e o nó ficam gravados no disco antes de estourar",
+          disco.attempts.get("validar_job") == 1
+          and "validar_job" in disco.errors[-1]["message"]
+          and disco.errors[-1]["code"] == graph.GRAPH_ERROR_CODE)
+    nos_os = dict(graph.NODES)
+    nos_os["validar_job"] = node_os_error
+    st = graph.new_state(build_job("t_oserror", "ingest", "x", "e" * 64))
+    graph.run(root, st, nodes=nos_os)
+    check("16. OSError mantém o código do worker mas a mensagem não culpa o FFmpeg",
+          last_code(st) == "ffmpeg_failed" and "validar_job" in st.errors[-1]["message"]
+          and "sistema de arquivos" in st.errors[-1]["message"]
+          and "FFmpeg não está envolvido" in st.errors[-1]["message"])
+
+    # ---------------------------------- 17. queda não gasta cota de retomada (MÉDIO 6a)
+    quedas = dict(graph.NODES)
+    quedas["renderizar"] = node_crash
+    st = graph.new_state(build_job("t_quedas", "render_variant", "Fontes originais/x.mp4",
+                                   "f" * 64, folder="Variantes",
+                                   options=variant_options("var_q", 0, 3, "crop", "tiktok", 3)))
+    st.current_node = "renderizar"
+    graph.save_state(root, st)
+    for _ in range(3):
+        vivo = graph.load_state(root, "t_quedas")      # processo NOVO a cada queda
+        try:
+            graph.run(root, vivo, nodes=quedas)
+        except SystemExit:
+            pass
+    caido = graph.load_state(root, "t_quedas")
+    check("17a. 3 quedas no render: cada tentativa fica registrada",
+          caido.attempts.get("renderizar") == 3)
+    check("17a. 3 quedas no render: o trabalho AINDA é retomável",
+          caido.status not in graph.TERMINAL_STATUS and caido.current_node == "renderizar")
+    curados = dict(graph.NODES)
+    curados["renderizar"] = lambda st_, root_: "concluir"
+    quarta = graph.load_state(root, "t_quedas")
+    graph.run(root, quarta, nodes=curados)
+    check("17a. a 4ª retomada conclui (a cota é da execução, não eterna)",
+          quarta.status == "done" and quarta.attempts["renderizar"] == 4)
+
+    # ---------------------------------------------------------------- 10. anti-loop
+    laco = dict(graph.NODES)
+    laco["laco"] = lambda st_, root_, reserve=0: "laco"
+    st = graph.new_state(build_job("t_laco", "ingest", "x", "c" * 64))
+    st.current_node = "laco"
+    graph.run(root, st, nodes=laco)
+    check("10. teto de tentativas por nó corta o auto-laço",
+          st.status == "failed" and st.attempts["laco"] == graph.MAX_NODE_ATTEMPTS + 1)
+    check("10. o corte por tentativas diz o motivo", "teto" in st.errors[-1]["message"])
+    pingue = dict(graph.NODES)
+    pingue["pingue"] = lambda st_, root_, reserve=0: "pongue"
+    pingue["pongue"] = lambda st_, root_, reserve=0: "pingue"
+    st = graph.new_state(build_job("t_pingue", "ingest", "x", "c" * 64))
+    st.current_node = "pingue"
+    graph.run(root, st, max_transitions=2, nodes=pingue)
+    check("10. teto de transições por execução corta antes do teto por nó",
+          st.status == "failed" and "transições por execução" in st.errors[-1]["message"]
+          and max(st.attempts.values()) <= graph.MAX_NODE_ATTEMPTS)
+    st = graph.new_state(build_job("t_no_falso", "ingest", "x", "c" * 64))
+    st.current_node = "no_que_nao_existe"
+    graph.run(root, st)
+    check("10. nó fora do grafo é recusado, não executado",
+          st.status == "failed" and "não é um nó do grafo" in st.errors[-1]["message"])
+    check("10. nenhum nó do grafo publica em rede",
+          not any("public" in nome for nome in graph.NODES))
+    check("18. 'falhar' não é nó executável (código morto removido), só rótulo terminal",
+          "falhar" not in graph.NODES and graph.FAILED_NODE == "falhar"
+          and not hasattr(graph, "no_falhar"))
+    check("19. só conferir_espaco carrega 'reserve' na assinatura dos nós",
+          [nome for nome, fn in graph.NODES.items() if aceita_reserve(fn)]
+          == ["conferir_espaco"])
+
+    # ---------------------------------------------------------------- mídia sintética
+    if not tem_ffmpeg:
+        for rotulo in ("7. falta de espaço", "8. idempotência", "9. retomada",
+                       "11. aprovação humana", "12. caminho feliz",
+                       "13. caminho tradicional intocado"):
+            pulado(rotulo, "FFmpeg do projeto ausente em %s" % worker.FFMPEG)
+    else:
+        src = make_source(os.path.join(fontes, "aula-horizontal.mp4"), 45, 1280, 720, audio=True)
+        src_rel = "Fontes originais/aula-horizontal.mp4"
+        src_sha = worker.sha256(src)
+
+        # ------------------------------------------------------------ 7. falta de espaço
+        livre = shutil.disk_usage(variantes).free
+        job = build_job("t_espaco", "render_variant", src_rel, src_sha, folder="Variantes",
+                        file_name="sem-espaco.mp4",
+                        options=variant_options("var_e", 0, 5, "crop", "tiktok", 5))
+        st = graph.start(root, job, reserve=livre + 10 ** 9)
+        check("7. espaço insuficiente -> no_space",
+              last_code(st) == "no_space" and st.failed_nodes == ["conferir_espaco"])
+        check("7. no_space acontece ANTES de renderizar",
+              "renderizar" not in st.completed_nodes
+              and not os.path.exists(os.path.join(variantes, "sem-espaco.mp4")))
+
+        # ------------------------------------------------------------ 12. caminho feliz
+        job = build_job("t_feliz", "render_variant", src_rel, src_sha, folder="Variantes",
+                        file_name="feliz.mp4",
+                        options=variant_options("var_ok", 5.0, 20.0, "blur", "tiktok", 15))
+        st = graph.start(root, job)
+        if not check("12. render ponta a ponta pelo grafo termina sem erro",
+                     st.status == "awaiting_approval" and not st.errors):
+            print("      erro: %s" % (st.errors[-1] if st.errors else "?"))
+        else:
+            art = st.result["artifacts"][0]
+            print("  variante  %6.3fs  %sx%s  %s/%s  %s" % (
+                art["durationSec"], art["width"], art["height"], art["videoCodec"],
+                art["audioCodec"], art["sha256"][:12]))
+            check("12. saída 1080x1920", art["width"] == 1080 and art["height"] == 1920)
+            check("12. saída H.264/AAC",
+                  art["videoCodec"] == "h264" and art["audioCodec"] == "aac")
+            check("12. duração dentro da tolerância declarada",
+                  abs(art["durationSec"] - 15.0) <= worker.TOLERANCE_SEC)
+            check("12. artefato registra caminho, tamanho e SHA-256",
+                  art["path"] and art["sizeBytes"] > 0 and len(art["sha256"]) == 64)
+            check("12. a variante nasce do original (sourceSha256 confere)",
+                  art["sourceSha256"] == src_sha)
+            check("12. todos os nós do caminho passaram, na ordem",
+                  st.completed_nodes == ["validar_job", "conferir_idempotencia",
+                                         "validar_entrada", "conferir_espaco", "renderizar",
+                                         "conferir_saida", "salvar_resultado",
+                                         "aguardar_aprovacao"])
+            check("12. o result.json do worker é reaproveitado, não um formato novo",
+                  os.path.exists(os.path.join(root, "_results", "t_feliz.json"))
+                  and st.result["contractVersion"] == worker.CONTRACT_VERSION
+                  and st.result["state"] == "done")
+            check("12. não sobra .part", not os.path.exists(os.path.join(variantes,
+                                                                        "feliz.mp4.part")))
+            check("12. o original permanece intocado", worker.sha256(src) == src_sha)
+
+            # -------------------------------------------------------- 11. aprovação humana
+            salvo = graph.load_state(root, "t_feliz")
+            check("11. o grafo para em awaiting_approval",
+                  salvo.status == "awaiting_approval" and salvo.current_node == "aguardar_aprovacao")
+            transicoes = salvo.transitions
+            graph.run(root, salvo)
+            check("11. rodar de novo não passa da aprovação sozinho",
+                  salvo.status == "awaiting_approval" and salvo.transitions == transicoes)
+            check("11. nenhum nó de publicação existe no grafo",
+                  "publicar" not in graph.NODES and "publish" not in graph.NODES)
+
+            # -------------------------------------------------------- 8. idempotência
+            destino = os.path.join(variantes, "feliz.mp4")
+            antes_mtime, antes_sha = os.path.getmtime(destino), worker.sha256(destino)
+            antes_arquivos = sorted(os.listdir(variantes))
+            st2 = graph.start(root, job)
+            check("8. segunda execução reaproveita o result e conclui",
+                  st2.status == "done" and st2.result.get("reused") is True)
+            check("8. segunda execução não passa pelo nó de render",
+                  "renderizar" not in st2.completed_nodes)
+            check("8. segunda execução não regrava o arquivo",
+                  os.path.getmtime(destino) == antes_mtime
+                  and worker.sha256(destino) == antes_sha)
+            check("8. segunda execução não duplica saída na pasta",
+                  sorted(os.listdir(variantes)) == antes_arquivos)
+
+        # ------------------------------------------------------------ 9. retomada
+        job = build_job("t_retomada", "render_variant", src_rel, src_sha, folder="Variantes",
+                        file_name="retomada.mp4",
+                        options=variant_options("var_r", 2.0, 8.0, "crop", "instagram", 6))
+        st = graph.new_state(job)
+        for _ in range(5):   # validar_job, idempotência, entrada, espaço, renderizar
+            graph.step(root, st)
+        destino = os.path.join(variantes, "retomada.mp4")
+        check("9. cinco passos já produziram o arquivo e pararam antes de conferir",
+              st.current_node == "conferir_saida" and os.path.exists(destino)
+              and st.status == "running")
+        if os.path.exists(destino):
+            mtime, sha = os.path.getmtime(destino), worker.sha256(destino)
+            concluidos = list(st.completed_nodes)
+            retomado = graph.load_state(root, "t_retomada")   # processo "morreu" aqui
+            check("9. o estado salvo no meio traz o nó atual e o que já concluiu",
+                  retomado.current_node == "conferir_saida"
+                  and retomado.completed_nodes == concluidos
+                  # caminho RELATIVO à raiz, e que resolve para o arquivo certo (A1)
+                  and retomado.output_path == "Variantes/retomada.mp4"
+                  and worker.inside_root(root, retomado.output_path, "x")
+                  == os.path.realpath(destino))
+
+            # ------------------------------------ 14a. mudar a raiz de lugar (ALTO 1)
+            # O estado guarda caminho relativo, então a mesma pasta copiada para outro
+            # lugar continua retomável — e a retomada não pode tocar na raiz VELHA.
+            nova_raiz = os.path.join(tempfile.mkdtemp(prefix="video-graph-mudou-"), "raiz")
+            shutil.copytree(root, nova_raiz)
+            antes_velha = arquivos_de(root)
+            copiado = graph.load_state(nova_raiz, "t_retomada")
+            check("14a. o estado guarda caminho RELATIVO (é o que sobrevive à mudança)",
+                  not os.path.isabs(copiado.input_path)
+                  and not os.path.isabs(copiado.output_path)
+                  and os.path.realpath(root) not in copiado.input_path)
+            movido = graph.resume(nova_raiz, "t_retomada")
+            check("14a. raiz movida: a retomada termina o trabalho na raiz NOVA",
+                  movido.status == "awaiting_approval" and not movido.errors
+                  and os.path.exists(os.path.join(nova_raiz, "_results", "t_retomada.json")))
+            check("14a. raiz movida: o artefato aponta para dentro da raiz nova",
+                  movido.result["artifacts"][0]["absPath"].startswith(
+                      os.path.realpath(nova_raiz) + os.sep))
+            check("14a. raiz movida: NADA foi escrito na raiz velha",
+                  arquivos_de(root) == antes_velha
+                  and not os.path.exists(os.path.join(root, "_results", "t_retomada.json")))
+            shutil.rmtree(os.path.dirname(nova_raiz), ignore_errors=True)
+            graph.run(root, retomado)
+            check("9. a retomada termina o trabalho",
+                  retomado.status == "awaiting_approval" and not retomado.errors)
+            check("9. a retomada NÃO repete o nó já concluído",
+                  retomado.completed_nodes.count("renderizar") == 1
+                  and retomado.completed_nodes.count("validar_entrada") == 1)
+            check("9. a retomada não regrava o que já estava pronto",
+                  os.path.getmtime(destino) == mtime and worker.sha256(destino) == sha)
+            check("9. a retomada não perde o resultado e conclui o artefato",
+                  bool(retomado.result.get("artifacts"))
+                  and retomado.result["artifacts"][0]["width"] == 1080)
+
+        # ------------------------- 20. contrato do artefato: grafo == worker (ALTO 2)
+        opcoes = variant_options("var_c", 1.0, 4.0, "crop", "instagram", 3)
+        opcoes["renderVersion"] = 3
+        st = graph.start(root, build_job("t_contrato_g", "render_variant", src_rel, src_sha,
+                                         folder="Variantes", file_name="contrato-grafo.mp4",
+                                         options=opcoes))
+        res_w, _ = worker.process_job(build_job("t_contrato_w", "render_variant", src_rel,
+                                                src_sha, folder="Variantes",
+                                                file_name="contrato-worker.mp4",
+                                                options=opcoes), root, "2026-08-05T00:00:00Z")
+        art_g = (st.result.get("artifacts") or [{}])[0]
+        art_w = (res_w.get("artifacts") or [{}])[0]
+        check("20. o artefato do grafo tem exatamente as chaves do artefato do worker",
+              sorted(art_g) == sorted(art_w) and "renderVersion" in art_g
+              and "targetSec" in art_g)
+        contrato = ["kind", "variantId", "platform", "placement", "renderVersion", "reframe",
+                    "inSec", "outSec", "targetSec", "width", "height", "videoCodec",
+                    "audioCodec", "sourceSha256"]
+        diferentes = [k for k in contrato if art_g.get(k) != art_w.get(k)]
+        check("20. mesmo job -> MESMOS valores nas chaves de contrato (%s)"
+              % (diferentes or "todas iguais"), not diferentes)
+        check("20. o renderVersion do job chega ao artefato dos dois caminhos",
+              art_g.get("renderVersion") == 3 and art_w.get("renderVersion") == 3)
+        check("20. a duração medida é a mesma nos dois caminhos",
+              abs(art_g.get("durationSec", 0) - art_w.get("durationSec", -9))
+              <= worker.TOLERANCE_SEC)
+        for valor, rotulo in ((0, "zero"), ("abc", "abc")):
+            ruim = dict(opcoes)
+            ruim["renderVersion"] = valor
+            sg = graph.start(root, build_job("t_rv_g_" + rotulo, "render_variant", src_rel,
+                                             src_sha, folder="Variantes",
+                                             file_name="rv-grafo.mp4", options=ruim))
+            rw, _ = worker.process_job(build_job("t_rv_w_" + rotulo, "render_variant", src_rel,
+                                                 src_sha, folder="Variantes",
+                                                 file_name="rv-worker.mp4", options=ruim),
+                                       root, "2026-08-05T00:00:00Z")
+            check("20. renderVersion=%r falha nos DOIS caminhos com o MESMO código" % valor,
+                  sg.status == "failed" and last_code(sg) == "cut_invalid"
+                  and rw["state"] == "failed" and rw["error"]["code"] == "cut_invalid")
+
+        # ------------------------------------------------------------ CLI
+        job_cli = build_job("t_cli", "render_variant", src_rel, src_sha, folder="Variantes",
+                            file_name="cli.mp4",
+                            options=variant_options("var_cli", 0.0, 3.0, "crop", "tiktok", 3))
+        caminho_job = os.path.join(root, "_jobs", "pending", "t_cli.json")
+        worker.write_json_atomic(caminho_job, job_cli)
+        codigo_cli = graph.main(["--root", root, "--job", "_jobs/pending/t_cli.json"])
+        estado_cli = graph.load_state(root, "t_cli")
+        check("CLI --job roda o grafo e sai com 0 aguardando aprovação",
+              codigo_cli == 0 and estado_cli.status == "awaiting_approval")
+        check("CLI não move o job de _jobs/pending (isso é do caminho tradicional)",
+              os.path.exists(caminho_job))
+        check("CLI --resume de estado terminal não refaz nada",
+              graph.main(["--root", root, "--resume", "t_cli"]) == 0)
+        check("CLI exige --job OU --resume",
+              graph.main(["--root", root]) == 2
+              and graph.main(["--root", root, "--job", "x.json", "--resume", "t_cli"]) == 2)
+        check("CLI recusa raiz inexistente",
+              graph.main(["--root", os.path.join(root, "nao-existe"), "--resume", "t_cli"]) == 2)
+        check("CLI recusa job fora da raiz",
+              graph.main(["--root", root, "--job", os.path.join(fora, "job.json")]) == 2)
+
+        # ---------------------------- 21. a CLI não mente sobre a causa (MÉDIO 5)
+        quebrado = os.path.join(root, "_jobs", "pending", "quebrado.json")
+        with open(quebrado, "w", encoding="utf-8") as handle:
+            handle.write("{ isto nao e json")
+        saida = io.StringIO()
+        with contextlib.redirect_stdout(saida):
+            codigo_quebrado = graph.main(["--root", root, "--job",
+                                          "_jobs/pending/quebrado.json"])
+        check("21. job.json ilegível é relatado como job.json ilegível",
+              codigo_quebrado == 2 and "job.json ilegível" in saida.getvalue())
+        worker.write_json_atomic(os.path.join(root, "_jobs", "pending", "t_cli_2.json"),
+                                 build_job("t_cli_2", "ingest", src_rel, src_sha))
+        original = graph.NODES["validar_job"]
+        graph.NODES["validar_job"] = node_explode
+        try:
+            saida = io.StringIO()
+            with contextlib.redirect_stdout(saida):
+                codigo_estouro = graph.main(["--root", root, "--job",
+                                             "_jobs/pending/t_cli_2.json"])
+        finally:
+            graph.NODES["validar_job"] = original
+        check("21. erro não previsto NÃO é relatado como 'job.json ilegível'",
+              codigo_estouro == 2 and "job.json ilegível" not in saida.getvalue()
+              and "não previsto" in saida.getvalue())
+
+        # ------------------------------------- 13. o caminho tradicional segue intocado
+        raiz2 = tempfile.mkdtemp(prefix="video-graph-worker-")
+        pend2 = os.path.join(raiz2, "_jobs", "pending")
+        os.makedirs(pend2, exist_ok=True)
+        os.makedirs(os.path.join(raiz2, "Variantes"), exist_ok=True)
+        src2 = os.path.join(raiz2, "fonte.mp4")
+        shutil.copyfile(src, src2)
+        job_tradicional = build_job("t_tradicional", "render_variant", "fonte.mp4",
+                                    worker.sha256(src2), folder="Variantes",
+                                    file_name="tradicional.mp4",
+                                    options=variant_options("var_t", 1.0, 5.0, "crop",
+                                                            "tiktok", 4))
+        worker.write_json_atomic(os.path.join(pend2, "t_tradicional.json"), job_tradicional)
+        codigo = worker.main(["--root", raiz2, "--finished-at", "2026-08-05T00:00:10Z"])
+        with open(os.path.join(raiz2, "_results", "t_tradicional.json"), encoding="utf-8") as h:
+            tradicional = json.load(h)
+        check("13. varredura de _jobs/pending continua funcionando",
+              codigo == 0 and tradicional["state"] == "done")
+        check("13. o job continua sendo movido para _jobs/done",
+              os.path.exists(os.path.join(raiz2, "_jobs", "done", "t_tradicional.json"))
+              and not os.listdir(pend2))
+        check("13. o result.json do caminho tradicional mantém a forma",
+              sorted(tradicional) == ["artifacts", "attempts", "contractVersion", "error",
+                                      "finishedAt", "input", "jobId", "media", "notes", "state"])
+        feliz = os.path.join(root, "_results", "t_feliz.json")
+        if os.path.exists(feliz):
+            with open(feliz, encoding="utf-8") as h:
+                do_grafo = json.load(h)
+            check("13. o grafo grava o MESMO formato de result.json",
+                  sorted(do_grafo) == sorted(tradicional))
+            # Comparar rótulo não basta (foi assim que renderVersion/targetSec sumiram):
+            # o artefato INTEIRO precisa ter as mesmas chaves e os mesmos tipos por chave.
+            ag, aw = do_grafo["artifacts"][0], tradicional["artifacts"][0]
+            check("13. o artefato do grafo tem exatamente as chaves do artefato do worker",
+                  sorted(ag) == sorted(aw))
+            faltando = [k for k in ("kind", "path", "absPath", "sha256", "sizeBytes",
+                                    "variantId", "platform", "placement", "renderVersion",
+                                    "reframe", "inSec", "outSec", "targetSec", "durationSec",
+                                    "width", "height", "videoCodec", "audioCodec",
+                                    "sourceSha256") if k not in ag]
+            check("13. nenhuma chave do contrato falta no artefato do grafo (%s)"
+                  % (faltando or "completo"), not faltando)
+            tipos = [k for k in aw if type(ag.get(k)) is not type(aw.get(k))]
+            check("13. o grafo não inventa artefato de outro tipo nem troca o tipo do valor "
+                  "(%s)" % (tipos or "tipos iguais"),
+                  ag["kind"] == aw["kind"] and not tipos)
+        check("13. o grafo não cria _state na raiz do caminho tradicional",
+              not os.path.exists(os.path.join(raiz2, "_state")))
+        if not args.keep:
+            shutil.rmtree(raiz2, ignore_errors=True)
+        else:
+            print("raiz do caminho tradicional: %s" % raiz2)
+
+    # ---- 22. job.json NÃO amplia a guarda anti-loop (dado externo não afrouxa teto) ----
+    # O código já limitava, mas nenhum teste cobria: maxAttempts=1000000 desligaria o teto
+    # por nó na prática e deixaria a garantia apoiada só no teto de transições.
+    for pedido, rotulo in ((1000000, "1000000"), ("abc", "texto"), (0, "zero"),
+                           (-5, "negativo"), (None, "ausente"), (True, "booleano")):
+        laco = dict(graph.NODES)
+        laco["validar_job"] = node_self_loop
+        job_cap = build_job("t_cap_" + rotulo, "ingest", "x", "1" * 64)
+        job_cap["maxAttempts"] = pedido
+        st = graph.new_state(job_cap)
+        st.current_node = "validar_job"
+        graph.run(root, st, nodes=laco)
+        check("22. maxAttempts=%s NÃO amplia a guarda: o auto-laço é cortado" % rotulo,
+              st.status == "failed"
+              and st.attempts.get("validar_job", 0) <= graph.HARD_NODE_ATTEMPTS + 1)
+    st_cap = graph.new_state(build_job("t_cap_calc", "ingest", "x", "1" * 64))
+    st_cap.original_request["maxAttempts"] = 1000000
+    check("22. o teto duro do módulo vence qualquer pedido do job",
+          graph.node_cap(st_cap) == graph.HARD_NODE_ATTEMPTS)
+    st_cap.original_request["maxAttempts"] = 2
+    check("22. mas o job pode pedir MENOS tentativas", graph.node_cap(st_cap) == 2)
+
+    # ---- 23. a falha fica VISÍVEL para o navegador, sem apagar a idempotência ----
+    st = graph.start(root, build_job("t_falha_visivel", "ingest",
+                                    "Fontes originais/nao-existe.mp4", "9" * 64))
+    caminho_res = os.path.join(root, "_results", "t_falha_visivel.json")
+    check("23. falha do grafo grava result.json (senão o operador nunca sabe)",
+          st.status == "failed" and os.path.isfile(caminho_res))
+    if os.path.isfile(caminho_res):
+        with open(caminho_res, encoding="utf-8") as handle:
+            relato = json.load(handle)
+        check("23. o result.json da falha diz state=failed e o código do erro",
+              relato.get("state") == "failed"
+              and (relato.get("error") or {}).get("code") == last_code(st))
+        check("23. e diz em qual nó quebrou",
+              (relato.get("notes") or {}).get("failedNode") == st.failed_nodes[-1])
+        check("23. no mesmo formato do caminho tradicional (contractVersion + jobId)",
+              relato.get("contractVersion") == 1 and relato.get("jobId") == "t_falha_visivel")
+    # Um retry que falha NÃO pode apagar a prova de um trabalho já concluído.
+    concluido = {"contractVersion": 1, "jobId": "t_nao_sobrescreve", "state": "done",
+                 "input": {"sha256": "7" * 64}, "artifacts": [{"kind": "source"}]}
+    alvo = os.path.join(root, "_results", "t_nao_sobrescreve.json")
+    os.makedirs(os.path.dirname(alvo), exist_ok=True)
+    worker.write_json_atomic(alvo, concluido)
+    quebra = dict(graph.NODES)
+    quebra["validar_job"] = node_os_error
+    st = graph.new_state(build_job("t_nao_sobrescreve", "ingest", "x", "8" * 64))
+    graph.run(root, st, nodes=quebra)
+    with open(alvo, encoding="utf-8") as handle:
+        depois = json.load(handle)
+    check("23. retry que falha NÃO apaga o result.json de um trabalho concluído",
+          st.status == "failed" and depois.get("state") == "done" and depois.get("artifacts"))
+    check("23. e o estado registra que preservou o resultado anterior",
+          "resultKept" in (st.result.get("notes") or {}))
+
+    # ---- 24. step() solto não fica sem teto por nó ----
+    laco = dict(graph.NODES)
+    laco["validar_job"] = node_self_loop
+    st = graph.new_state(build_job("t_step_solto", "ingest", "x", "2" * 64))
+    st.current_node = "validar_job"
+    graph.save_state(root, st)
+    for _ in range(12):
+        if st.status in graph.TERMINAL_STATUS:
+            break
+        graph.step(root, st, laco)
+    check("24. laço de step() solto é cortado pelo contador durável",
+          st.status == "failed"
+          and st.attempts.get("validar_job", 0) <= graph.HARD_NODE_ATTEMPTS + 1
+          and "no total" in st.errors[-1]["message"])
+
+    # ---- 25. conteúdo aninhado do estado: só o que o grafo LÊ, mas esse tem de valer ----
+    for campo, veneno in (("media", {"media": "nao-e-dict"}),
+                          ("artifacts", {"artifacts": "nao-e-lista"}),
+                          ("notes", {"notes": ["nao", "e", "dict"]}),
+                          ("artifacts", {"artifacts": ["nao-e-dict"]})):
+        st = graph.new_state(build_job("t_nested_" + campo, "ingest", "x", "3" * 64))
+        st.result = veneno
+        graph.save_state(root, st)
+        try:
+            graph.load_state(root, "t_nested_" + campo)
+            check("25. result.%s torto -> erro claro (%r)" % (campo, veneno), False)
+        except graph.GraphError as err:
+            check("25. result.%s torto -> erro claro (%r)" % (campo, veneno), campo in str(err))
+    st = graph.new_state(build_job("t_nested_err", "ingest", "x", "4" * 64))
+    st.errors = ["nao-e-dict"]
+    graph.save_state(root, st)
+    try:
+        graph.load_state(root, "t_nested_err")
+        check("25. errors com item não-objeto -> erro claro", False)
+    except graph.GraphError as err:
+        check("25. errors com item não-objeto -> erro claro", "errors" in str(err))
+    # E o resume não pode vazar AttributeError cru por causa disso.
+    st = graph.new_state(build_job("t_nested_res", "ingest", "x", "5" * 64))
+    st.result = {"media": "nao-e-dict"}
+    graph.save_state(root, st)
+    try:
+        graph.resume(root, "t_nested_res")
+        check("25. resume recusa estado com conteúdo aninhado torto", False)
+    except graph.GraphError:
+        check("25. resume recusa estado com conteúdo aninhado torto", True)
+    except AttributeError:
+        check("25. resume recusa estado com conteúdo aninhado torto", False)
+
+    # ---------------------------------------------------------------- relatório
+    print("\n--- verificações ---")
+    falhas = 0
+    for label, ok in CHECKS:
+        print("  %s  %s" % ("ok  " if ok else "FALHA", label))
+        if not ok:
+            falhas += 1
+    for item in PULADOS:
+        print("  PULADO  %s" % item)
+
+    if not args.keep:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(fora, ignore_errors=True)
+        print("\n(temporários removidos; use --keep para inspecionar)")
+    else:
+        print("\nraiz mantida em %s" % root)
+
+    if falhas:
+        fail("%d verificação(ões) falharam" % falhas)
+    if PULADOS:
+        fail("%d caso(s) PULADO(s) — pulado não é passou" % len(PULADOS))
+    print("\nok — %d verificações passaram. Nenhum conteúdo protegido foi usado." % len(CHECKS))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

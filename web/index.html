@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cortes — encontre os melhores trechos de um podcast</title>
+<meta name="description" content="Cole o endereço de um podcast do YouTube e veja quais trechos têm mais chance de virar corte. A análise não baixa vídeo.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* Os valores aqui são os MESMOS do video-ops.css / design-system.css do Estúdio —
+   copiados, não reinventados, para o cartão desta página ser o cartão de lá.
+   Página isolada de propósito: publicar a raiz do repositório publicaria o site
+   pessoal inteiro. Ver PASSO-A-PASSO.md. */
+:root {
+  --bg: #0f0f10; --bg-subtle: #141416; --surface: #19191b; --surface-2: #222225;
+  --border: #303034; --border-hover: #45454a; --accent: #e31837;
+  --text: #f2f2f2; --text-dim: #a1a1a6; --text-muted: #68686e;
+  --radius-xl: 12px; --ease-out: cubic-bezier(.23, 1, .32, 1);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none;
+}
+button:active:not(:disabled) { transform: scale(.97); }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 28px 18px 56px; display: grid; gap: 18px; }
+.top { display: grid; gap: 6px; }
+.top h1 { font-size: 21px; letter-spacing: -.03em; }
+.top p { color: var(--text-dim); font-size: 13px; max-width: 62ch; }
+.foot { color: var(--text-muted); font-size: 11.5px; }
+.foot a { color: var(--text-dim); }
+
+/* --- moldura e formulário (video-ops.css) --- */
+.vop-section { border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface); padding: 20px; }
+.vop-section-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.vop-section h2 { margin: 0; font-size: 17px; letter-spacing: -.025em; }
+.vop-eyebrow { display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.vop-form-note { margin: 6px 0 0; color: var(--text-dim); font-size: 12.5px; line-height: 1.55; }
+.vop-mark-note { display: block; margin-top: 12px; color: var(--text-muted); font-size: 10.5px; }
+.vop-field { display: grid; gap: 6px; }
+.vop-field > span { color: var(--text-dim); font-size: 11px; font-weight: 700; }
+.vop-field input {
+  min-height: 38px; width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 9px; outline: 0; background: rgba(255, 255, 255, .025); color: var(--text);
+  font-size: 12.5px; transition: border-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
+}
+.vop-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(227, 24, 55, .12); }
+.vop-mark-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.vop-mark-acts .vop-btn { padding: 7px 12px; font-size: 12.5px; }
+
+/* --- botões (video-ops.css) --- */
+.vop-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 36px;
+  padding: 8px 12px; border: 1px solid transparent; border-radius: 9px; font-size: 12.5px;
+  font-weight: 700; line-height: 1; font-family: inherit; cursor: pointer; background: none;
+  color: var(--text);
+  transition: background-color 140ms var(--ease-out), border-color 140ms var(--ease-out),
+              color 140ms var(--ease-out), opacity 140ms var(--ease-out), transform 160ms var(--ease-out);
+}
+.vop-btn-primary { background: var(--accent); color: #fff; }
+.vop-btn-quiet { border-color: transparent; background: transparent; color: var(--text-dim); }
+.vop-btn[disabled] { cursor: not-allowed; opacity: .45; }
+.vop-btn[disabled]:active { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .vop-btn-primary:hover { background: #c91430; }
+  .vop-btn-quiet:hover { background: var(--surface-2); color: var(--text); }
+}
+
+/* --- espera: linha indeterminada. Movimento constante = linear; só transform,
+       então roda fora da thread principal e não engasga durante o fetch. --- */
+.bar { height: 2px; margin-top: 13px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 38%; border-radius: 2px; background: var(--accent); animation: slide 1.15s linear infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(363%); } }
+.wait { margin-top: 8px; color: var(--text-dim); font-size: 12px; }
+
+/* --- cartão de trecho (video-ops.css, valores idênticos) --- */
+.vop-cand-list { display: grid; gap: 8px; margin-top: 10px; }
+.vop-cand {
+  display: grid; gap: 7px; padding: 11px 12px; border: 1px solid var(--border);
+  border-radius: 11px; background: var(--surface-2);
+  transition: border-color 160ms var(--ease-out);
+  opacity: 0; animation: enter 300ms var(--ease-out) forwards;
+}
+/* Nada aparece do nada: 8px + opacidade, nunca scale(0). Stagger curto; do 8º
+   cartão em diante o atraso congela, senão uma lista de 12 rastejaria. */
+@keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.vop-cand:nth-child(1) { animation-delay: 0ms; }
+.vop-cand:nth-child(2) { animation-delay: 35ms; }
+.vop-cand:nth-child(3) { animation-delay: 70ms; }
+.vop-cand:nth-child(4) { animation-delay: 105ms; }
+.vop-cand:nth-child(5) { animation-delay: 140ms; }
+.vop-cand:nth-child(6) { animation-delay: 175ms; }
+.vop-cand:nth-child(7) { animation-delay: 210ms; }
+.vop-cand:nth-child(n+8) { animation-delay: 245ms; }
+@media (hover: hover) and (pointer: fine) { .vop-cand:hover { border-color: var(--border-hover); } }
+.vop-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vop-cand-head code { color: var(--text); font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vop-cand h4 { margin: 0; color: var(--text); font-size: 13px; line-height: 1.35; }
+.vop-cand-reason { margin: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }
+.vop-cand-hook { margin: 0; color: var(--text-muted); font-size: 11.5px; font-style: italic; line-height: 1.5; }
+.vop-cand-frame {
+  display: block; width: 100%; aspect-ratio: 16/9; border: 0; border-radius: 9px; background: #090b0f;
+  animation: enter 220ms var(--ease-out) forwards;
+}
+.vop-card-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.vop-pill-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.vop-chip {
+  display: inline-flex; align-items: center; min-height: 22px; padding: 3px 8px;
+  border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.vop-chip.vop-cand-score { background: rgba(255, 255, 255, .07); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.vop-chip.vop-chip-quiet { background: rgba(255, 255, 255, .07); color: var(--text-dim); }
+.vop-warning {
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 11px; line-height: 1.45;
+  border: 1px solid rgba(241, 183, 72, .24); background: rgba(241, 183, 72, .08); color: #e6c680;
+}
+.vop-cand .vop-warning { margin-top: 0; }
+
+/* Movimento reduzido: some o deslocamento, fica a opacidade (que ainda ajuda a
+   entender que algo novo chegou). A linha para de correr, mas continua visível. */
+@media (prefers-reduced-motion: reduce) {
+  .vop-cand, .vop-cand-frame { animation-duration: 1ms; animation-delay: 0ms !important; }
+  .bar i { animation: none; width: 100%; opacity: .5; }
+  button:active:not(:disabled) { transform: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>Cortes</h1>
+    <p>Cole o endereço de um podcast do YouTube e veja quais trechos têm mais chance de virar corte —
+       cruzando o gráfico “Mais reproduzidos”, os capítulos e a legenda do próprio vídeo.</p>
+  </header>
+
+  <section class="vop-section">
+    <div class="vop-section-head">
+      <div>
+        <span class="vop-eyebrow">Corte por URL</span>
+        <h2>Analisar um vídeo do YouTube</h2>
+        <p class="vop-form-note">A análise lê metadados, capítulos, legenda e o gráfico “Mais reproduzidos” —
+          <strong>nenhum byte de vídeo</strong>. Baixar e renderizar acontece no Estúdio, no seu computador.</p>
+      </div>
+    </div>
+
+    <label class="vop-field">
+      <span>URL do vídeo</span>
+      <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=…"
+             autocomplete="off" spellcheck="false" enterkeyhint="go">
+    </label>
+
+    <div id="gate"></div>
+
+    <!-- Estado do motor local: condição persistente, não status de requisição. -->
+    <div id="motor"></div>
+
+    <div class="vop-mark-acts">
+      <button id="go" class="vop-btn vop-btn-primary" type="button">Detectar cortes</button>
+      <button id="clear" class="vop-btn vop-btn-quiet" type="button" hidden>Limpar sugestões</button>
+    </div>
+
+    <!-- Dois containers de propósito: só o de ESTADO é aria-live. Com a lista
+         dentro de uma região viva, abrir uma prévia faz o leitor de tela reler os
+         12 cartões inteiros. -->
+    <div id="status" aria-live="polite"></div>
+    <div id="list"></div>
+
+    <small class="vop-mark-note">Esta página não baixa vídeo e não guarda nada do que você cola.</small>
+  </section>
+
+  <section class="vop-section">
+    <div class="vop-section-head">
+      <div>
+        <span class="vop-eyebrow">Depois da análise</span>
+        <h2>Cortar e renderizar</h2>
+        <p class="vop-form-note">O corte e a edição em 9:16 com legenda queimada acontecem no
+          Estúdio local, na sua máquina — é lá que o download passa pela declaração de autorização
+          do criador. Esta página só aponta onde estão os trechos.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    Versão em desenvolvimento — não é um produto à venda. ·
+    <a href="legal.html#termos">Termos</a> · <a href="legal.html#privacidade">Privacidade</a>
+  </footer>
+
+</div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

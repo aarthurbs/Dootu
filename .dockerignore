@@ -1,0 +1,22 @@
+# Contexto de build da imagem da análise (cloud/Dockerfile).
+#
+# Sem isto, `fly deploy` / `gcloud builds submit` sobem a raiz do repositório
+# inteira — que tem MP4, WAV, EXE e as imagens do site. A imagem precisa de CINCO
+# arquivos .py, ~150 KB.
+#
+# Regra do Docker: vale o ÚLTIMO padrão que casa. Daí a ordem — nega tudo,
+# devolve as duas pastas, e tira de dentro delas o que não vai ao ar.
+*
+!video-worker
+!cloud
+
+# serve.py é o servidor LOCAL: tem as rotas de download, de render e o /clips do
+# disco. Fora da imagem de propósito — o container fica sem ter como servi-las,
+# nem por engano nem por regressão futura.
+video-worker/serve.py
+video-worker/test_*.py
+video-worker/make_fixtures.py
+cloud/test_probe_server.py
+
+**/__pycache__
+**/*.pyc

@@ -1,0 +1,33 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+build/
+.cache/
+.vite/
+
+# Bytecode do Python: gerado por import, muda a cada execução do trabalhador/testes e
+# não é fonte. Estava staged em video-worker/__pycache__/ (ciclo 2, 12/08/2026).
+__pycache__/
+*.pyc
+
+.DS_Store
+Thumbs.db
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.supabase/
+supabase/.branches/
+supabase/.temp/
+
+# Preferências locais do Claude Code (por-máquina, não versionar)
+.claude/settings.local.json
+
+# Renders do Remotion: saida gerada, nao fonte.
+studio/out/
+studio/public/clips/

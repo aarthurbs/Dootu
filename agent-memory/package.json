@@ -1,0 +1,17 @@
+{
+  "name": "agent-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared persistent vector memory for Claude Code agents (local embeddings, MCP server).",
+  "scripts": {
+    "test": "node test.mjs",
+    "warmup": "node embed.mjs",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.3.0",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  }
+}

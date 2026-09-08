@@ -1,0 +1,302 @@
+# -*- coding: utf-8 -*-
+"""Provas do servidor local (serve.py), com mídia SINTÉTICA.
+
+Nenhum conteúdo protegido é usado: o vídeo vem dos geradores internos do FFmpeg
+(testsrc2 + sine). Complementa o test_worker.py, que prova o lote; aqui o alvo é a rota
+POST /api/video-cut — o caminho de 1 clique da revisão, que entrega o MP4 pronto para
+postar no TikTok/Instagram.
+
+O que este script prova (e falha alto se não for verdade):
+   1. token fora do formato          -> recusado antes de tocar disco
+   2. perfil desconhecido            -> recusado (só horizontal/blur/crop)
+   3. início/fim inválido            -> cut_invalid (negativo, invertido, NaN, inf, longo demais)
+   4. output com travessia           -> vira UM nome de arquivo, nunca caminho
+   5. output sem extensão            -> ganha .mp4
+   6. fonte fora do cache + sem corpo-> 409 (o navegador reenvia o arquivo)
+   7. corte 9:16 de verdade          -> 200, video/mp4, 1080x1920, H.264+AAC
+   8. segundo corte sem reenviar     -> reaproveita o cache pelo token
+   9. corte horizontal               -> 200 e mantém o 16:9 em 1080p
+  10. corte além do fim do vídeo     -> cut_invalid, sem gerar arquivo
+  11. .env e .git                    -> 404 (o http.server padrão entregava)
+  12. index.html                     -> 200 (o site continua servido)
+  13. nada escrito na pasta do site  -> o temporário é o único lugar tocado
+  14. encerramento                   -> o diretório temporário é removido
+
+Uso:
+    py -3.12 video-worker\\test_serve.py
+    py -3.12 video-worker\\test_serve.py --keep   (mantém os temporários p/ inspeção)
+"""
+
+import argparse
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import urllib.error
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import serve  # noqa: E402
+import worker  # noqa: E402
+
+CHECKS = []
+
+
+def check(label, ok):
+    CHECKS.append((label, bool(ok)))
+    return bool(ok)
+
+
+def fail(msg):
+    print("FALHOU: " + msg)
+    sys.exit(1)
+
+
+def recusa(raw_query, max_seconds=serve.DEFAULT_MAX_SECONDS):
+    """Devolve o código do WorkerError, ou None se a query passou (o que seria a falha)."""
+    try:
+        serve.parse_cut_query(raw_query, max_seconds)
+    except worker.WorkerError as err:
+        return err.code
+    return None
+
+
+def make_source(path, seconds, width, height, audio=True):
+    """Original sintético. Horizontal de propósito: é o caso que exercita o 9:16."""
+    def produce(dest):
+        args = ["-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i",
+                "testsrc2=size=%dx%d:rate=30:duration=%d" % (width, height, seconds)]
+        if audio:
+            args += ["-f", "lavfi", "-i", "sine=frequency=330:duration=%d" % seconds]
+        args += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"]
+        args += (["-c:a", "aac", "-b:a", "96k", "-shortest"] if audio else ["-an"])
+        args += ["-movflags", "+faststart", "-f", "mp4", dest]
+        worker.run_ffmpeg(args)
+
+    worker.write_atomic(path, produce)
+    return path
+
+
+# --------------------------------------------------------------------------- HTTP
+
+class Resposta:
+    def __init__(self, status, headers, body):
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+    @property
+    def erro(self):
+        """A mensagem que o navegador leria (video-ops.js usa payload.error)."""
+        try:
+            return json.loads(self.body.decode("utf-8")).get("error", "")
+        except (ValueError, UnicodeDecodeError):
+            return ""
+
+    @property
+    def codigo_erro(self):
+        try:
+            return json.loads(self.body.decode("utf-8")).get("code", "")
+        except (ValueError, UnicodeDecodeError):
+            return ""
+
+
+def pedir(url, data=None, headers=None):
+    """POST/GET que NÃO levanta em 4xx/5xx: o teste precisa ler o corpo do erro."""
+    request = urllib.request.Request(url, data=data,
+                                     method="POST" if data is not None else "GET")
+    for name, value in (headers or {}).items():
+        request.add_header(name, value)
+    try:
+        with urllib.request.urlopen(request, timeout=600) as response:
+            return Resposta(response.status, dict(response.headers), response.read())
+    except urllib.error.HTTPError as err:
+        return Resposta(err.code, dict(err.headers), err.read())
+
+
+def post_cut(base, token, start, end, profile, output, corpo=None):
+    query = ("?token=%s&name=fonte.mp4&start=%s&end=%s&profile=%s&output=%s"
+             % (token, start, end, profile, output))
+    # data=b"" faz o urllib mandar Content-Length: 0 — é o "reaproveite o cache".
+    return pedir(base + serve.ROUTE + query, data=corpo if corpo is not None else b"",
+                 headers={"Content-Type": "application/octet-stream"})
+
+
+# --------------------------------------------------------------------------- main
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Provas do servidor local do Estúdio de Vídeos.")
+    parser.add_argument("--keep", action="store_true", help="mantém os temporários")
+    args = parser.parse_args()
+
+    trabalho = tempfile.mkdtemp(prefix="serve-test-")
+    site = os.path.join(trabalho, "site")
+    os.makedirs(site)
+    # Site de mentira: um arquivo público e dois que NÃO podem sair pela porta.
+    with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as handle:
+        handle.write("<h1>site</h1>")
+    with open(os.path.join(site, ".env"), "w", encoding="utf-8") as handle:
+        handle.write("SEGREDO=nao-e-real")
+    os.makedirs(os.path.join(site, ".git"))
+    with open(os.path.join(site, ".git", "config"), "w", encoding="utf-8") as handle:
+        handle.write("[core]")
+
+    # ------------------------------------------------------------ 1-5: validação pura
+    check("1. token vazio recusado", recusa("token=&profile=blur&start=0&end=5") == "job_invalid")
+    check("1b. token com barra recusado",
+          recusa("token=a%2Fb&profile=blur&start=0&end=5") == "job_invalid")
+    check("1c. token com .. recusado",
+          recusa("token=..&profile=blur&start=0&end=5") == "job_invalid")
+    check("1d. token longo demais recusado",
+          recusa("token=" + "a" * 65 + "&profile=blur&start=0&end=5") == "job_invalid")
+    check("2. perfil desconhecido recusado",
+          recusa("token=t1&profile=zoom&start=0&end=5") == "job_invalid")
+    check("2b. perfil vazio cai no horizontal",
+          serve.parse_cut_query("token=t1&start=0&end=5").profile == "horizontal")
+    check("3. início negativo recusado",
+          recusa("token=t1&profile=blur&start=-1&end=5") == "cut_invalid")
+    check("3b. fim antes do início recusado",
+          recusa("token=t1&profile=blur&start=9&end=5") == "cut_invalid")
+    check("3c. intervalo vazio recusado",
+          recusa("token=t1&profile=blur&start=5&end=5") == "cut_invalid")
+    check("3d. NaN recusado", recusa("token=t1&profile=blur&start=nan&end=5") == "cut_invalid")
+    check("3e. inf recusado", recusa("token=t1&profile=blur&start=0&end=inf") == "cut_invalid")
+    check("3f. texto no lugar do número recusado",
+          recusa("token=t1&profile=blur&start=abc&end=5") == "cut_invalid")
+    check("3g. start ausente recusado", recusa("token=t1&profile=blur&end=5") == "cut_invalid")
+    check("3h. corte acima do teto recusado",
+          recusa("token=t1&profile=blur&start=0&end=1000") == "cut_invalid")
+    check("3i. teto é configurável",
+          recusa("token=t1&profile=blur&start=0&end=30", max_seconds=10.0) == "cut_invalid")
+
+    travessia = serve.parse_cut_query(
+        "token=t1&profile=blur&start=0&end=5&output=..%5C..%5Cindex.html").output
+    check("4. output com travessia não é caminho",
+          "\\" not in travessia and "/" not in travessia and ".." not in travessia)
+    check("4b. output com travessia continua .mp4", travessia.endswith(".mp4"))
+    absoluto = serve.parse_cut_query(
+        "token=t1&profile=blur&start=0&end=5&output=C%3A%5Cx.mp4").output
+    check("4c. output absoluto não é caminho", ":" not in absoluto and "\\" not in absoluto)
+    check("5. output sem extensão ganha .mp4",
+          serve.parse_cut_query("token=t1&profile=blur&start=0&end=5&output=corte").output
+          == "corte.mp4")
+    check("5b. output vazio cai no padrão",
+          serve.parse_cut_query("token=t1&profile=blur&start=0&end=5&output=").output
+          == "corte.mp4")
+
+    # ------------------------------------------------------------ servidor de pé
+    servidor = serve.build_server(site, port=0, max_seconds=60.0)
+    temporario = servidor.temp_folder
+    threading.Thread(target=servidor.serve_forever, daemon=True).start()
+    base = "http://127.0.0.1:%d" % servidor.server_address[1]
+    antes_do_site = sorted(os.listdir(site))
+
+    try:
+        # -------------------------------------------------------- 6: contrato do 409
+        sem_cache = post_cut(base, "tok_frio", 0, 3, "blur", "corte.mp4")
+        check("6. fonte fora do cache devolve 409", sem_cache.status == 409)
+        check("6b. o 409 explica o que fazer, em JSON",
+              sem_cache.codigo_erro == "input_missing" and "reenvie" in sem_cache.erro.lower())
+
+        # -------------------------------------------------------- 11-12: estático
+        env = pedir(base + "/.env")
+        check("11. .env não sai pela porta (404)", env.status == 404)
+        check("11b. o corpo do 404 não traz o segredo", b"nao-e-real" not in env.body)
+        check("11c. .git não sai pela porta", pedir(base + "/.git/config").status == 404)
+        pagina = pedir(base + "/index.html")
+        check("12. index.html continua servido",
+              pagina.status == 200 and b"<h1>site</h1>" in pagina.body)
+
+        # -------------------------------------------------------- 7-10: corte de verdade
+        if not os.path.exists(worker.FFMPEG):
+            print("\nPULADO: FFmpeg do projeto não encontrado em %s" % worker.FFMPEG)
+            print("        As provas 7 a 10 e 13 exigem o binário; as demais rodaram.")
+        else:
+            fonte = make_source(os.path.join(trabalho, "fonte.mp4"), 8, 1280, 720, audio=True)
+            with open(fonte, "rb") as handle:
+                bytes_fonte = handle.read()
+
+            vertical = post_cut(base, "tok_quente", 0, 3, "blur", "corte-9x16", bytes_fonte)
+            check("7. corte 9:16 volta 200", vertical.status == 200)
+            check("7b. o tipo é video/mp4", vertical.headers.get("Content-Type") == "video/mp4")
+            check("7c. o corpo tem bytes de vídeo", len(vertical.body) > 1000)
+            check("7d. o navegador recebe o nome do arquivo",
+                  "corte-9x16.mp4" in (vertical.headers.get("Content-Disposition") or ""))
+            check("7e. o cabeçalho de cache da fonte é o do contrato",
+                  vertical.headers.get("X-Video-Source-Cached") == "1")
+            # Conferência técnica do que voltou: é o que TikTok/Instagram aceitam?
+            baixado = os.path.join(trabalho, "baixado-9x16.mp4")
+            with open(baixado, "wb") as handle:
+                handle.write(vertical.body)
+            medido = worker.probe(baixado)
+            check("7f. a saída é 1080x1920", medido["width"] == 1080 and medido["height"] == 1920)
+            check("7g. a saída é H.264 + AAC",
+                  medido["videoCodec"] == "h264" and medido["audioCodec"] == "aac")
+            check("7h. a duração é a do corte",
+                  medido["durationSec"] is not None
+                  and abs(medido["durationSec"] - 3.0) <= worker.TOLERANCE_SEC)
+
+            # 8: segundo download sem reenviar os bytes.
+            reuso = post_cut(base, "tok_quente", 3, 6, "crop", "corte-crop")
+            check("8. segundo corte reaproveita a fonte do token", reuso.status == 200)
+            check("8b. o segundo corte também volta vídeo", len(reuso.body) > 1000)
+
+            # 9: horizontal mantém o enquadramento.
+            horizontal = post_cut(base, "tok_quente", 0, 2, "horizontal", "corte-16x9")
+            check("9. corte horizontal volta 200", horizontal.status == 200)
+            deitado = os.path.join(trabalho, "baixado-16x9.mp4")
+            with open(deitado, "wb") as handle:
+                handle.write(horizontal.body)
+            medido_h = worker.probe(deitado)
+            check("9b. o horizontal NÃO virou 9:16",
+                  medido_h["height"] == 1080 and medido_h["width"] > medido_h["height"])
+
+            # 10: corte além do fim do vídeo é recusado, e nada é produzido.
+            longe = post_cut(base, "tok_quente", 0, 50, "blur", "impossivel")
+            check("10. corte além do fim do vídeo é recusado", longe.status == 400)
+            check("10b. o motivo é o intervalo", longe.codigo_erro == "cut_invalid")
+
+            # 13: o MP4 pronto não fica pendurado, e o site não foi tocado.
+            check("13. o corte entregue não fica ocupando o temporário",
+                  not [n for n in os.listdir(temporario) if n.endswith(".mp4")])
+            check("13b. nenhum .part sobrou (escrita atômica)",
+                  not [n for n in os.listdir(temporario) if n.endswith(".part")])
+            check("13c. a fonte em cache continua lá (é o que evita reenviar)",
+                  any(n.endswith(".src") for n in os.listdir(temporario)))
+
+        check("13d. nada foi escrito na pasta do site", sorted(os.listdir(site)) == antes_do_site)
+        check("13e. o temporário está fora da pasta do projeto",
+              not os.path.realpath(temporario).startswith(
+                  os.path.realpath(worker.REPO) + os.sep))
+    finally:
+        serve.close_server(servidor)
+
+    # ------------------------------------------------------------ 14: limpeza
+    check("14. o temporário é removido no encerramento", not os.path.isdir(temporario))
+
+    # ---------------------------------------------------------------- relatório
+    print("\n--- verificações ---")
+    falhas = 0
+    for label, ok in CHECKS:
+        print("  %s  %s" % ("ok  " if ok else "FALHA", label))
+        if not ok:
+            falhas += 1
+
+    if not args.keep:
+        shutil.rmtree(trabalho, ignore_errors=True)
+        print("\n(temporários removidos; use --keep para inspecionar)")
+    else:
+        print("\ntrabalho mantido em %s" % trabalho)
+
+    if falhas:
+        fail("%d verificação(ões) falharam" % falhas)
+    print("\nok — %d verificações passaram. Nenhum conteúdo protegido foi usado." % len(CHECKS))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,580 @@
+"""Grafo de execução mínimo do Estúdio de Vídeos: estado durável + nós finos.
+
+Entrada ALTERNATIVA ao caminho de lote do worker.py. O caminho atual (main() varrendo
+_jobs/pending, process_job, HANDLERS, _results/<jobId>.json) continua existindo e se
+comportando exatamente como antes — nada aqui altera worker.py.
+
+O que este arquivo acrescenta e o que NÃO acrescenta:
+  - acrescenta um estado durável por trabalho em <root>/_state/<job_id>.json, para que uma
+    execução interrompida possa continuar de onde parou em vez de recomeçar. O estado guarda
+    caminho RELATIVO à raiz e TODO uso passa de novo por worker.inside_root: a pasta pode ser
+    movida sem invalidar o estado, e estado adulterado vira path_outside_root, não sucesso;
+  - acrescenta transições explícitas com anti-loop DENTRO de uma execução (teto de transições
+    e teto de tentativas por nó na mesma execução), de modo que loop infinito seja impossível,
+    não improvável — e SEM gastar cota permanente de retomada legítima entre execuções;
+  - NÃO reimplementa render, probe, hash, validação de caminho, espaço em disco nem escrita
+    atômica: cada nó só valida a precondição, chama a função que já existe no worker.py,
+    registra o resultado e decide o próximo nó;
+  - NÃO publica em rede nenhuma. Variante renderizada para em `awaiting_approval`: a
+    publicação é manual, com aprovação humana, fora deste processo. Não existe nó de publicar.
+
+Uso:
+    py -3.12 video-worker\\graph.py --root "<raiz>" --job _jobs\\pending\\job_x.json
+    py -3.12 video-worker\\graph.py --root "<raiz>" --resume job_x
+"""
+
+import argparse
+import dataclasses
+import datetime
+import functools
+import json
+import os
+import sys
+from typing import Any, Callable, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import worker  # noqa: E402
+
+STATE_VERSION = 1
+FIRST_NODE = "validar_job"
+FAILED_NODE = "falhar"          # rótulo terminal gravado por abort(); NÃO é nó executável
+# Anti-loop, medido DENTRO de uma execução: nenhum nó pode ser tentado mais que isto na
+# mesma execução e nenhuma execução gasta mais transições que isto. O caminho mais longo do
+# grafo tem 6 nós. Isto é guarda contra laço, não política de retry: o job pode pedir MENOS
+# tentativas por nó, nunca mais que HARD_NODE_ATTEMPTS (ver node_cap).
+MAX_NODE_ATTEMPTS = 3
+# Limite DURO do módulo: nenhum dado externo (job.json) passa daqui. Loop infinito precisa
+# ser impossível, não improvável, e job.json é dado de fora — não pode afrouxar a guarda.
+HARD_NODE_ATTEMPTS = 5
+MAX_TRANSITIONS = 60
+TERMINAL_STATUS = ("done", "awaiting_approval", "failed")
+# Código das falhas do PRÓPRIO grafo (laço cortado, nó inexistente, exceção não prevista).
+# Deliberadamente FORA de worker.ERROR_CODES: aqueles descrevem o job, e este não mente
+# dizendo "job_invalid" quando o job está válido e quem falhou foi a execução.
+GRAPH_ERROR_CODE = "graph_error"
+
+
+class GraphError(Exception):
+    """Problema do ESTADO do grafo (arquivo ilegível, versão desconhecida).
+
+    Não é WorkerError de propósito: os ERROR_CODES do contrato descrevem o job, não a
+    persistência do grafo, e inventar código novo quebraria o assert do WorkerError.
+    """
+
+
+def now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# --------------------------------------------------------------------------- estado
+
+@dataclasses.dataclass
+class GraphState:
+    """Estado durável de UM trabalho. Basta sozinho para retomar (guarda o job cru).
+
+    `input_path`/`output_path` são RELATIVOS à raiz (separador "/"). Guardar absoluto faria o
+    estado apontar para a pasta antiga quando o Estúdio muda de lugar; relativo continua
+    válido, e como todo uso passa por worker.inside_root, valor adulterado é recusado.
+    """
+
+    job_id: str
+    operation: str
+    stateVersion: int = STATE_VERSION
+    current_node: str = FIRST_NODE
+    status: str = "pending"          # pending|running|awaiting_approval|done|failed
+    input_path: str = ""             # relativo à raiz
+    output_path: str = ""            # relativo à raiz
+    original_request: dict[str, Any] = dataclasses.field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+    completed_nodes: list[str] = dataclasses.field(default_factory=list)
+    failed_nodes: list[str] = dataclasses.field(default_factory=list)
+    attempts: dict[str, int] = dataclasses.field(default_factory=dict)
+    errors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    result: dict[str, Any] = dataclasses.field(default_factory=dict)
+    transitions: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "GraphState":
+        if not isinstance(data, dict):
+            raise GraphError("estado não contém um objeto JSON.")
+        version = data.get("stateVersion")
+        if version != STATE_VERSION:
+            raise GraphError("stateVersion %r desconhecido; este grafo lê %d."
+                             % (version, STATE_VERSION))
+        for name, want in FIELD_TYPES.items():
+            if name in data and not isinstance(data[name], want):
+                raise GraphError("campo %s do estado deveria ser %s, veio %s (%r)"
+                                 % (name, want.__name__, type(data[name]).__name__,
+                                    data[name]))
+        if any(not isinstance(value, int) for value in (data.get("attempts") or {}).values()):
+            raise GraphError("campo attempts do estado deveria contar inteiros por nó.")
+        check_nested(data)
+        try:
+            return cls(**data)
+        except TypeError as err:
+            # Campo a mais ou obrigatório faltando: erro claro em vez de estado meio-lido.
+            raise GraphError("estado com campos inesperados ou faltando: %s" % err)
+
+
+# Tipo esperado de cada campo do estado. Nome certo com tipo errado (transitions="muitas",
+# attempts=[]) explodiria como AttributeError/TypeError longe daqui — recusar na leitura.
+FIELD_TYPES: dict[str, type] = {
+    "job_id": str, "operation": str, "stateVersion": int, "current_node": str, "status": str,
+    "input_path": str, "output_path": str, "original_request": dict, "created_at": str,
+    "updated_at": str, "completed_nodes": list, "failed_nodes": list, "attempts": dict,
+    "errors": list, "result": dict, "transitions": int,
+}
+assert set(FIELD_TYPES) == {f.name for f in dataclasses.fields(GraphState)}
+
+
+def check_nested(data: dict[str, Any]) -> None:
+    """Confere o CONTEÚDO dos containers que este grafo realmente lê por chave.
+
+    FIELD_TYPES só garante o container de topo: `result` ser dict não impede
+    result["media"] de ser texto, e aí o AttributeError estoura longe daqui, dentro de um
+    nó. Não valida o mundo — só o que o código acessa, que é exatamente onde um estado
+    adulterado vira erro incompreensível.
+    """
+    for item in (data.get("errors") or []):
+        if not isinstance(item, dict):
+            raise GraphError("campo errors do estado deveria conter objetos, veio %s (%r)"
+                             % (type(item).__name__, item))
+    result = data.get("result") or {}
+    for key in ("media", "notes", "input", "output"):
+        value = result.get(key)
+        if value is not None and not isinstance(value, dict):
+            raise GraphError("result.%s do estado deveria ser objeto, veio %s (%r)"
+                             % (key, type(value).__name__, value))
+    artifacts = result.get("artifacts")
+    if artifacts is not None:
+        if not isinstance(artifacts, list):
+            raise GraphError("result.artifacts do estado deveria ser lista, veio %s"
+                             % type(artifacts).__name__)
+        for art in artifacts:
+            if not isinstance(art, dict):
+                raise GraphError("result.artifacts do estado deveria conter objetos, veio %s"
+                                 % type(art).__name__)
+
+
+def rel_to_root(root: str, path: str) -> str:
+    """Caminho gravado no estado: relativo à raiz, com "/" (o mesmo formato do artefato)."""
+    return os.path.relpath(path, root).replace("\\", "/")
+
+
+def new_state(job: dict[str, Any]) -> GraphState:
+    stamp = now_iso()
+    return GraphState(job_id=str((job or {}).get("jobId") or ""),
+                      operation=str((job or {}).get("type") or ""),
+                      original_request=job or {}, created_at=stamp, updated_at=stamp)
+
+
+def state_dir(root: str) -> str:
+    folder = os.path.join(root, "_state")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def state_path(root: str, job_id: str) -> str:
+    return os.path.join(state_dir(root), worker.safe_component(job_id) + ".json")
+
+
+def save_state(root: str, st: GraphState) -> GraphState:
+    """Gravação atômica (.part -> fsync -> os.replace) reusando o padrão do projeto."""
+    st.updated_at = now_iso()
+    worker.write_json_atomic(state_path(root, st.job_id), st.to_dict())
+    return st
+
+
+def load_state(root: str, job_id: str) -> Optional[GraphState]:
+    """None se não existe; GraphError se existe e não dá para confiar no que está lá."""
+    path = state_path(root, job_id)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except ValueError as err:
+        raise GraphError("estado ilegível em %s (JSON inválido: %s)" % (path, err))
+    except OSError as err:
+        raise GraphError("estado ilegível em %s (%s)" % (path, err))
+    return GraphState.from_dict(data)
+
+
+# --------------------------------------------------------------------------- derivados
+# Nada aqui é campo de estado: sai do job cru + do `media` que já vive no result.
+
+def cut_of(st: GraphState) -> tuple[float, float, float]:
+    media = st.result.get("media") or {}
+    return worker.cut_from_options(st.original_request.get("options") or {},
+                                   media.get("durationSec"))
+
+
+def has_audio(st: GraphState) -> bool:
+    return bool((st.result.get("media") or {}).get("audioCodec"))
+
+
+def reframe_of(job: dict[str, Any]) -> str:
+    reframe = (job.get("options") or {}).get("reframe", "blur")
+    if reframe not in worker.REFRAMES:
+        raise worker.WorkerError("job_invalid", "reframe inválido: %r (use %s)."
+                                 % (reframe, " ou ".join(worker.REFRAMES)))
+    return reframe
+
+
+def output_name(job: dict[str, Any]) -> str:
+    raw = (job.get("output") or {}).get("fileName") or (str(job.get("jobId") or "") + ".mp4")
+    name = worker.safe_component(raw)
+    return name if name.lower().endswith(".mp4") else name + ".mp4"
+
+
+def refuse_variant_input(root: str, src: str) -> None:
+    """Mesma regra do worker: variante nunca serve de entrada (sem cascata de recodificação)."""
+    rel = os.path.relpath(src, root).replace("\\", "/").lower()
+    if rel.startswith("variantes/") or "/variantes/" in rel:
+        raise worker.WorkerError("input_not_source",
+                                 "A entrada aponta para uma variante já renderizada. Toda "
+                                 "variante precisa ser gerada do original ou de um mestre.")
+
+
+def variant_extra(st: GraphState, start: float, end: float, info: dict[str, Any]) -> dict[str, Any]:
+    """MESMAS chaves e MESMA validação do `extra` de worker.do_render_variant.
+
+    renderVersion e targetSec fazem parte do contrato lido por video-ops.js (a versão do
+    render decide se a variante precisa de nova aprovação). Faltar aqui colapsaria a versão
+    para 1 no navegador, e aceitar renderVersion=0 deixaria passar job que o worker recusa.
+    """
+    opts = st.original_request.get("options") or {}
+    return {
+        "variantId": str(opts.get("variantId") or ""),
+        "platform": str(opts.get("platform") or ""),
+        "placement": str(opts.get("placement") or ""),
+        "renderVersion": int(worker.positive_number(opts.get("renderVersion", 1),
+                                                    "renderVersion", allow_zero=False)),
+        "reframe": reframe_of(st.original_request),
+        "inSec": round(start, 3), "outSec": round(end, 3),
+        "targetSec": opts.get("targetSec"),
+        "durationSec": info["durationSec"], "width": info["width"], "height": info["height"],
+        "videoCodec": info["videoCodec"], "audioCodec": info["audioCodec"],
+        "sourceSha256": (st.result.get("media") or {}).get("sha256"),
+    }
+
+
+# --------------------------------------------------------------------------- nós
+# Contrato de nó: recebe (estado, raiz), valida a precondição, chama a função que JÁ existe,
+# registra no estado e devolve o nome do próximo nó. Nada de lógica nova aqui.
+# Caminho que vem do estado ou do job NUNCA é usado cru: passa por worker.inside_root aqui,
+# no momento do uso, em toda execução — inclusive na retomada.
+
+def no_validar_job(st: GraphState, root: str) -> str:
+    worker.validate_job(st.original_request)
+    return "conferir_idempotencia"
+
+
+def no_conferir_idempotencia(st: GraphState, root: str) -> str:
+    job = st.original_request
+    previous = worker.previous_result(root, st.job_id)
+    if (previous and previous.get("state") == "done"
+            and (previous.get("input") or {}).get("sha256") == (job.get("input") or {}).get("sha256")):
+        previous["reused"] = True
+        st.result = previous          # reaproveita: nada novo foi produzido, nada a aprovar
+        return "concluir"
+    return "executar_ingest" if st.operation == "ingest" else "validar_entrada"
+
+
+def no_executar_ingest(st: GraphState, root: str) -> str:
+    st.result = worker.do_ingest(st.original_request, root)
+    # "path" do artefato JÁ é relativo à raiz; guardar o absPath amarraria o estado à pasta.
+    st.input_path = ((st.result.get("artifacts") or [{}])[0]).get("path", "")
+    return "salvar_resultado"
+
+
+def no_validar_entrada(st: GraphState, root: str) -> str:
+    job = st.original_request
+    src = worker.inside_root(root, (job.get("input") or {}).get("path"), "input.path")
+    refuse_variant_input(root, src)
+    media = worker.validate_input(src, str((job.get("input") or {}).get("sha256") or "").strip())
+    st.input_path = rel_to_root(root, src)
+    st.result = worker.build_result(job, "running", media=media)
+    return "conferir_espaco"
+
+
+def no_conferir_espaco(st: GraphState, root: str, reserve: int = 0) -> str:
+    job = st.original_request
+    folder = worker.inside_root(root, (job.get("output") or {}).get("folder") or ".",
+                                "output.folder")
+    os.makedirs(folder, exist_ok=True)
+    st.output_path = rel_to_root(root, worker.inside_root(
+        root, os.path.join(folder, output_name(job)), "output.fileName"))
+    space = worker.ensure_space(folder, cut_of(st)[2], reserve)
+    st.result.setdefault("notes", {})["space"] = space
+    return "renderizar"
+
+
+def no_renderizar(st: GraphState, root: str) -> str:
+    start, _end, duration = cut_of(st)
+    # Revalida na hora do uso: na retomada ninguém passou por validar_entrada nesta execução.
+    src = worker.inside_root(root, st.input_path, "input_path do estado")
+    refuse_variant_input(root, src)
+    dest = worker.inside_root(root, st.output_path, "output_path do estado")
+    reframe, audio = reframe_of(st.original_request), has_audio(st)
+    worker.write_atomic(dest,
+                        lambda part: worker.render_cut(src, part, start, duration, reframe, audio))
+    if not audio:
+        st.result.setdefault("notes", {})["audio"] = (
+            "O original não tem faixa de áudio; a variante foi gerada sem áudio.")
+    return "conferir_saida"
+
+
+def no_conferir_saida(st: GraphState, root: str) -> str:
+    start, end, duration = cut_of(st)
+    dest = worker.inside_root(root, st.output_path, "output_path do estado")
+    info = worker.check_output(dest, duration, has_audio(st))
+    st.result["artifacts"] = [worker.artifact_of(dest, root, "variant",
+                                                variant_extra(st, start, end, info))]
+    st.result.setdefault("notes", {})["toleranceSec"] = worker.TOLERANCE_SEC
+    return "salvar_resultado"
+
+
+def no_salvar_resultado(st: GraphState, root: str) -> str:
+    st.result["state"] = "done"
+    st.result["finishedAt"] = now_iso()
+    worker.write_json_atomic(
+        os.path.join(worker.results_dir(root), worker.safe_component(st.job_id) + ".json"),
+        st.result)
+    return "concluir" if st.operation == "ingest" else "aguardar_aprovacao"
+
+
+def no_aguardar_aprovacao(st: GraphState, root: str) -> str:
+    # Fim de linha do grafo para variantes: a publicação é MANUAL, com aprovação humana.
+    st.status = "awaiting_approval"
+    return "aguardar_aprovacao"
+
+
+def no_concluir(st: GraphState, root: str) -> str:
+    st.status = "done"
+    return "concluir"
+
+
+NodeFn = Callable[..., str]
+
+# Não existe nó "falhar": abort() grava status=failed e o laço de run() já para em status
+# terminal, então um nó de falha nunca executaria. FAILED_NODE é só o rótulo do estado.
+NODES: dict[str, NodeFn] = {
+    "validar_job": no_validar_job,
+    "conferir_idempotencia": no_conferir_idempotencia,
+    "executar_ingest": no_executar_ingest,
+    "validar_entrada": no_validar_entrada,
+    "conferir_espaco": no_conferir_espaco,
+    "renderizar": no_renderizar,
+    "conferir_saida": no_conferir_saida,
+    "salvar_resultado": no_salvar_resultado,
+    "aguardar_aprovacao": no_aguardar_aprovacao,
+    "concluir": no_concluir,
+}
+
+
+def with_reserve(nodes: dict[str, NodeFn], reserve: int) -> dict[str, NodeFn]:
+    """Só conferir_espaco precisa da reserva de bytes; os outros nós não a carregam."""
+    if not reserve:
+        return nodes
+    return {**nodes, "conferir_espaco": functools.partial(nodes["conferir_espaco"],
+                                                          reserve=reserve)}
+
+
+# --------------------------------------------------------------------------- execução
+
+def report_failure(root: str, st: GraphState, node: str, message: str, code: str) -> None:
+    """Grava o result.json da falha — é dele que o navegador aprende o que aconteceu.
+
+    O caminho tradicional sempre grava (worker.run_job_file), então o grafo silencioso
+    deixaria o operador sem saber que o trabalho morreu. Mas NUNCA sobrescreve resultado já
+    concluído: _results/<jobId>.json é a memória de idempotência, e apagar a prova de um
+    trabalho pronto por causa de um retry que falhou seria pior do que não relatar.
+    """
+    previous = worker.previous_result(root, st.job_id)
+    if previous and previous.get("state") == "done":
+        st.result.setdefault("notes", {})["resultKept"] = (
+            "Já existe resultado concluído para %s; o result.json não foi sobrescrito."
+            % st.job_id)
+        return
+    try:
+        payload = worker.build_result(st.original_request, "failed",
+                                     error={"code": code, "message": message})
+        payload["finishedAt"] = now_iso()
+        payload.setdefault("notes", {})["failedNode"] = node
+        worker.write_json_atomic(
+            os.path.join(worker.results_dir(root), worker.safe_component(st.job_id) + ".json"),
+            payload)
+    except (OSError, worker.WorkerError) as err:
+        # Relatar a falha não pode criar uma segunda falha calada nem mascarar a original.
+        st.errors.append({"node": node, "code": GRAPH_ERROR_CODE, "at": now_iso(),
+                          "message": "não consegui gravar o result.json da falha: %s" % err})
+
+
+def abort(root: str, st: GraphState, node: str, message: str,
+          code: str = GRAPH_ERROR_CODE) -> GraphState:
+    """Registra a falha com código honesto e encerra: falha não vira sucesso calado."""
+    st.errors.append({"node": node, "code": code, "message": message, "at": now_iso()})
+    if node not in st.failed_nodes:
+        st.failed_nodes.append(node)
+    st.transitions += 1
+    st.current_node = FAILED_NODE
+    st.status = "failed"
+    report_failure(root, st, node, message, code)
+    return save_state(root, st)
+
+
+def node_cap(st: GraphState) -> int:
+    """Teto de tentativas do MESMO nó dentro de UMA execução.
+
+    O job pode pedir menos tentativas que o padrão, mas NUNCA mais que HARD_NODE_ATTEMPTS:
+    a validação é feita aqui (não se apoia em worker.validate_job, que só exige a presença
+    da chave), e valor ausente, não inteiro, booleano, zero, negativo ou absurdo cai no
+    padrão do módulo. Nada vindo do job.json amplia a guarda.
+    """
+    raw = (st.original_request or {}).get("maxAttempts")
+    wanted = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 \
+        else MAX_NODE_ATTEMPTS
+    return min(wanted, HARD_NODE_ATTEMPTS)
+
+
+def step(root: str, st: GraphState, nodes: Optional[dict[str, NodeFn]] = None,
+         tries: Optional[dict[str, int]] = None) -> GraphState:
+    """UMA transição. A tentativa é persistida ANTES de executar o nó.
+
+    `tries` é a cota da EXECUÇÃO (anti-loop); `st.attempts` é o histórico durável, que só
+    conta — assim uma queda real não queima cota de retomada para sempre. Chamada solta
+    (sem `tries`) é uma execução de um passo.
+    """
+    nodes = NODES if nodes is None else nodes
+    node = st.current_node
+    if node not in nodes:
+        return abort(root, st, node, "transição recusada: %r não é um nó do grafo." % node)
+    st.attempts[node] = st.attempts.get(node, 0) + 1
+    if tries is not None:
+        tries[node] = tries.get(node, 0) + 1
+    if st.status == "pending":
+        st.status = "running"
+    # Processo morto no meio do nó não pode apagar o rastro da tentativa: grava agora.
+    save_state(root, st)
+    cap = node_cap(st)
+    # UMA regra de teto, dois contadores: run() passa a cota da EXECUÇÃO (queda real não
+    # queima cota de retomada para sempre); chamada solta cai no contador DURÁVEL, senão um
+    # laço de step() solto não teria teto nenhum.
+    counted = tries[node] if tries is not None else st.attempts[node]
+    if counted > cap:
+        return abort(root, st, node,
+                     "nó %s tentado %d vezes %s (teto %d): isso é laço, não retomada."
+                     % (node, counted,
+                        "nesta execução" if tries is not None else "no total", cap))
+    try:
+        nxt = nodes[node](st, root)
+    except worker.WorkerError as err:
+        return abort(root, st, node, err.message, err.code)
+    except OSError as err:
+        # Mesmo código do worker.py (não há código novo a inventar), mas a mensagem diz o
+        # nó e a operação real — ler "o FFmpeg quebrou" num erro de disco seria mentira.
+        return abort(root, st, node,
+                     "nó %s: falha de sistema de arquivos (%s: %s). O FFmpeg não está "
+                     "envolvido." % (node, type(err).__name__, err), "ffmpeg_failed")
+    except Exception as err:
+        # Não prevista: registra (com o nó) e RE-LEVANTA. Engolir seria fingir sucesso.
+        abort(root, st, node, "nó %s levantou erro não previsto (%s: %s)."
+              % (node, type(err).__name__, err))
+        raise
+    if node not in st.completed_nodes:
+        st.completed_nodes.append(node)
+    st.transitions += 1
+    st.current_node = nxt
+    return save_state(root, st)
+
+
+def run(root: str, st: GraphState, reserve: int = 0, max_transitions: int = MAX_TRANSITIONS,
+        nodes: Optional[dict[str, NodeFn]] = None) -> GraphState:
+    """Roda até um estado terminal. Estado terminal nunca é reaberto sozinho."""
+    save_state(root, st)
+    nodes = with_reserve(NODES if nodes is None else nodes, reserve)
+    tries: dict[str, int] = {}
+    spent = 0
+    while st.status not in TERMINAL_STATUS:
+        if spent >= max_transitions:
+            return abort(root, st, st.current_node,
+                         "teto de %d transições por execução atingido no nó %s."
+                         % (max_transitions, st.current_node))
+        step(root, st, nodes, tries)
+        spent += 1
+    return st
+
+
+def start(root: str, job: dict[str, Any], reserve: int = 0,
+          max_transitions: int = MAX_TRANSITIONS) -> GraphState:
+    """Começa (ou recomeça) um trabalho a partir do job.json cru."""
+    existing = load_state(root, str((job or {}).get("jobId") or ""))
+    st = existing if existing and existing.status not in TERMINAL_STATUS else new_state(job)
+    return run(root, st, reserve, max_transitions)
+
+
+def resume(root: str, job_id: str, reserve: int = 0,
+           max_transitions: int = MAX_TRANSITIONS) -> GraphState:
+    st = load_state(root, job_id)
+    if st is None:
+        raise GraphError("não há estado salvo para %r em %s" % (job_id, state_dir(root)))
+    return run(root, st, reserve, max_transitions)
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Grafo de execução do Estúdio de Vídeos.")
+    parser.add_argument("--root", required=True, help="pasta raiz; nada é escrito fora dela")
+    parser.add_argument("--job", default=None, help="job.json para começar")
+    parser.add_argument("--resume", default=None, help="jobId para retomar do estado salvo")
+    parser.add_argument("--max-transitions", type=int, default=MAX_TRANSITIONS)
+    args = parser.parse_args(argv)
+
+    if not os.path.exists(worker.FFMPEG):
+        print("FALHOU: FFmpeg do projeto não encontrado em %s" % worker.FFMPEG)
+        return 2
+    root = os.path.realpath(args.root)
+    if not os.path.isdir(root):
+        print("FALHOU: pasta raiz inexistente: %s" % root)
+        return 2
+    if bool(args.job) == bool(args.resume):
+        print("FALHOU: informe --job (novo trabalho) OU --resume (retomar), não os dois.")
+        return 2
+
+    try:
+        if args.job:
+            path = worker.inside_root(root, args.job, "--job")
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    job = json.load(handle)
+            except (OSError, ValueError) as err:
+                # Só aqui é honesto culpar o job.json: é o único ponto que o lê.
+                print("FALHOU: job.json ilegível em %s (%s)" % (path, err))
+                return 2
+            st = start(root, job, max_transitions=args.max_transitions)
+        else:
+            st = resume(root, args.resume, max_transitions=args.max_transitions)
+    except (worker.WorkerError, GraphError) as err:
+        print("FALHOU: %s" % err)
+        return 2
+    except Exception as err:
+        # Não previsto: nomeia a causa de verdade. O estado com a tentativa já está gravado.
+        print("FALHOU: erro não previsto na execução do grafo (%s: %s)"
+              % (type(err).__name__, err))
+        return 2
+
+    print("%-18s %s  nó=%s  transições=%d" % (st.status, st.job_id, st.current_node,
+                                              st.transitions))
+    for entry in st.errors:
+        print("  [%s] %s (nó %s)" % (entry["code"], entry["message"], entry["node"]))
+    if st.status == "awaiting_approval":
+        print("  variante pronta; a publicação é manual e depende de aprovação humana.")
+    return 0 if st.status in ("done", "awaiting_approval") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,133 @@
+diff --git a/video-ops.js b/video-ops.js
+index 316afc0..b7ea79a 100644
+--- a/video-ops.js
++++ b/video-ops.js
+@@ -39,6 +39,78 @@
+   var DRIVE_STATE_LABEL = { planned: 'Caminho reservado', written: 'Gravado na pasta', sync_confirmed: 'Sincronização confirmada' };
+   var PUBLISH_MODE_LABEL = { manual: 'Manual', api: 'Integração oficial' };
+   var PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram' };
++  var CONNECTION_LABEL = { disconnected: 'Não conectada', connected: 'Conectada', expired: 'Conexão expirada' };
++  var CONNECTION_STATES = ['disconnected', 'connected', 'expired'];
++  var IG_ACCOUNT_TYPE_LABEL = { unknown: 'Não informado', business: 'Empresarial', creator: 'Criador de conteúdo', personal: 'Pessoal (não publica por API)' };
++
++  /* Formatos de publicação por plataforma.
++     "nossa especificação" = alvo editorial do projeto: vertical 9:16, MP4 H.264/AAC.
++     "regra da plataforma" = verificado na documentação oficial em 2026-07-31 (TikTok
++     Content Posting API e Content Sharing Guidelines; Meta Instagram Content Publishing).
++     O que a plataforma só informa em tempo de execução — como a duração máxima do TikTok,
++     que vem de creator_info.max_video_post_duration_sec — NÃO é cravado aqui.
++     ponytail: revalidar as fontes antes de ligar qualquer integração real (Fase 3). */
++  var PLACEMENTS = {
++    tiktok_video: {
++      platform: 'tiktok', label: 'Vídeo TikTok', apiType: 'VIDEO', aspect: '9:16', container: 'MP4 (H.264/AAC)',
++      rules: [
++        'A duração máxima não é fixa: vem de creator_info (max_video_post_duration_sec) na hora de publicar.',
++        'Proibido sobrepor logo, marca d\'água ou texto promocional — inclusive de outra rede.',
++        'Cliente sem auditoria publica só em SELF_ONLY, e a conta precisa estar privada no momento do post.'
++      ]
++    },
++    tiktok_photo: {
++      platform: 'tiktok', label: 'Foto TikTok', apiType: 'PHOTO', aspect: '9:16', container: 'JPEG',
++      rules: ['Duet e Stitch não se aplicam a post de foto.', 'Mesma proibição de marca d\'água do vídeo.']
++    },
++    ig_reels: {
++      platform: 'instagram', label: 'Reels', apiType: 'REELS', aspect: '9:16', container: 'MP4 (H.264/AAC)',
++      rules: ['Contêiner criado com media_type=REELS.', 'O video_url precisa estar num servidor público — link do Drive não serve.', 'alt_text não é aceito em Reels.']
++    },
++    ig_stories: {
++      platform: 'instagram', label: 'Stories', apiType: 'STORIES', aspect: '9:16', container: 'MP4 (H.264/AAC)',
++      rules: ['Contêiner criado com media_type=STORIES.', 'O video_url precisa estar num servidor público.', 'alt_text não é aceito em Stories.']
++    },
++    ig_feed_video: {
++      platform: 'instagram', label: 'Vídeo no feed', apiType: 'VIDEO', aspect: '4:5 ou 1:1', container: 'MP4 (H.264/AAC)',
++      rules: ['Contêiner criado com media_type=VIDEO.', 'O video_url precisa estar num servidor público.']
++    },
++    ig_carousel: {
++      platform: 'instagram', label: 'Carrossel', apiType: 'CAROUSEL', aspect: '1:1 (padrão)', container: 'JPEG e/ou MP4',
++      rules: ['No máximo 10 itens.', 'Todas as imagens são cortadas pela proporção da primeira; o padrão é 1:1.', 'O único formato de imagem aceito é JPEG.']
++    }
++  };
++  var PLACEMENT_ORDER = ['tiktok_video', 'tiktok_photo', 'ig_reels', 'ig_stories', 'ig_feed_video', 'ig_carousel'];
++  var DEFAULT_PLACEMENT = { tiktok: 'tiktok_video', instagram: 'ig_reels' };
++  /* Limites por plataforma, não por formato. */
++  var PLATFORM_RULES = {
++    tiktok: [
++      '6 requisições por minuto por access_token.',
++      'Cliente sem auditoria: no máximo 5 usuários publicando em 24 h.',
++      'Obrigatório consultar creator_info antes de cada post; a privacidade é escolhida à mão, sem valor padrão.'
++    ],
++    instagram: [
++      'Somente contas profissionais (empresarial ou criador de conteúdo).',
++      'Até 100 publicações por conta em 24 h; GET /<IG_ID>/content_publishing_limit mostra o consumo.',
++      'A documentação oficial se contradiz: a seção de carrossel fala em 50 por 24 h. Confirmar na conta antes de escalar o volume.'
++    ]
++  };
++  function placementsFor(platform) {
++    var key = platformSlug(platform);
++    return PLACEMENT_ORDER.filter(function (id) { return PLACEMENTS[id].platform === key; });
++  }
++  function placementLabel(id) { return PLACEMENTS[id] ? PLACEMENTS[id].label : (id || 'sem formato'); }
++  function defaultPlacement(platform) {
++    var key = platformSlug(platform);
++    return DEFAULT_PLACEMENT[key] || placementsFor(key)[0] || '';
++  }
++  /* O formato precisa existir e pertencer à plataforma da conta de destino. */
++  function placementIssues(placement, platform) {
++    if (!placement) return ['formato de publicação'];
++    if (!PLACEMENTS[placement]) return ['formato de publicação válido'];
++    if (platformSlug(platform) && PLACEMENTS[placement].platform !== platformSlug(platform)) return ['formato compatível com a plataforma da conta'];
++    return [];
++  }
+ 
+   var KINDS = ['viral', 'recent', 'own'];
+   var APPROVALS = ['pending', 'approved', 'changes', 'rejected'];
+@@ -204,6 +276,7 @@
+       sourceStatus: source ? source.status : '',
+       kind: clip ? clip.kind : 'viral',
+       platform: platform,
++      placement: variant.placement || '',
+       rightsConfirmed: permissionCovers(permission, platform, day),
+       nicheConfirmed: !!variant.nicheConfirmed,
+       title: variant.title,
+@@ -358,6 +431,7 @@
+         approval: APPROVALS.indexOf(raw.approval) >= 0 ? raw.approval : 'pending',
+         publication: PUBLICATIONS.indexOf(raw.publication) >= 0 ? raw.publication : 'draft',
+         approvedSnapshot: cleanText(raw.approvedSnapshot, 8000), driveVersion: 1,
++        placement: defaultPlacement(platform),
+         createdAt: source.createdAt, updatedAt: source.updatedAt, publishedAt: cleanText(raw.publishedAt, 40)
+       });
+     });
+@@ -513,6 +587,14 @@
+         approval: APPROVALS.indexOf(rawVariant.approval) >= 0 ? rawVariant.approval : 'pending',
+         publication: PUBLICATIONS.indexOf(rawVariant.publication) >= 0 ? rawVariant.publication : 'draft',
+         approvedSnapshot: cleanText(rawVariant.approvedSnapshot, 8000),
++        /* Formato ausente ou de outra plataforma cai no padrão da plataforma da conta,
++           em vez de invalidar o estado inteiro. */
++        placement: (function (raw, accountId) {
++          var target = findById(clean.accounts, accountId);
++          var wanted = cleanText(raw, 40);
++          if (PLACEMENTS[wanted] && (!target || PLACEMENTS[wanted].platform === target.platform)) return wanted;
++          return target ? defaultPlacement(target.platform) : '';
++        })(rawVariant.placement, rawVariant.accountId),
+         driveVersion: Math.max(1, num(rawVariant.driveVersion) || 1),
+         createdAt: cleanText(rawVariant.createdAt, 40) || nowISO(),
+         updatedAt: cleanText(rawVariant.updatedAt, 40) || nowISO(),
+@@ -646,6 +728,8 @@
+     if (!String(video.scheduledAt || '').trim()) issues.push('data e horário');
+     if (!String(video.platform || '').trim()) issues.push('plataforma');
+     else if (account && Array.isArray(account.platforms) && account.platforms.indexOf(video.platform) < 0) issues.push('plataforma vinculada à conta');
++    /* Só cobra formato de quem tem o campo: registros achatados do schema 3 não têm. */
++    if ('placement' in video) placementIssues(video.placement, video.platform).forEach(function (issue) { issues.push(issue); });
+     return issues;
+   }
+   function publishingIssues(video, account, options) {
+@@ -677,7 +761,8 @@
+       video.caption, video.hashtags, video.scheduledAt, !!video.rightsConfirmed, !!video.nicheConfirmed,
+       video.clip ? [num(video.clip.inSec), num(video.clip.outSec)] : null,
+       video.permission ? video.permission.id : '',
+-      video.sourceStatus || ''
++      video.sourceStatus || '',
++      video.placement || ''
+     ]);
+   }
+   function dailyGoal(videos, accountId, day) {

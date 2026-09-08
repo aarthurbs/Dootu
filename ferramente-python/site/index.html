@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TCP Practice Target</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="status-panel">
+          <p class="eyebrow">Local lab</p>
+          <h1 id="page-title">TCP Practice Target</h1>
+          <p class="lead">
+            Servico HTTP ativo em localhost para voce testar o scanner TCP com seguranca.
+          </p>
+
+          <div class="connection-grid" aria-label="Connection details">
+            <div>
+              <span>Host</span>
+              <strong id="host">127.0.0.1</strong>
+            </div>
+            <div>
+              <span>Porta</span>
+              <strong id="port">8080</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <strong class="open">Aberta</strong>
+            </div>
+          </div>
+        </div>
+
+        <canvas id="network-visual" width="900" height="360" aria-hidden="true"></canvas>
+      </section>
+
+      <section class="practice-layout">
+        <article class="target-card">
+          <h2>Entrada para o scanner</h2>
+          <dl>
+            <div>
+              <dt>Company name</dt>
+              <dd>COPS</dd>
+            </div>
+            <div>
+              <dt>IP address to scan</dt>
+              <dd id="target-ip">127.0.0.1</dd>
+            </div>
+            <div>
+              <dt>Port to scan</dt>
+              <dd id="target-port">8080</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="target-card">
+          <h2>Resultado esperado</h2>
+          <pre><code id="expected-output">Company COPS is scanning target 127.0.0.1 on port 8080...
+Port 8080 is open.</code></pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

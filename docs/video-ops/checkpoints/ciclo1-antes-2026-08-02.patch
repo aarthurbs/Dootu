@@ -1,0 +1,861 @@
+diff --git a/test-video-ops-dom.js b/test-video-ops-dom.js
+index b99f30c..748f3ec 100644
+--- a/test-video-ops-dom.js
++++ b/test-video-ops-dom.js
+@@ -98,13 +98,17 @@ function clickTab(tab) {
+   button.dataset = { act: 'tab', tab };
+   clickHandlers.forEach((fn) => fn({ target: { closest: () => button } }));
+ }
+-['queue', 'sources', 'creators', 'accounts', 'reports'].forEach((tab) => {
++['overview', 'queue', 'sources', 'creators', 'accounts', 'reports'].forEach((tab) => {
+   root.innerHTML = '';
+   clickTab(tab);
+   assert.ok(root.innerHTML.length > 300, `aba ${tab} renderiza`);
+   assert.ok(!/undefined|\[object Object\]|NaN/.test(root.innerHTML), `aba ${tab} não vaza undefined/NaN na tela`);
+ });
+ 
++clickTab('overview');
++assert.ok(root.innerHTML.includes('Visão das contas'), 'a visão geral consolida todas as contas');
++assert.ok(root.innerHTML.includes('Fila consolidada'), 'a visão geral inclui a fila cruzada');
++
+ // --- a fila mostra o destino e o caminho reservado, sem prometer o arquivo ---
+ clickTab('queue');
+ const queueHtml = root.innerHTML;
+diff --git a/test-video-ops.js b/test-video-ops.js
+index 2afdf3c..75f0af5 100644
+--- a/test-video-ops.js
++++ b/test-video-ops.js
+@@ -150,6 +150,32 @@ const state4 = V.sanitizeState(v4());
+ assert.ok(state4, 'estado do schema 4 é aceito');
+ assert.strictEqual(state4.version, V.SCHEMA_VERSION, 'saneamento carimba a versão corrente');
+ assert.strictEqual(state4.variants.length, 2, 'um corte alimenta dois destinos independentes');
++assert.deepStrictEqual(state4.variants.map((v) => v.placement), ['tiktok_video', 'ig_reels'], 'cada plataforma recebe um formato de vídeo seguro por padrão');
++assert.deepStrictEqual(V.placementsFor('instagram'), ['ig_reels', 'ig_stories', 'ig_feed_video'], 'Instagram expõe somente os formatos de vídeo previstos nesta fase');
++assert.ok(V.placementIssues('ig_reels', 'tiktok').length, 'formato de outra plataforma é rejeitado');
++assert.notStrictEqual(
++  V.sensitiveSnapshot({ ...V.resolveVariant(state4, state4.variants[0]), placement: 'tiktok_video' }),
++  V.sensitiveSnapshot({ ...V.resolveVariant(state4, state4.variants[0]), placement: 'ig_reels' }),
++  'trocar o formato invalida a aprovação'
++);
++
++// compatibilidade F1.1 → F1.2: snapshot legítimo anterior ao campo placement é refeito
++const beforePlacement = JSON.parse(JSON.stringify(state4));
++const oldResolved = V.resolveVariant(state4, state4.variants[0]);
++delete beforePlacement.variants[0].placement;
++beforePlacement.variants[0].approval = 'approved';
++beforePlacement.variants[0].publication = 'scheduled';
++beforePlacement.variants[0].approvedSnapshot = V.sensitiveSnapshotPrePlacement(oldResolved);
++const migratedPlacement = V.sanitizeState(beforePlacement);
++assert.strictEqual(migratedPlacement.variants[0].approval, 'approved', 'aprovação íntegra da F1.1 sobrevive à inclusão do formato');
++assert.strictEqual(migratedPlacement.variants[0].placement, 'tiktok_video', 'migração atribui o formato padrão da plataforma');
++assert.strictEqual(
++  migratedPlacement.variants[0].approvedSnapshot,
++  V.sensitiveSnapshot(V.resolveVariant(migratedPlacement, migratedPlacement.variants[0])),
++  'migração regrava o snapshot no formato atual'
++);
++const invalidPlacement = V.sanitizeState({ ...v4(), variants: [{ ...v4().variants[0], placement: 'ig_reels' }] });
++assert.strictEqual(invalidPlacement.variants[0].placement, 'tiktok_video', 'formato incompatível vindo de dados é saneado para o padrão');
+ 
+ // autorização cobre exatamente o que declara
+ const perm = state4.permissions[0];
+@@ -223,6 +249,7 @@ assert.ok(V.driveMasterPath(state4, state4.clips[0]).relPath.startsWith('Projeto
+ const pkg = V.publicationPackage(state4, state4.variants[0]);
+ assert.strictEqual(pkg.destino.handle, '@piloto_tt', 'o pacote deixa o destino inequívoco');
+ assert.strictEqual(pkg.destino.plataforma, 'TikTok', 'o pacote nomeia a plataforma');
++assert.strictEqual(pkg.destino.formato, 'Vídeo TikTok', 'o pacote deixa o formato inequívoco');
+ assert.strictEqual(pkg.arquivo.caminhoRelativo, pTT.relPath, 'o pacote carrega o caminho calculado');
+ assert.strictEqual(pkg.arquivo.estado, 'Caminho reservado', 'sem worker, o arquivo é apenas um caminho reservado');
+ assert.strictEqual(pkg.autorizacao.status, 'Válida', 'o pacote registra a autorização usada');
+@@ -230,6 +257,10 @@ const pkgText = V.packageText(pkg);
+ assert.ok(pkgText.includes('@piloto_tt') && pkgText.includes(pTT.relPath), 'o checklist repete destino e caminho');
+ assert.ok(pkgText.includes('marca d\'água'), 'o checklist lembra de conferir marca d\'água de outra rede');
+ 
++const fiveHundred = Array.from({ length: 500 }, (_, i) => i);
++assert.strictEqual(V.visibleSlice(fiveHundred, 50).length, 50, 'a fila começa com 50 de 500 registros');
++assert.strictEqual(V.visibleSlice(fiveHundred, 100).at(-1), 99, 'carregar mais amplia o lote sem pular registros');
++
+ // integridade estrutural: falha visível, nunca exclusão silenciosa
+ assert.strictEqual(V.sanitizeState({ ...v4(), variants: [{ id: 'orfa', clipId: 'nao-existe', accountId: 'tt1' }] }), null, 'variante sem corte derruba o estado para a tela de recuperação');
+ assert.strictEqual(V.sanitizeState({ ...v4(), variants: [{ id: 'orfa', clipId: 'clp1', accountId: 'nao-existe' }] }), null, 'variante sem conta derruba o estado');
+@@ -259,6 +290,54 @@ assert.strictEqual(migratedPending.permissions[0].status, 'unverified', 'a autor
+ assert.strictEqual(typeof V.BACKUP_V3_KEY, 'string', 'a chave de backup do schema 3 é exportada para o rollback');
+ assert.notStrictEqual(V.BACKUP_V3_KEY, 'pp_video_ops_v1', 'o backup do schema 3 não sobrescreve a chave principal');
+ 
++/* ---------- métrica ausente é null, nunca zero (PLANO §15) ---------- */
++
++assert.deepStrictEqual(V.metricsOf(null), { views: null, likes: null, comments: null, shares: null }, 'sem coleta, toda métrica nasce null');
++assert.deepStrictEqual(V.metricsOf({ views: 0 }), { views: 0, likes: null, comments: null, shares: null }, 'zero digitado é medição real e sobrevive');
++assert.deepStrictEqual(V.metricsOf({ views: '' }), { views: null, likes: null, comments: null, shares: null }, 'campo em branco no formulário é ausência, não zero');
++assert.strictEqual(V.metricsOf({ views: 'abc' }).views, null, 'texto inválido não vira zero silencioso');
++assert.strictEqual(V.metricsOf({ views: '1200' }).views, 1200, 'número digitado como texto é aceito');
++assert.ok(!V.metricMeasured({ views: null, likes: null, comments: null, shares: null }), 'nada medido é reconhecido como nada medido');
++assert.ok(V.metricMeasured({ views: 0, likes: null, comments: null, shares: null }), 'um zero real conta como medição');
++assert.strictEqual(V.metric(null), '—', 'a interface mostra travessão, não 0, para o não medido');
++assert.strictEqual(V.metric(0), '0', 'zero medido continua aparecendo como 0');
++
++const semMetrica = V.sanitizeState({ ...v4(), variants: v4().variants.map((x) => ({ ...x, metrics: undefined })) });
++assert.strictEqual(semMetrica.variants[0].metrics.views, null, 'o saneamento preserva ausência em vez de gravar zero');
++const csvSemMetrica = V.toCsv(semMetrica);
++assert.ok(/;"";"";"";"";/.test(csvSemMetrica), 'CSV traz célula vazia para métrica não medida');
++
++// publica as duas variantes assinando o snapshot como o próprio app faz
++const base = V.sanitizeState(v4());
++[['https://tiktok.com/@x/video/1', { views: 100, likes: 10, comments: 0, shares: 0 }],
++ ['https://instagram.com/reel/2', undefined]].forEach(([url, metrics], i) => {
++  const variant = base.variants[i];
++  variant.approval = 'approved';
++  variant.publication = 'published';
++  variant.publishedUrl = url;
++  variant.publishedAt = '2026-07-31T12:00:00Z';
++  variant.metrics = metrics;
++  variant.approvedSnapshot = V.sensitiveSnapshot(V.resolveVariant(base, variant));
++});
++const medidos = V.sanitizeState(base);
++assert.strictEqual(medidos.variants.filter((x) => x.publication === 'published').length, 2, 'as duas variantes ficaram publicadas no fixture');
++const relatorio = V.buildReport(medidos, null, 7, new Date('2026-07-31T23:59:59Z'));
++assert.strictEqual(relatorio.totals.views, 100, 'o total soma apenas o que foi medido');
++assert.strictEqual(relatorio.unmeasured, 1, 'o relatório conta separadamente os posts sem medição');
++
++/* ---------- histórico não pode encher a cota do localStorage ---------- */
++
++assert.strictEqual(typeof V.LOG_LIMIT, 'number', 'existe um teto para o histórico');
++const curto = Array.from({ length: 10 }, (_, i) => ({ id: 'l' + i }));
++assert.strictEqual(V.trimLogs(curto).length, 10, 'histórico abaixo do teto não é podado');
++const longo = Array.from({ length: V.LOG_LIMIT + 120 }, (_, i) => ({ id: 'l' + i }));
++const podado = V.trimLogs(longo);
++assert.strictEqual(podado.length, V.LOG_LIMIT, 'histórico acima do teto é podado');
++assert.strictEqual(podado[podado.length - 1].id, 'l' + (V.LOG_LIMIT + 119), 'a poda mantém as entradas MAIS RECENTES');
++assert.strictEqual(podado[0].id, 'l120', 'as entradas mais antigas são as descartadas');
++const estadoComLogs = V.sanitizeState({ ...v4(), logs: Array.from({ length: V.LOG_LIMIT + 50 }, (_, i) => ({ id: 'x' + i, action: 'a' })) });
++assert.strictEqual(estadoComLogs.logs.length, V.LOG_LIMIT, 'importar um backup gigante também respeita o teto');
++
+ const root = __dirname;
+ const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+ const js = fs.readFileSync(path.join(root, 'video-ops.js'), 'utf8');
+@@ -268,7 +347,9 @@ const css = fs.readFileSync(path.join(root, 'video-ops.css'), 'utf8');
+   "'video-ops'", '<script src="video-ops.js"></script>', '<link rel="stylesheet" href="video-ops.css" />'
+ ].forEach((needle) => assert.ok(html.includes(needle), `ponte no index: ${needle}`));
+ assert.ok(!/client_secret|refresh_token|service_role/i.test(js), 'o módulo não contém segredos de integração');
++assert.ok(!js.includes("api: 'Integração oficial'"), 'a interface não promete uma conexão que foi adiada');
+ assert.ok(!/transition\s*:\s*all\b/i.test(css), 'CSS não usa transition: all');
+ assert.ok(!/\bease-in\b/.test(css), 'CSS não usa ease-in');
++assert.ok(css.includes('.vop-overview-account:active'), 'cartões clicáveis da visão geral têm resposta de pressão');
+ 
+ console.log('ok — test-video-ops: fluxo, regras, relatórios e ponte passaram');
+diff --git a/video-ops.css b/video-ops.css
+index 240c1a4..3472347 100644
+--- a/video-ops.css
++++ b/video-ops.css
+@@ -91,7 +91,8 @@
+ .vop-filters button,
+ .vop-report-range button,
+ .vop-inline-action,
+-.vop-icon-btn {
++.vop-icon-btn,
++.vop-overview-account {
+   font-family: inherit;
+   cursor: pointer;
+   transition:
+@@ -107,7 +108,8 @@
+ .vop-filters button:active,
+ .vop-report-range button:active,
+ .vop-inline-action:active,
+-.vop-icon-btn:active { transform: scale(.97); }
++.vop-icon-btn:active,
++.vop-overview-account:active { transform: scale(.97); }
+ 
+ .vop-btn {
+   display: inline-flex;
+@@ -244,6 +246,15 @@
+ .vop-report-range button { min-height: 30px; padding: 6px 10px; }
+ 
+ .vop-video-list { display: grid; gap: 9px; }
++.vop-list-foot {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  padding: 10px 2px 0;
++  color: var(--text-muted);
++  font-size: 11px;
++}
+ .vop-video-card {
+   display: grid;
+   grid-template-columns: minmax(0, 1fr) auto;
+@@ -337,6 +348,37 @@
+ .vop-account-meta { display: flex; flex-wrap: wrap; gap: 9px 16px; color: var(--text-muted); font-size: 10.5px; }
+ .vop-card-actions { justify-content: flex-end; flex-wrap: wrap; }
+ 
++.vop-overview-accounts {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
++  gap: 9px;
++  margin-top: 10px;
++}
++.vop-overview-account {
++  display: grid;
++  gap: 5px;
++  min-width: 0;
++  padding: 12px;
++  border: 1px solid var(--border);
++  border-radius: 11px;
++  background: var(--bg-subtle, rgba(255, 255, 255, .02));
++  color: var(--text);
++  font: inherit;
++  text-align: left;
++}
++.vop-overview-account span,
++.vop-overview-account small { color: var(--text-muted); font-size: 10.5px; }
++.vop-overview-account strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
++.vop-scope-filters {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(180px, 260px));
++  gap: 9px;
++  margin-bottom: 10px;
++}
++@media (hover: hover) and (pointer: fine) {
++  .vop-overview-account:hover { border-color: var(--border-hover); background: var(--surface-2); }
++}
++
+ .vop-report-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+ .vop-stat,
+ .vop-performance article,
+@@ -662,6 +704,16 @@
+ }
+ .vop-destination strong { font-size: 14px; }
+ .vop-destination code { color: #9dc4fb; font-size: 11px; }
++.vop-format-note {
++  display: grid;
++  gap: 4px;
++  padding: 10px 12px;
++  border: 1px solid var(--border);
++  border-radius: 9px;
++  background: var(--bg-subtle, rgba(255, 255, 255, .02));
++}
++.vop-format-note strong { color: var(--text); font-size: 11.5px; }
++.vop-format-note span { color: var(--text-muted); font-size: 10.5px; line-height: 1.45; }
+ .vop-audit h4 {
+   width: 100%;
+   margin: 0 0 3px;
+@@ -674,6 +726,8 @@
+ 
+ @media (max-width: 720px) {
+   #view-video-ops .vop-entity-grid { grid-template-columns: 1fr; }
++  .vop-scope-filters { grid-template-columns: 1fr; }
++  .vop-list-foot { align-items: stretch; flex-direction: column; }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+@@ -681,5 +735,6 @@
+   .vop-toast,
+   .vop-progress > i,
+   .vop-entity-card,
+-  .vop-video-card { transform: none; transition-duration: .001ms; }
++  .vop-video-card,
++  .vop-overview-account { transform: none; transition-duration: .001ms; }
+ }
+diff --git a/video-ops.js b/video-ops.js
+index 316afc0..10df82a 100644
+--- a/video-ops.js
++++ b/video-ops.js
+@@ -16,9 +16,14 @@
+   var DRIVE_ROOT = 'Projeto Automação de Vídeos';
+   var STATE = null;
+   var ACTIVE_ACCOUNT = '';
+-  var TAB = 'queue';
++  var TAB = 'overview';
+   var FILTER = 'all';
+   var SEARCH = '';
++  var OVERVIEW_PLATFORM = 'all';
++  var OVERVIEW_LINE = 'all';
++  var PAGE_SIZE = 50;
++  var VISIBLE_COUNT = PAGE_SIZE;
++  var LOG_LIMIT = 500;
+   var REPORT_DAYS = 7;
+   var PLAN_DAY = '';
+   var DIALOG = null;
+@@ -37,9 +42,48 @@
+   var PERMISSION_TYPE_LABEL = { permission: 'Autorização direta', clip_program: 'Programa de cortes', licensed: 'Licenciado', public_domain: 'Domínio público' };
+   var PERMISSION_STATUS_LABEL = { unverified: 'Não verificada', valid: 'Válida', expired: 'Vencida', revoked: 'Revogada' };
+   var DRIVE_STATE_LABEL = { planned: 'Caminho reservado', written: 'Gravado na pasta', sync_confirmed: 'Sincronização confirmada' };
+-  var PUBLISH_MODE_LABEL = { manual: 'Manual', api: 'Integração oficial' };
++  var PUBLISH_MODE_LABEL = { manual: 'Manual com aprovação humana' };
+   var PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram' };
+ 
++  /* Formatos editoriais de vídeo. Limites voláteis da API não ficam embutidos aqui:
++     serão consultados na integração oficial da Fase 3, se ela vier a ser aprovada. */
++  var PLACEMENTS = {
++    tiktok_video: {
++      platform: 'tiktok', label: 'Vídeo TikTok', aspect: '9:16', container: 'MP4 · H.264/AAC',
++      help: 'Sem marca d’água de outra rede; duração conferida no perfil na hora de publicar.'
++    },
++    ig_reels: {
++      platform: 'instagram', label: 'Reels', aspect: '9:16', container: 'MP4 · H.264/AAC',
++      help: 'Versão de descoberta com capa e textos conferidos no preview do Instagram.'
++    },
++    ig_stories: {
++      platform: 'instagram', label: 'Stories', aspect: '9:16', container: 'MP4 · H.264/AAC',
++      help: 'Versão vertical temporária; conferir elementos interativos e áreas seguras no app.'
++    },
++    ig_feed_video: {
++      platform: 'instagram', label: 'Vídeo no feed', aspect: '4:5', container: 'MP4 · H.264/AAC',
++      help: 'Versão adaptada ao feed; não reutilizar o enquadramento vertical sem revisar o crop.'
++    }
++  };
++  var PLACEMENT_ORDER = ['tiktok_video', 'ig_reels', 'ig_stories', 'ig_feed_video'];
++  var DEFAULT_PLACEMENT = { tiktok: 'tiktok_video', instagram: 'ig_reels' };
++  function placementsFor(platform) {
++    var key = platformSlug(platform);
++    return PLACEMENT_ORDER.filter(function (id) { return PLACEMENTS[id].platform === key; });
++  }
++  function placementLabel(id) { return PLACEMENTS[id] ? PLACEMENTS[id].label : (id || 'sem formato'); }
++  function defaultPlacement(platform) {
++    var key = platformSlug(platform);
++    return DEFAULT_PLACEMENT[key] || placementsFor(key)[0] || '';
++  }
++  /* O formato precisa existir e pertencer à plataforma da conta de destino. */
++  function placementIssues(placement, platform) {
++    if (!placement) return ['formato de publicação'];
++    if (!PLACEMENTS[placement]) return ['formato de publicação válido'];
++    if (platformSlug(platform) && PLACEMENTS[placement].platform !== platformSlug(platform)) return ['formato compatível com a plataforma da conta'];
++    return [];
++  }
++
+   var KINDS = ['viral', 'recent', 'own'];
+   var APPROVALS = ['pending', 'approved', 'changes', 'rejected'];
+   var PUBLICATIONS = ['draft', 'scheduled', 'published', 'error'];
+@@ -48,7 +92,7 @@
+   var PERMISSION_TYPES = ['permission', 'clip_program', 'licensed', 'public_domain'];
+   var PERMISSION_STATUS = ['unverified', 'valid', 'expired', 'revoked'];
+   var DRIVE_STATES = ['planned', 'written', 'sync_confirmed'];
+-  var PUBLISH_MODES = ['manual', 'api'];
++  var PUBLISH_MODES = ['manual'];
+ 
+   function uid(prefix) {
+     return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + (uidN++).toString(36);
+@@ -72,6 +116,23 @@
+     var n = Number(value);
+     return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+   }
++  /* Métrica não medida é null, nunca zero: "não coletei" e "coletei e deu zero" são
++     fatos diferentes e o relatório não pode confundi-los. Só vira número quando alguém
++     digitou algo. Regra do projeto — ver PLANO §15 e CONTINUAR_PROJETO. */
++  var METRIC_KEYS = ['views', 'likes', 'comments', 'shares'];
++  function numOrNull(value) {
++    if (value === null || value === undefined || value === '') return null;
++    var n = Number(value);
++    return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
++  }
++  function metricsOf(raw) {
++    var out = {};
++    METRIC_KEYS.forEach(function (key) { out[key] = numOrNull(raw ? raw[key] : null); });
++    return out;
++  }
++  function metricMeasured(metrics) {
++    return METRIC_KEYS.some(function (key) { return metrics && metrics[key] !== null && metrics[key] !== undefined; });
++  }
+   function cleanText(value, max) { return String(value == null ? '' : value).trim().slice(0, max || 5000); }
+   function deaccent(value) {
+     return String(value == null ? '' : value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+@@ -204,6 +265,7 @@
+       sourceStatus: source ? source.status : '',
+       kind: clip ? clip.kind : 'viral',
+       platform: platform,
++      placement: variant.placement || '',
+       rightsConfirmed: permissionCovers(permission, platform, day),
+       nicheConfirmed: !!variant.nicheConfirmed,
+       title: variant.title,
+@@ -351,13 +413,11 @@
+         title: cleanText(raw.title, 180), caption: cleanText(raw.caption, 2200), hashtags: cleanText(raw.hashtags, 500),
+         scheduledAt: cleanText(raw.scheduledAt, 30), nicheConfirmed: !!raw.nicheConfirmed,
+         reviewNote: cleanText(raw.reviewNote, 2000), publishedUrl: safeUrl(raw.publishedUrl), error: cleanText(raw.error, 2000),
+-        metrics: {
+-          views: num(raw.metrics && raw.metrics.views), likes: num(raw.metrics && raw.metrics.likes),
+-          comments: num(raw.metrics && raw.metrics.comments), shares: num(raw.metrics && raw.metrics.shares)
+-        },
++        metrics: metricsOf(raw.metrics),
+         approval: APPROVALS.indexOf(raw.approval) >= 0 ? raw.approval : 'pending',
+         publication: PUBLICATIONS.indexOf(raw.publication) >= 0 ? raw.publication : 'draft',
+         approvedSnapshot: cleanText(raw.approvedSnapshot, 8000), driveVersion: 1,
++        placement: defaultPlacement(platform),
+         createdAt: source.createdAt, updatedAt: source.updatedAt, publishedAt: cleanText(raw.publishedAt, 40)
+       });
+     });
+@@ -500,19 +560,25 @@
+       var rawVariant = list('variants')[vi] || {};
+       var variantId = cleanText(rawVariant.id, 100);
+       if (!claim('variant', variantId) || !has(clean.clips, rawVariant.clipId) || !has(clean.accounts, rawVariant.accountId)) return null;
++      var hadPlacement = Object.prototype.hasOwnProperty.call(rawVariant, 'placement');
+       var variant = {
+         id: variantId, clipId: cleanText(rawVariant.clipId, 100), accountId: cleanText(rawVariant.accountId, 100),
+         title: cleanText(rawVariant.title, 180), caption: cleanText(rawVariant.caption, 2200),
+         hashtags: cleanText(rawVariant.hashtags, 500), scheduledAt: cleanText(rawVariant.scheduledAt, 30),
+         nicheConfirmed: !!rawVariant.nicheConfirmed, reviewNote: cleanText(rawVariant.reviewNote, 2000),
+         publishedUrl: safeUrl(rawVariant.publishedUrl), error: cleanText(rawVariant.error, 2000),
+-        metrics: {
+-          views: num(rawVariant.metrics && rawVariant.metrics.views), likes: num(rawVariant.metrics && rawVariant.metrics.likes),
+-          comments: num(rawVariant.metrics && rawVariant.metrics.comments), shares: num(rawVariant.metrics && rawVariant.metrics.shares)
+-        },
++        metrics: metricsOf(rawVariant.metrics),
+         approval: APPROVALS.indexOf(rawVariant.approval) >= 0 ? rawVariant.approval : 'pending',
+         publication: PUBLICATIONS.indexOf(rawVariant.publication) >= 0 ? rawVariant.publication : 'draft',
+         approvedSnapshot: cleanText(rawVariant.approvedSnapshot, 8000),
++        /* Formato ausente ou de outra plataforma cai no padrão da plataforma da conta,
++           em vez de invalidar o estado inteiro. */
++        placement: (function (raw, accountId) {
++          var target = findById(clean.accounts, accountId);
++          var wanted = cleanText(raw, 40);
++          if (PLACEMENTS[wanted] && (!target || PLACEMENTS[wanted].platform === target.platform)) return wanted;
++          return target ? defaultPlacement(target.platform) : '';
++        })(rawVariant.placement, rawVariant.accountId),
+         driveVersion: Math.max(1, num(rawVariant.driveVersion) || 1),
+         createdAt: cleanText(rawVariant.createdAt, 40) || nowISO(),
+         updatedAt: cleanText(rawVariant.updatedAt, 40) || nowISO(),
+@@ -533,7 +599,9 @@
+          ou o carregamento local pediu migração, ou o registro do schema 3 estava
+          íntegro sob as regras do próprio schema 3. */
+       var v3Ok = !!(src.__v3ApprovedOk && src.__v3ApprovedOk[variantId]);
+-      if ((legacy || v3Ok) && variant.approval === 'approved'
++      var prePlacementOk = !hadPlacement && variant.approval === 'approved'
++        && variant.approvedSnapshot === sensitiveSnapshotPrePlacement(resolved);
++      if ((legacy || v3Ok || prePlacementOk) && variant.approval === 'approved'
+           && !approvalIssues(resolved, account).length
+           && (variant.publication !== 'published' || safeUrl(variant.publishedUrl))) {
+         variant.approvedSnapshot = sensitiveSnapshot(resolveVariant(clean, variant));
+@@ -570,6 +638,7 @@
+         accountId: has(clean.accounts, rawLog.accountId) ? cleanText(rawLog.accountId, 100) : ''
+       });
+     });
++    clean.logs = trimLogs(clean.logs);
+     return clean;
+   }
+ 
+@@ -615,8 +684,17 @@
+       return false;
+     }
+   }
++  /* O histórico é append-only e roda em quase toda ação. Sem poda ele enche a cota do
++     localStorage e passa a impedir QUALQUER gravação — o painel inteiro trava por causa
++     de log. Mantém as entradas mais recentes; o backup JSON preserva o que sair daqui.
++     ponytail: corte simples por contagem; se algum dia importar auditoria completa,
++     exportar antes de podar. */
++  function trimLogs(logs) {
++    return logs.length > LOG_LIMIT ? logs.slice(logs.length - LOG_LIMIT) : logs;
++  }
+   function addLog(action, message, variantId, accountId) {
+     STATE.logs.push({ id: uid('log'), at: nowISO(), action: action, message: message || '', videoId: variantId || '', accountId: accountId || '' });
++    STATE.logs = trimLogs(STATE.logs);
+   }
+   function accountOf(id) { return findById(STATE.accounts, id); }
+   function activeAccount() { return accountOf(ACTIVE_ACCOUNT) || STATE.accounts[0] || null; }
+@@ -646,6 +724,10 @@
+     if (!String(video.scheduledAt || '').trim()) issues.push('data e horário');
+     if (!String(video.platform || '').trim()) issues.push('plataforma');
+     else if (account && Array.isArray(account.platforms) && account.platforms.indexOf(video.platform) < 0) issues.push('plataforma vinculada à conta');
++    /* Destinos legados fora de TikTok/Instagram continuam legíveis e não inventam formato. */
++    if ('placement' in video && placementsFor(video.platform).length) {
++      placementIssues(video.placement, video.platform).forEach(function (issue) { issues.push(issue); });
++    }
+     return issues;
+   }
+   function publishingIssues(video, account, options) {
+@@ -671,15 +753,18 @@
+ 
+   /* Qualquer mudança aqui derruba a aprovação anterior. Inclui o recorte, a autorização
+      usada e o estado da fonte, além dos campos que já existiam no schema 3. */
+-  function sensitiveSnapshot(video) {
+-    return JSON.stringify([
++  function snapshotValues(video) {
++    return [
+       video.accountId, storedSourceKeys(video), video.kind, video.platform, video.title,
+       video.caption, video.hashtags, video.scheduledAt, !!video.rightsConfirmed, !!video.nicheConfirmed,
+       video.clip ? [num(video.clip.inSec), num(video.clip.outSec)] : null,
+       video.permission ? video.permission.id : '',
+       video.sourceStatus || ''
+-    ]);
++    ];
+   }
++  /* Forma da F1.1, usada só para reconhecer uma aprovação legítima anterior ao placement. */
++  function sensitiveSnapshotPrePlacement(video) { return JSON.stringify(snapshotValues(video)); }
++  function sensitiveSnapshot(video) { return JSON.stringify(snapshotValues(video).concat([video.placement || ''])); }
+   function dailyGoal(videos, accountId, day) {
+     var planned = (videos || []).filter(function (video) {
+       return video.accountId === accountId
+@@ -724,8 +809,12 @@
+       var ea = engagement(a), eb = engagement(b);
+       return (eb.rate - ea.rate) || (eb.interactions - ea.interactions) || (eb.views - ea.views);
+     });
++    /* Soma só o que foi medido e conta separadamente quem não foi. Um total sem essa
++       contagem faria 3 posts não medidos parecerem 3 posts com desempenho zero. */
++    var unmeasured = 0;
+     var totals = published.reduce(function (sum, video) {
+       var m = video.metrics || {};
++      if (!metricMeasured(m)) { unmeasured++; return sum; }
+       sum.views += num(m.views); sum.likes += num(m.likes);
+       sum.comments += num(m.comments); sum.shares += num(m.shares);
+       return sum;
+@@ -745,7 +834,7 @@
+       days: Number(days) || 7, period: period, published: published,
+       rejected: period.filter(function (video) { return video.approval === 'rejected'; }),
+       errors: period.filter(function (video) { return video.publication === 'error'; }),
+-      totals: totals, best: ranked[0] || null,
++      totals: totals, unmeasured: unmeasured, best: ranked[0] || null,
+       worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
+       bestHour: bestHour ? bestHour + ':00' : ''
+     };
+@@ -851,6 +940,7 @@
+         conta: resolved.account ? resolved.account.name : '',
+         handle: resolved.account && resolved.account.handle ? '@' + resolved.account.handle : '',
+         plataforma: platformLabel(resolved.platform),
++        formato: placementLabel(resolved.placement),
+         modoDePublicacao: PUBLISH_MODE_LABEL[resolved.account ? resolved.account.publishMode : 'manual']
+       },
+       conteudo: {
+@@ -884,7 +974,7 @@
+   function packageText(pkg) {
+     if (!pkg) return '';
+     var lines = ['CHECKLIST DE PUBLICAÇÃO MANUAL', ''];
+-    lines.push('Destino: ' + pkg.destino.plataforma + ' · ' + pkg.destino.conta + (pkg.destino.handle ? ' (' + pkg.destino.handle + ')' : ''));
++    lines.push('Destino: ' + pkg.destino.plataforma + ' · ' + pkg.destino.formato + ' · ' + pkg.destino.conta + (pkg.destino.handle ? ' (' + pkg.destino.handle + ')' : ''));
+     lines.push('Agendado para: ' + (pkg.conteudo.agendadoPara || 'sem horário'));
+     lines.push('');
+     lines.push('Título: ' + pkg.conteudo.titulo);
+@@ -918,7 +1008,7 @@
+   function toCsv(state) {
+     var accountMap = Object.create(null);
+     (state.accounts || []).forEach(function (account) { accountMap[account.id] = account; });
+-    var headers = ['Conta', 'Nicho', 'Vídeo', 'Origem', 'Encontrado em', 'Tipo', 'Drive', 'Título', 'Legenda', 'Hashtags', 'Programado', 'Plataforma', 'Aprovação', 'Publicação', 'Link publicado', 'Visualizações', 'Curtidas', 'Comentários', 'Compartilhamentos', 'Erro', 'Criador', 'Autorização', 'Status da fonte', 'Corte (s)', 'Caminho no Drive', 'Estado no Drive'];
++    var headers = ['Conta', 'Nicho', 'Vídeo', 'Origem', 'Encontrado em', 'Tipo', 'Drive', 'Título', 'Legenda', 'Hashtags', 'Programado', 'Plataforma', 'Formato', 'Aprovação', 'Publicação', 'Link publicado', 'Visualizações', 'Curtidas', 'Comentários', 'Compartilhamentos', 'Erro', 'Criador', 'Autorização', 'Status da fonte', 'Corte (s)', 'Caminho no Drive', 'Estado no Drive'];
+     var rows = reportItems(state).map(function (video) {
+       var account = accountMap[video.accountId] || {};
+       var metrics = video.metrics || {};
+@@ -927,9 +1017,15 @@
+       return [
+         account.name, account.niche, video.name, video.sourceUrl, video.foundAt,
+         KIND_LABEL[video.kind] || video.kind, video.driveUrl, video.title, video.caption, video.hashtags,
+-        video.scheduledAt, platformLabel(video.platform) || video.platform,
++        video.scheduledAt, platformLabel(video.platform) || video.platform, placementLabel(video.placement),
+         APPROVAL_LABEL[video.approval] || video.approval, PUBLICATION_LABEL[video.publication] || video.publication,
+-        video.publishedUrl, num(metrics.views), num(metrics.likes), num(metrics.comments), num(metrics.shares), video.error,
++        video.publishedUrl,
++        /* Célula vazia = não medido. Zero na planilha seria uma medição falsa. */
++        metrics.views === null || metrics.views === undefined ? '' : num(metrics.views),
++        metrics.likes === null || metrics.likes === undefined ? '' : num(metrics.likes),
++        metrics.comments === null || metrics.comments === undefined ? '' : num(metrics.comments),
++        metrics.shares === null || metrics.shares === undefined ? '' : num(metrics.shares),
++        video.error,
+         video.creator ? video.creator.name : '',
+         video.permission ? (PERMISSION_TYPE_LABEL[video.permission.type] + ' · ' + PERMISSION_STATUS_LABEL[video.permission.status]) : '',
+         video.sourceStatus ? (SOURCE_STATUS_LABEL[video.sourceStatus] || video.sourceStatus) : '',
+@@ -952,7 +1048,11 @@
+     if (Number.isNaN(d.getTime())) return value;
+     return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(d);
+   }
+-  function metric(value) { return new Intl.NumberFormat('pt-BR', { notation: value >= 10000 ? 'compact' : 'standard' }).format(num(value)); }
++  /* Não medido aparece como travessão. Nunca como "0". */
++  function metric(value) {
++    if (value === null || value === undefined) return '—';
++    return new Intl.NumberFormat('pt-BR', { notation: value >= 10000 ? 'compact' : 'standard' }).format(num(value));
++  }
+   function chip(cls, text) { return '<span class="vop-chip ' + esc(cls) + '">' + esc(text) + '</span>'; }
+ 
+   function refreshBadge() {
+@@ -981,6 +1081,7 @@
+   function tabsHTML() {
+     var pending = STATE.variants.filter(function (v) { return v.approval === 'pending' || v.approval === 'changes'; }).length;
+     var tabs = [
++      ['overview', 'Visão geral', STATE.accounts.length],
+       ['queue', 'Fila', pending || STATE.variants.length],
+       ['sources', 'Fontes', STATE.sources.length],
+       ['creators', 'Criadores', STATE.creators.length],
+@@ -1026,7 +1127,9 @@
+   function filteredVariants(account) {
+     var query = SEARCH.toLowerCase();
+     return resolveAll(STATE).filter(function (v) {
+-      if (v.accountId !== account.id) return false;
++      if (account && v.accountId !== account.id) return false;
++      if (!account && OVERVIEW_PLATFORM !== 'all' && v.platform !== OVERVIEW_PLATFORM) return false;
++      if (!account && OVERVIEW_LINE !== 'all' && (!v.account || v.account.editorialLineId !== OVERVIEW_LINE)) return false;
+       if (FILTER === 'pending' && v.approval !== 'pending' && v.approval !== 'changes') return false;
+       if (FILTER === 'approved' && v.approval !== 'approved') return false;
+       if (FILTER === 'scheduled' && v.publication !== 'scheduled') return false;
+@@ -1034,7 +1137,9 @@
+       if (FILTER === 'error' && v.publication !== 'error') return false;
+       if (FILTER === 'rejected' && v.approval !== 'rejected') return false;
+       if (FILTER === 'rights' && v.rightsConfirmed) return false;
+-      if (query && [v.name, v.title, v.platform, v.sourceUrl, v.hashtags, v.creator && v.creator.name].join(' ').toLowerCase().indexOf(query) < 0) return false;
++      if (query && [v.name, v.title, v.platform, placementLabel(v.placement), v.sourceUrl, v.hashtags,
++        v.creator && v.creator.name, v.account && v.account.name, v.account && v.account.handle]
++        .join(' ').toLowerCase().indexOf(query) < 0) return false;
+       return true;
+     }).sort(function (a, b) {
+       var aa = a.scheduledAt || '9999', bb = b.scheduledAt || '9999';
+@@ -1054,7 +1159,7 @@
+       + '<div class="vop-video-main"><div class="vop-video-top"><span class="vop-kind">' + esc(KIND_LABEL[v.kind] || v.kind) + '</span>'
+       + chip('approval-' + v.approval, APPROVAL_LABEL[v.approval] || v.approval)
+       + chip('publication-' + v.publication, PUBLICATION_LABEL[v.publication] || v.publication)
+-      + chip('vop-chip-platform', platformLabel(v.platform)) + '</div>'
++      + chip('vop-chip-platform', platformLabel(v.platform)) + chip('vop-chip-quiet', placementLabel(v.placement)) + '</div>'
+       + '<h3>' + esc(v.title || v.name) + '</h3><p>' + esc(v.name) + (v.creator ? ' · ' + esc(v.creator.name) : '') + '</p>'
+       + '<div class="vop-video-meta"><span>' + esc(v.account ? (v.account.handle ? '@' + v.account.handle : v.account.name) : '') + '</span><span>' + esc(fmtDateTime(v.scheduledAt)) + '</span>'
+       + (source ? '<a href="' + esc(source) + '" target="_blank" rel="noopener">Abrir origem ↗</a>' : '<span>Arquivo local</span>') + '</div>'
+@@ -1065,20 +1170,64 @@
+       + (v.publication === 'published' ? '<div class="vop-mini-metrics"><strong>' + metric(v.metrics.views) + '</strong><span>views</span><small>' + metric(num(v.metrics.likes) + num(v.metrics.comments) + num(v.metrics.shares)) + ' interações</small></div>' : '')
+       + '<button class="vop-btn vop-btn-secondary" type="button" data-act="variant-open" data-id="' + esc(v.id) + '">Revisar</button></div></article>';
+   }
++  function visibleSlice(items, count) {
++    return (Array.isArray(items) ? items : []).slice(0, Math.max(0, num(count)));
++  }
+   function listInnerHTML(account) {
+     var items = filteredVariants(account);
+     if (!items.length) return '<div class="vop-list-empty">Nenhuma variante corresponde a este filtro.</div>';
+-    return items.map(variantCardHTML).join('');
++    var visible = visibleSlice(items, VISIBLE_COUNT);
++    var remaining = items.length - visible.length;
++    return visible.map(variantCardHTML).join('')
++      + '<div class="vop-list-foot"><span>Mostrando ' + visible.length + ' de ' + items.length + ' variante(s)</span>'
++      + (remaining ? '<button class="vop-btn vop-btn-secondary" type="button" data-act="load-more">Carregar mais ' + Math.min(PAGE_SIZE, remaining) + '</button>' : '') + '</div>';
+   }
+-  function queueHTML(account) {
++  function filtersHTML() {
+     var filters = [['all', 'Todas'], ['pending', 'Para aprovar'], ['approved', 'Aprovadas'], ['scheduled', 'Agendadas'], ['published', 'Publicadas'], ['error', 'Erros'], ['rejected', 'Rejeitadas'], ['rights', 'Sem direitos']];
++    return '<div class="vop-filters">' + filters.map(function (f) {
++      return '<button type="button" data-act="filter" data-filter="' + f[0] + '" aria-pressed="' + (FILTER === f[0]) + '" class="' + (FILTER === f[0] ? 'active' : '') + '">' + f[1] + '</button>';
++    }).join('') + '</div>';
++  }
++  function queueSectionHTML(account, consolidated) {
++    var scopes = '';
++    if (consolidated) {
++      var platforms = [['all', 'Todas as plataformas']].concat(labelPairs(PLATFORM_LABEL));
++      var lines = [['all', 'Todas as linhas']].concat(STATE.editorialLines.map(function (line) { return [line.id, line.name]; }));
++      scopes = '<div class="vop-scope-filters">'
++        + selectField('Plataforma', 'overviewPlatform', platforms, OVERVIEW_PLATFORM, 'data-act="overview-platform"')
++        + selectField('Linha editorial', 'overviewLine', lines, OVERVIEW_LINE, 'data-act="overview-line"') + '</div>';
++    }
++    return '<section class="vop-section"><div class="vop-section-head"><div><span class="vop-eyebrow">Pipeline</span><h2>'
++      + (consolidated ? 'Fila consolidada' : 'Variantes desta conta') + '</h2></div>'
++      + '<div class="vop-tools"><input class="vop-search" type="search" data-act="search" value="' + esc(SEARCH) + '" placeholder="Buscar corte, conta, criador…" aria-label="Buscar"><button class="vop-btn vop-btn-primary" type="button" data-act="clip-add">＋ Corte</button></div></div>'
++      + scopes + filtersHTML() + '<div class="vop-video-list" data-vop-list>' + listInnerHTML(account) + '</div></section>';
++  }
++  function queueHTML(account) {
+     if (!STATE.sources.length) return goalHTML(account) + emptyHTML('Registre a primeira fonte', 'Cadastre o criador, a autorização e a live ou podcast antes de criar cortes.', 'source-add', 'Registrar fonte');
+-    return goalHTML(account)
+-      + '<section class="vop-section"><div class="vop-section-head"><div><span class="vop-eyebrow">Pipeline</span><h2>Variantes desta conta</h2></div>'
+-      + '<div class="vop-tools"><input class="vop-search" type="search" data-act="search" value="' + esc(SEARCH) + '" placeholder="Buscar corte, criador…" aria-label="Buscar"><button class="vop-btn vop-btn-primary" type="button" data-act="clip-add">＋ Corte</button></div></div>'
+-      + '<div class="vop-filters">' + filters.map(function (f) {
+-        return '<button type="button" data-act="filter" data-filter="' + f[0] + '" aria-pressed="' + (FILTER === f[0]) + '" class="' + (FILTER === f[0] ? 'active' : '') + '">' + f[1] + '</button>';
+-      }).join('') + '</div><div class="vop-video-list" data-vop-list>' + listInnerHTML(account) + '</div></section>';
++    return goalHTML(account) + queueSectionHTML(account, false);
++  }
++  function overviewHTML() {
++    var all = resolveAll(STATE);
++    var today = localDay();
++    var weekStart = Date.now() - 7 * 86400000;
++    var pending = all.filter(function (v) { return v.approval === 'pending' || v.approval === 'changes'; }).length;
++    var plannedToday = all.filter(function (v) { return String(v.scheduledAt || '').slice(0, 10) === today && v.approval !== 'rejected'; }).length;
++    var publishedWeek = all.filter(function (v) { return v.publication === 'published' && Date.parse(eventDate(v)) >= weekStart; }).length;
++    var cards = STATE.accounts.map(function (account) {
++      var items = all.filter(function (v) { return v.accountId === account.id; });
++      var attention = items.filter(function (v) { return v.approval === 'pending' || v.approval === 'changes' || v.publication === 'error'; }).length;
++      var todayCount = items.filter(function (v) { return String(v.scheduledAt || '').slice(0, 10) === today && v.approval !== 'rejected'; }).length;
++      return '<button class="vop-overview-account" type="button" data-act="open-account-queue" data-id="' + esc(account.id) + '">'
++        + '<span>' + esc(platformLabel(account.platform)) + (account.paused ? ' · pausada' : '') + '</span><strong>' + esc(account.handle ? '@' + account.handle : account.name) + '</strong>'
++        + '<small>' + todayCount + ' hoje · ' + attention + ' pedem atenção</small></button>';
++    }).join('');
++    return '<section class="vop-section"><div class="vop-section-head"><div><span class="vop-eyebrow">Sala de controle</span><h2>Visão das contas</h2><p class="vop-form-note">Abra uma conta para ver sua meta diária ou filtre a fila completa abaixo.</p></div></div>'
++      + '<div class="vop-report-grid"><div class="vop-stat"><span>Contas ativas</span><strong>' + STATE.accounts.filter(function (a) { return !a.paused; }).length + '</strong><small>de ' + STATE.accounts.length + '</small></div>'
++      + '<div class="vop-stat"><span>Pedem aprovação</span><strong>' + pending + '</strong><small>pendentes ou com ajustes</small></div>'
++      + '<div class="vop-stat"><span>Planejadas hoje</span><strong>' + plannedToday + '</strong><small>em todas as contas</small></div>'
++      + '<div class="vop-stat"><span>Publicadas em 7 dias</span><strong>' + publishedWeek + '</strong><small>confirmação manual</small></div></div>'
++      + '<div class="vop-overview-accounts">' + cards + '</div></section>'
++      + (STATE.sources.length ? queueSectionHTML(null, true) : emptyHTML('Registre a primeira fonte', 'Cadastre criador, autorização e origem antes de criar cortes.', 'source-add', 'Registrar fonte'));
+   }
+   function sourcesHTML() {
+     if (!STATE.creators.length) return emptyHTML('Cadastre o primeiro criador', 'A autorização de cortes é registrada por criador e reaproveitada nas fontes dele.', 'creator-add', 'Cadastrar criador');
+@@ -1173,7 +1322,9 @@
+       + '<div class="vop-report-range">' + [7, 30, 90].map(function (days) { return '<button type="button" data-act="report-range" data-days="' + days + '" aria-pressed="' + (REPORT_DAYS === days) + '" class="' + (REPORT_DAYS === days ? 'active' : '') + '">' + (days === 7 ? 'Semanal' : days === 30 ? 'Mensal' : '90 dias') + '</button>'; }).join('') + '</div></div>'
+       + '<div class="vop-report-grid">'
+       + '<div class="vop-stat"><span>Publicados</span><strong>' + report.published.length + '</strong><small>nos últimos ' + report.days + ' dias</small></div>'
+-      + '<div class="vop-stat"><span>Visualizações</span><strong>' + metric(report.totals.views) + '</strong><small>' + metric(report.totals.likes + report.totals.comments + report.totals.shares) + ' interações</small></div>'
++      + '<div class="vop-stat"><span>Visualizações</span><strong>' + metric(report.totals.views) + '</strong><small>'
++      + metric(report.totals.likes + report.totals.comments + report.totals.shares) + ' interações'
++      + (report.unmeasured ? ' · ' + report.unmeasured + ' post(s) sem medição' : '') + '</small></div>'
+       + '<div class="vop-stat"><span>Erros</span><strong>' + report.errors.length + '</strong><small>' + report.rejected.length + ' rejeitados</small></div>'
+       + '<div class="vop-stat"><span>Melhor horário</span><strong>' + esc(report.bestHour || '—') + '</strong><small>por taxa de engajamento</small></div></div>'
+       + '<div class="vop-performance"><article><span>Melhor desempenho</span><h3>' + esc(report.best ? (report.best.title || report.best.name) : 'Sem dados publicados') + '</h3>' + (best ? '<p>' + (best.rate * 100).toFixed(2).replace('.', ',') + '% de engajamento</p>' : '') + '</article>'
+@@ -1200,6 +1351,7 @@
+     else if (TAB === 'creators') body = creatorsHTML();
+     else if (TAB === 'sources') body = sourcesHTML();
+     else if (TAB === 'reports') body = reportsHTML(account);
++    else if (TAB === 'overview') body = overviewHTML();
+     else body = queueHTML(account);
+     root.innerHTML = headerHTML() + tabsHTML() + '<main class="vop-body">' + migrationNoticeHTML() + body + '</main>' + fileInput;
+     refreshBadge();
+@@ -1207,8 +1359,16 @@
+   function refreshList() {
+     var root = document.getElementById('video-ops-root');
+     var list = root && root.querySelector('[data-vop-list]');
+-    var account = activeAccount();
+-    if (list && account) list.innerHTML = listInnerHTML(account);
++    var account = TAB === 'overview' ? null : activeAccount();
++    if (list && (account || TAB === 'overview')) list.innerHTML = listInnerHTML(account);
++  }
++  function renderKeepingScroll() {
++    var x = typeof window !== 'undefined' ? num(window.scrollX) : 0;
++    var y = typeof window !== 'undefined' ? num(window.scrollY) : 0;
++    render();
++    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
++      requestAnimationFrame(function () { window.scrollTo(x, y); });
++    }
+   }
+   function ensureToast() {
+     if (TOAST) return TOAST;
+@@ -1413,6 +1573,8 @@
+     var path = drivePathFor(v);
+     var artifact = artifactOf(STATE, v.id);
+     var warnings = v.permission ? permissionWarnings(v.permission) : ['autorização vinculada'];
++    var placement = PLACEMENTS[v.placement];
++    var placementPairs = placementsFor(v.platform).map(function (id) { return [id, PLACEMENTS[id].label]; });
+     var actions = '';
+     if (v.publication !== 'published') {
+       if (v.approval !== 'approved') actions += '<button class="vop-btn vop-btn-primary" type="button" data-dialog-act="approve">Aprovar e agendar</button>';
+@@ -1425,6 +1587,8 @@
+       + '<div class="vop-dialog-layout"><div class="vop-dialog-fields"><div class="vop-form-grid">'
+       + '<div class="vop-field vop-field-wide vop-destination"><span>Destino</span><strong>' + esc(platformLabel(v.platform)) + ' · ' + esc(v.account ? v.account.name : '') + '</strong>'
+       + '<code>' + esc(v.account && v.account.handle ? '@' + v.account.handle : 'sem @handle cadastrado') + '</code></div>'
++      + (placementPairs.length ? selectField('Formato de publicação', 'placement', placementPairs, v.placement, 'required', true) : '')
++      + (placement ? '<div class="vop-format-note vop-field-wide" data-placement-help><strong data-placement-spec>' + esc(placement.aspect) + ' · ' + esc(placement.container) + '</strong><span data-placement-copy>' + esc(placement.help) + '</span></div>' : '')
+       + '<label class="vop-field vop-field-wide"><span>Título</span><input name="title" value="' + esc(v.title) + '" maxlength="180"><button class="vop-inline-action" type="button" data-dialog-act="suggest-copy">Sugerir texto local</button></label>'
+       + areaField('Legenda', 'caption', v.caption, 4, 'maxlength="2200"')
+       + '<label class="vop-field vop-field-wide"><span>Hashtags</span><input name="hashtags" value="' + esc(v.hashtags) + '" maxlength="500"></label>'
+@@ -1540,7 +1704,11 @@
+     account.publishMode = PUBLISH_MODES.indexOf(String(data.get('publishMode'))) >= 0 ? String(data.get('publishMode')) : 'manual';
+     account.driveRoot = safeUrl(driveRootRaw);
+     addLog(form.dataset.id ? 'account_updated' : 'account_created', name, '', account.id);
+-    STATE.variants.forEach(function (v) { if (v.accountId === account.id) syncDriveArtifact(v); });
++    STATE.variants.forEach(function (v) {
++      if (v.accountId !== account.id) return;
++      if (placementIssues(v.placement, account.platform).length) v.placement = defaultPlacement(account.platform);
++      syncDriveArtifact(v);
++    });
+     var invalidated = revalidate('Dados da conta mudaram; o destino precisa de nova aprovação.');
+     if (!commit(before, null, 'accounts')) { ACTIVE_ACCOUNT = activeBefore; return; }
+     toast((form.dataset.id ? 'Conta atualizada.' : 'Conta criada.') + (invalidated ? ' ' + invalidated + ' aprovação(ões) voltaram para pendente.' : ''));
+@@ -1677,10 +1845,11 @@
+         var copy = suggestCopy(candidate.topic, account.niche);
+         var variant = {
+           id: uid('var'), clipId: candidate.id, accountId: account.id,
++          placement: defaultPlacement(account.platform),
+           title: copy.title, caption: copy.caption, hashtags: copy.hashtags,
+           scheduledAt: suggestSlot(resolveAll(STATE), account.id, candidate.kind, new Date()),
+           nicheConfirmed: false, reviewNote: '', publishedUrl: '', error: '',
+-          metrics: { views: 0, likes: 0, comments: 0, shares: 0 },
++          metrics: metricsOf(null),
+           approval: 'pending', publication: 'draft', approvedSnapshot: '', driveVersion: 1,
+           createdAt: nowISO(), updatedAt: nowISO(), publishedAt: ''
+         };
+@@ -1700,6 +1869,7 @@
+   function readVariantForm(form, existing) {
+     var data = new FormData(form);
+     return Object.assign({}, existing, {
++      placement: cleanText(data.get('placement'), 40) || existing.placement,
+       title: cleanText(data.get('title'), 180),
+       caption: cleanText(data.get('caption'), 2200),
+       hashtags: cleanText(data.get('hashtags'), 500),
+@@ -1708,7 +1878,7 @@
+       reviewNote: cleanText(data.get('reviewNote'), 2000),
+       publishedUrl: cleanText(data.get('publishedUrl'), 500),
+       error: cleanText(data.get('error'), 2000),
+-      metrics: { views: num(data.get('views')), likes: num(data.get('likes')), comments: num(data.get('comments')), shares: num(data.get('shares')) },
++      metrics: metricsOf({ views: data.get('views'), likes: data.get('likes'), comments: data.get('comments'), shares: data.get('shares') }),
+       updatedAt: nowISO()
+     });
+   }
+@@ -1729,6 +1899,7 @@
+     var changed = sensitiveSnapshot(previous) !== sensitiveSnapshot(resolved);
+ 
+     function fail(message) { STATE = JSON.parse(before); toast(message, 'error'); return false; }
++    if (placementIssues(variant.placement, resolved.platform).length) return fail('Escolha um formato compatível com a plataforma da conta.');
+     if (existing.publication === 'published' && !safeUrl(variant.publishedUrl)) return fail('Uma publicação concluída precisa manter o link da postagem.');
+     if (changed && existing.publication === 'published') return fail('Conteúdo publicado fica preservado. Atualize somente link, métricas, erro ou observações.');
+     if (existing.publication === 'published' && action !== 'save') return fail('A publicação concluída fica preservada no histórico.');
+@@ -1807,6 +1978,16 @@
+ 
+   function onDialogChange(event) {
+     var target = event.target;
++    if (target.name === 'placement') {
++      var details = PLACEMENTS[target.value];
++      var help = DIALOG.querySelector('[data-placement-help]');
++      if (details && help) {
++        var spec = help.querySelector('[data-placement-spec]');
++        var copy = help.querySelector('[data-placement-copy]');
++        if (spec) spec.textContent = details.aspect + ' · ' + details.container;
++        if (copy) copy.textContent = details.help;
++      }
++    }
+     if (target.name === 'creatorId' && DIALOG.querySelector('select[name=permissionId]')) {
+       var perms = STATE.permissions.filter(function (p) { return p.creatorId === target.value; });
+       var select = DIALOG.querySelector('select[name=permissionId]');
+@@ -1914,21 +2095,32 @@
+     }).catch(function () { toast('O arquivo não é um backup válido do Estúdio de Vídeos.', 'error'); });
+   }
+   function onRootChange(event) {
+-    if (event.target.matches('[data-act=account-select]')) { ACTIVE_ACCOUNT = event.target.value; render(); return; }
++    if (event.target.matches('[data-act=account-select]')) { ACTIVE_ACCOUNT = event.target.value; VISIBLE_COUNT = PAGE_SIZE; render(); return; }
+     if (event.target.matches('[data-act=plan-day]')) { PLAN_DAY = event.target.value || localDay(); render(); return; }
++    if (event.target.matches('[data-act=overview-platform]')) { OVERVIEW_PLATFORM = event.target.value || 'all'; VISIBLE_COUNT = PAGE_SIZE; refreshList(); return; }
++    if (event.target.matches('[data-act=overview-line]')) { OVERVIEW_LINE = event.target.value || 'all'; VISIBLE_COUNT = PAGE_SIZE; refreshList(); return; }
+     if (event.target.id === 'vop-import-file' && event.target.files[0]) importBackup(event.target.files[0]);
+   }
+   function onRootInput(event) {
+     if (!event.target.matches('[data-act=search]')) return;
+     SEARCH = event.target.value;
++    VISIBLE_COUNT = PAGE_SIZE;
+     refreshList();
+   }
+   function onRootClick(event) {
+     var button = event.target.closest('[data-act]');
+     if (!button) return;
+     var action = button.dataset.act;
+-    if (action === 'tab') { TAB = button.dataset.tab; render(); }
+-    else if (action === 'filter') { FILTER = button.dataset.filter; render(); }
++    if (action === 'tab') { TAB = button.dataset.tab; VISIBLE_COUNT = PAGE_SIZE; render(); }
++    else if (action === 'filter') { FILTER = button.dataset.filter; VISIBLE_COUNT = PAGE_SIZE; renderKeepingScroll(); }
++    else if (action === 'load-more') { VISIBLE_COUNT += PAGE_SIZE; refreshList(); }
++    else if (action === 'open-account-queue') {
++      if (!accountOf(button.dataset.id)) return;
++      ACTIVE_ACCOUNT = button.dataset.id;
++      TAB = 'queue';
++      VISIBLE_COUNT = PAGE_SIZE;
++      render();
++    }
+     else if (action === 'line-add') openLineDialog();
+     else if (action === 'line-edit') openLineDialog(button.dataset.id);
+     else if (action === 'account-add') openAccountDialog();
+@@ -2002,7 +2194,13 @@
+       publishingIssues: publishingIssues,
+       clipIssues: clipIssues,
+       clipUnmarked: clipUnmarked,
++      placementsFor: placementsFor,
++      placementIssues: placementIssues,
++      defaultPlacement: defaultPlacement,
++      placementLabel: placementLabel,
+       sensitiveSnapshot: sensitiveSnapshot,
++      sensitiveSnapshotPrePlacement: sensitiveSnapshotPrePlacement,
++      visibleSlice: visibleSlice,
+       dailyGoal: dailyGoal,
+       engagement: engagement,
+       buildReport: buildReport,
+@@ -2016,7 +2214,12 @@
+       driveTree: driveTree,
+       publicationPackage: publicationPackage,
+       packageText: packageText,
++      metricsOf: metricsOf,
++      metricMeasured: metricMeasured,
++      metric: metric,
++      trimLogs: trimLogs,
+       BACKUP_V3_KEY: BACKUP_V3_KEY,
++      LOG_LIMIT: LOG_LIMIT,
+       SCHEMA_VERSION: SCHEMA_VERSION
+     };
+   }

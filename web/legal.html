@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termos e Privacidade — Cortes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#0f0f10; --surface:#19191b; --border:#303034; --accent:#e31837;
+        --text:#f2f2f2; --text-dim:#a1a1a6; --text-muted:#68686e; }
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0 }
+html,body { background:var(--bg); color:var(--text); font-size:14px; line-height:1.65;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif }
+a { color:var(--text-dim) }
+a:focus-visible { outline:2px solid var(--accent); outline-offset:2px }
+.wrap { max-width:74ch; margin:0 auto; padding:32px 18px 64px; display:grid; gap:22px }
+h1 { font-size:21px; letter-spacing:-.03em }
+h2 { font-size:16px; letter-spacing:-.02em; margin-bottom:8px }
+h3 { font-size:13px; margin:16px 0 4px }
+p, li { color:var(--text-dim); font-size:13px }
+ul { padding-left:20px; display:grid; gap:4px }
+section { border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:20px }
+.rev { border:1px solid rgba(241,183,72,.24); background:rgba(241,183,72,.08); color:#e6c680;
+  border-radius:8px; padding:10px 12px; font-size:12px }
+.meta { color:var(--text-muted); font-size:11.5px }
+strong { color:var(--text) }
+code { font-size:12px }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1><a href="index.html">Cortes</a> — Termos e Privacidade</h1>
+
+  <p class="rev"><strong>Este texto descreve o que o serviço faz, com precisão técnica.
+  Ele não foi revisado por advogado.</strong> Antes de cobrar por qualquer plano, de criar
+  contas de usuário ou de guardar dado pessoal além do descrito aqui, passe por revisão
+  jurídica. Ver <code>docs/LANCAMENTO-decisoes.md</code>, Prova B.</p>
+
+  <section id="privacidade">
+    <h2>Privacidade</h2>
+
+    <h3>O que sai do seu navegador</h3>
+    <ul>
+      <li>O endereço (URL) do vídeo que você cola.</li>
+      <li>Um token de verificação anti-robô do Cloudflare Turnstile, quando ativo.</li>
+    </ul>
+
+    <h3>O que guardamos</h3>
+    <p><strong>Nada.</strong> Não há conta, login nem banco de dados nesta versão. O serviço de
+    análise não escreve em disco: recebe a URL, consulta o YouTube, devolve os trechos e
+    esquece. A página não usa <code>localStorage</code>, <code>sessionStorage</code> nem cookie
+    próprio — recarregar zera tudo.</p>
+    <p>O que existe são <strong>registros técnicos temporários</strong> do servidor (método, rota
+    e código de resposta HTTP, sem a URL colada), retidos pelo provedor de hospedagem conforme a
+    política dele.</p>
+
+    <h3>Terceiros envolvidos</h3>
+    <ul>
+      <li><strong>YouTube / Google</strong> — a consulta de metadados e legenda é feita ao
+        YouTube, e a prévia do trecho é um player incorporado deles. Ao abrir a prévia, você
+        interage diretamente com o YouTube, sob a política dele.</li>
+      <li><strong>Cloudflare</strong> — hospeda a página e faz a verificação anti-robô.</li>
+      <li><strong>Google Fonts</strong> — serve a tipografia da página.</li>
+    </ul>
+
+    <h3>Seus direitos (LGPD)</h3>
+    <p>Como não guardamos dado pessoal nesta versão, não há cadastro a acessar, corrigir ou
+    apagar. Se isso mudar — e muda no momento em que existirem contas — este texto muda antes,
+    e o canal de contato passa a constar aqui.</p>
+  </section>
+
+  <section id="termos">
+    <h2>Termos de uso</h2>
+
+    <h3>O que o serviço faz</h3>
+    <p>Lê informação que o YouTube publica sobre um vídeo — duração, capítulos, legenda e o
+    gráfico "Mais reproduzidos" — e sugere quais trechos têm mais chance de virar corte.
+    <strong>Nenhum byte de vídeo é baixado pelo serviço.</strong></p>
+
+    <h3>O que o serviço não faz</h3>
+    <p>Não baixa, não armazena, não converte e não redistribui vídeo. Cortar e renderizar
+    acontece no Estúdio que roda na sua própria máquina, e é lá que você declara ter
+    autorização do criador.</p>
+
+    <h3>Sua responsabilidade</h3>
+    <p>A sugestão é uma indicação de onde olhar, não uma licença. <strong>Baixar, editar ou
+    publicar trecho de vídeo de terceiro sem autorização do titular é violação de direito
+    autoral</strong>, e a responsabilidade por isso é de quem publica. Use o serviço em
+    conteúdo próprio ou com autorização.</p>
+
+    <h3>Sem garantia</h3>
+    <p>A sugestão é automática e pode errar: o "assunto provável" é palpite tirado das palavras
+    da legenda, e a legenda automática do YouTube contém erros de transcrição. O serviço é
+    oferecido no estado em que se encontra, sem garantia de disponibilidade, de exatidão ou de
+    adequação a qualquer finalidade.</p>
+
+    <h3>Uso aceitável</h3>
+    <p>É proibido automatizar requisições, contornar a verificação anti-robô ou usar o serviço
+    como intermediário para extrair dados do YouTube em escala. Requisições podem ser limitadas
+    ou recusadas.</p>
+
+    <h3>Mudanças</h3>
+    <p>Estes termos podem mudar. A versão em vigor é a publicada nesta página.</p>
+  </section>
+
+  <p class="meta">Última atualização: 26 de agosto de 2026 · <a href="index.html">voltar</a></p>
+
+</div>
+</body>
+</html>

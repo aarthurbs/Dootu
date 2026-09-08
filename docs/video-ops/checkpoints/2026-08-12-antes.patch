@@ -1,0 +1,920 @@
+diff --git a/docs/video-ops/PLANO-DE-OPERACAO.md b/docs/video-ops/PLANO-DE-OPERACAO.md
+index bb0b3f7..9cbca67 100644
+--- a/docs/video-ops/PLANO-DE-OPERACAO.md
++++ b/docs/video-ops/PLANO-DE-OPERACAO.md
+@@ -79,11 +79,16 @@ mas é o caminho que o E2E já prova ponta a ponta.
+ 
+ ### Rotina diária
+ 
+-1. `python -m http.server 8765` na pasta do projeto → abrir `http://127.0.0.1:8765/index.html`.
++1. `.\estudio.ps1` na pasta do projeto — sobe o renderizador e já abre a página nele.
++   *(equivale a `py -3.12 video-worker\serve.py` + abrir `http://127.0.0.1:8765/index.html`)*
+    *(o Estúdio precisa de `http://`; em `file://` várias coisas não funcionam)*
++   *(NÃO use `python -m http.server`: ele só serve arquivo e responde 501 a POST, então o
++   botão **Baixar** da revisão fica sem renderizador e nada baixa)*
+ 2. **Estúdio de Vídeos → Visão geral →** escolher a live/podcast já baixado.
+ 3. Marcar **todos** os cortes daquele vídeo de uma vez (Adicionar corte, repetir).
+-4. Em cada corte: **Copiar comando** → colar no PowerShell dentro da pasta do projeto.
++4. Em cada corte: **⬇ Salvar** → o `serve.py` renderiza em 9:16 e o MP4 cai em Downloads.
++   *(se o renderizador não responder, o Estúdio copia o comando do FFmpeg e diz o motivo —
++   aí é colar no PowerShell dentro da pasta do projeto, como antes)*
+ 5. Revisar os MP4s. Descartar os ruins **antes** de cadastrar qualquer coisa.
+ 6. Para os que sobrarem: **Preparar para publicação (opcional)** → criador, assunto, conta.
+ 7. Postar à mão no app. Colar o link real de volta na variante.
+diff --git a/index.html b/index.html
+index f408d51..a3b2b30 100644
+--- a/index.html
++++ b/index.html
+@@ -927,8 +927,8 @@
+         <div id="fat-mode-groups" hidden>
+           <div class="fat-section-title">Preenchimento por grupos de SKUs</div>
+           <div class="fat-field">
+-            <label>Colar lista de SKUs <span class="hint">— separa em grupos por produto (código antes do 1º hífen) automaticamente</span></label>
+-            <textarea id="fat-bulk" placeholder="Cole os SKUs, um por linha — linhas em branco e traços são ignorados"></textarea>
++            <label>Colar lista de SKUs <span class="hint">— separa em grupos por produto (código antes do 1º hífen) automaticamente. Também aceita o texto copiado do Seller Central: pega só os SKUs de "Código SKU"</span></label>
++            <textarea id="fat-bulk" placeholder="Cole os SKUs (um por linha) OU o texto/TXT copiado do Seller Central inteiro — o resto é ignorado"></textarea>
+             <div class="fat-group-actions">
+               <button type="button" class="btn-ghost" id="fat-bulk-split">Separar em grupos</button>
+               <span class="fat-status" id="fat-bulk-status"></span>
+@@ -3223,10 +3223,23 @@
+     const i = sku.indexOf('-');
+     return i > 0 ? sku.slice(0, i) : sku;
+   }
++  // Aceita 2 formatos de cola: lista pura (1 SKU por linha) e o texto do Seller
++  // Central (1 campo por linha), onde o SKU é a linha logo após "Código SKU".
++  // O marcador decide o modo — sem ele, o comportamento antigo não muda.
++  const FAT_SKU_MARK = /^c[óo]digo\s*sku$/i;
++  function fatSkusFromPaste(text) {
++    const lines = String(text || '').split('\n').map(s => s.trim());
++    const sc = lines.some(s => FAT_SKU_MARK.test(s));
++    if (!sc) return { skus: lines.filter(s => s && !/^-+$/.test(s)), sc };
++    const skus = [];
++    for (let i = 1; i < lines.length; i++)
++      if (FAT_SKU_MARK.test(lines[i - 1]) && lines[i]) skus.push(lines[i]);
++    return { skus, sc };
++  }
+   function fatSplitBulk() {
+     const ta = document.getElementById('fat-bulk'), st = document.getElementById('fat-bulk-status');
+     if (!ta || !st) return;
+-    const lines = ta.value.split('\n').map(s => s.trim()).filter(s => s && !/^-+$/.test(s));
++    const paste = fatSkusFromPaste(ta.value), lines = paste.skus;
+     const seen = new Set(), order = [], byBase = new Map();
+     for (const sku of lines) {
+       if (seen.has(sku)) continue;
+@@ -3235,11 +3248,17 @@
+       if (!byBase.has(b)) { byBase.set(b, []); order.push(b); }
+       byBase.get(b).push(sku);
+     }
+-    if (!order.length) { st.textContent = 'Nenhum SKU na lista.'; st.className = 'fat-status err'; return; }
++    if (!order.length) {
++      st.textContent = paste.sc
++        ? 'Texto do Seller Central reconhecido, mas nenhum SKU depois de "Código SKU".'
++        : 'Nenhum SKU na lista.';
++      st.className = 'fat-status err'; return;
++    }
+     order.forEach(b => fatAddGroupWithSkus(byBase.get(b)));
+     const inSheet = FAT.skus ? [...seen].filter(s => FAT.skus.has(s)).length : 0;
+     st.className = 'fat-status ok';
+-    st.textContent = '✓ ' + seen.size + ' SKU(s) separados em ' + order.length + ' grupo(s) — preencha NCM, CEST e custo de cada um.'
++    st.textContent = (paste.sc ? '✓ Texto do Seller Central reconhecido — ' : '✓ ')
++      + seen.size + ' SKU(s) separados em ' + order.length + ' grupo(s) — preencha NCM, CEST e custo de cada um.'
+       + (inSheet ? ' ' + inSheet + ' já existem na planilha (células preenchidas não são sobrescritas).' : '');
+     ta.value = '';
+     // foco no NCM do PRIMEIRO grupo criado (preenche de cima pra baixo)
+diff --git a/test-ponte.js b/test-ponte.js
+index 411439f..4ed3250 100644
+--- a/test-ponte.js
++++ b/test-ponte.js
+@@ -58,6 +58,47 @@ assert(items[0].qty === null && items[0].fnsku === '', '6c: sem estoque deveria
+ // 7) cabeçalho desconhecido → erro claro
+ assert.throws(() => parse('foo\tbar\nx\ty\n'), /Cabeçalho não reconhecido/, '7: header inválido deveria lançar');
+ 
++// ── cola de SKUs do Faturador: lista pura E texto do Seller Central ─────────
++const fc = src.indexOf('function fatBaseSku'), fd = src.indexOf('function fatSplitBulk');
++assert(fc > 0 && fd > fc, 'fatBaseSku/fatSkusFromPaste não encontrados no index.html');
++const F = eval(src.slice(fc, fd) + '; ({ fatSkusFromPaste, fatBaseSku })');
++const grupos = txt => {
++  const by = new Map();
++  for (const s of F.fatSkusFromPaste(txt).skus) {
++    const b = F.fatBaseSku(s);
++    if (!by.has(b)) by.set(b, []);
++    by.get(b).push(s);
++  }
++  return by;
++};
++
++// 9) lista pura → comportamento antigo intacto (traços e vazios fora)
++let p = F.fatSkusFromPaste('A-1\n\n---\n B-2 \n');
++assert(p.sc === false, '9a: sem marcador não é Seller Central');
++assert.deepStrictEqual(p.skus, ['A-1', 'B-2'], '9b: lista pura');
++
++// 10) texto do Seller Central → só as linhas depois de "Código SKU"
++p = F.fatSkusFromPaste('ASIN\nB099HKRTHY\nCódigo SKU\n38075-010.04D-SORTIDAS01-M\nVendas\n--\nCódigo SKU\n38075-010.04D-SORTIDAS02-P\nPreço\n142,90\n');
++assert(p.sc === true, '10a: marcador deveria ligar o modo Seller Central');
++assert.deepStrictEqual(p.skus, ['38075-010.04D-SORTIDAS01-M', '38075-010.04D-SORTIDAS02-P'], '10b: só os SKUs');
++assert.deepStrictEqual([...grupos('Código SKU\nC11.03-AZ-M\nCódigo SKU\nC11.04-AZ-M').keys()], ['C11.03', 'C11.04'], '10c: bases distintas viram grupos distintos');
++
++// 11) marcador sem SKU depois → sc:true e lista vazia (status precisa dizer isso)
++p = F.fatSkusFromPaste('Preço\n142,90\nCódigo SKU\n');
++assert(p.sc === true && p.skus.length === 0, '11: marcador órfão');
++console.log('✓ cola de SKUs (lista pura + Seller Central): 6 checks ok');
++
++// 12) TXT real do Seller Central (se existir no Downloads)
++const scReal = 'C:/Users/Teste/Downloads/isponível.txt';
++if (fs.existsSync(scReal)) {
++  const by = grupos(fs.readFileSync(scReal, 'utf8'));
++  const all = [...by.values()].flat();
++  assert(all.length === 10, '12a: esperava 10 SKUs, veio ' + all.length);
++  assert(by.size === 1 && by.has('38075'), '12b: cores do mesmo produto deveriam cair num grupo só');
++  assert(all[0] === '38075-010.04D-SORTIDAS01-M', '12c: ordem original preservada');
++  console.log('✓ TXT real: 3 checks ok (10 SKUs → 1 grupo)');
++}
++
+ // 8) arquivo real (se existir no Downloads)
+ const real = 'C:/Users/Teste/Downloads/Relat&oacute;rio+de+todas+as+ofertas_07-06-2026.txt';
+ if (fs.existsSync(real)) {
+diff --git a/test-video-ops-dom.js b/test-video-ops-dom.js
+index 28905fd..a4c4d61 100644
+--- a/test-video-ops-dom.js
++++ b/test-video-ops-dom.js
+@@ -439,26 +439,17 @@ assert.strictEqual(cortesNaTela(), 3, 'intervalo exatamente duplicado é recusad
+ assert.ok(/já está na lista/.test(String((zeroCriados.find((el) => el.className === 'vop-toast') || {}).textContent)),
+   'e a recusa é explicada na tela');
+ 
+-// comandos de corte: horizontal e 9:16 ficam visíveis e são copiados sem criar nada
++// cada corte leva ao MP4 direto: o comando de PowerShell saiu da tela e virou a rede de
++// segurança de quando o renderizador local não responde (ver o catch de downloadRenderedCut)
+ const listaComComandos = String(listaNo.innerHTML);
+-assert.ok(/data-act="intake-cut-command" data-format="horizontal"/.test(listaComComandos),
+-  'cada corte oferece copiar o comando horizontal');
+-assert.ok(/data-act="intake-cut-command" data-format="blur"/.test(listaComComandos),
+-  'e o 9:16 com blur, sem esconder a escolha em menu');
++assert.ok(/data-act="intake-cut-save" data-id="/.test(listaComComandos),
++  'cada corte oferece salvar o próprio MP4');
++assert.ok(!/intake-cut-command/.test(listaComComandos),
++  'e a lista não pede mais para colar comando no PowerShell');
+ global.copiado.length = 0;
+ zeroClick({ act: 'intake-cut-command', format: 'horizontal', id: idsDosCortes()[0] });
+-const comandoCopiado = String(global.copiado[0] || '');
+-assert.ok(/-ss 312 -to 342/.test(comandoCopiado), 'o comando copiado recorta o intervalo daquele corte');
+-assert.ok(comandoCopiado.includes('com-marcador.mp4'), 'apontando para o arquivo aberto na sessão');
+-assert.ok(/corte-1-com-marcador-312s-342s\.mp4/.test(comandoCopiado), 'e nomeia a saída pelo número e intervalo');
+-assert.ok(/scale=-2:1080/.test(comandoCopiado), 'a ação horizontal preserva o comando já existente');
+-zeroClick({ act: 'intake-cut-command', format: 'blur', id: idsDosCortes()[0] });
+-const comandoVertical = String(global.copiado[1] || '');
+-assert.ok(/scale=1080:1920/.test(comandoVertical) && /gblur=sigma=28/.test(comandoVertical),
+-  'a ação 9:16 copia o filtro blur do worker');
+-assert.ok(/corte-1-com-marcador-312s-342s-9x16-blur\.mp4/.test(comandoVertical),
+-  'e usa outro nome para não sobrescrever a horizontal');
+-assert.strictEqual(cortesNaTela(), 3, 'copiar o comando não mexe na lista');
++assert.strictEqual(global.copiado.length, 0, 'a ação de copiar comando não existe mais');
++assert.strictEqual(cortesNaTela(), 3, 'e clique em botão da lista não mexe nela');
+ assert.ok(!store['pp_video_ops_v1'].includes('cut_'), 'nem grava nada');
+ 
+ // tocar: usa o player que já está aberto, sem recriá-lo
+@@ -688,11 +679,11 @@ setTimeout(() => {
+     'sem a barra nativa, que exibiria a duração do original inteiro');
+   assert.ok(/data-preview-play/.test(revisao) && /corte 0:10 → 0:25/.test(revisao),
+     'a régua e o play são do corte, marcando 0:00 até a duração dele');
+-  assert.ok(/data-dialog-act="export-cut" data-format="horizontal"/.test(revisao),
+-    'a revisão tem o botão do comando horizontal');
+-  assert.ok(/data-dialog-act="export-cut" data-format="blur"/.test(revisao),
++  assert.ok(/data-dialog-act="download-cut" data-format="horizontal"/.test(revisao),
++    'a revisão tem o botão de baixar o horizontal');
++  assert.ok(/data-dialog-act="download-cut" data-format="blur"/.test(revisao),
+     'e oferece o 9:16 respeitando o reframe padrão da variante');
+-  assert.ok(/Copiar horizontal \(15s\)/.test(revisao) && /Copiar 9:16 \(blur, 15s\)/.test(revisao),
++  assert.ok(/Baixar horizontal \(15s\)/.test(revisao) && /Baixar 9:16 \(blur, 15s\)/.test(revisao),
+     'os dois botões dizem formato e duração do trecho');
+   assert.ok(/9x16-blur\.mp4/.test(revisao), 'o nome vertical visível não colide com o horizontal');
+   assert.ok(/o FFmpeg já vem no repositório/.test(revisao),
+diff --git a/test-video-ops.js b/test-video-ops.js
+index 1af4e3a..ad38400 100644
+--- a/test-video-ops.js
++++ b/test-video-ops.js
+@@ -455,9 +455,13 @@ assert.ok(cmd.includes('scale=-2:1080') && cmd.includes('libx264') && cmd.includ
+   'saindo em 1080p H.264/AAC — TikTok e Instagram não aceitam AV1 em 4K');
+ assert.ok(cmd.indexOf('-ss') < cmd.indexOf('-i $v'), '-ss antes do -i, senão o seek varre o arquivo inteiro');
+ const cmdBlur = V.ffmpegCutCommand('AULA [x].webm', 100, 115, 'corte-1-9x16-blur.mp4', 'blur');
+-assert.ok(cmdBlur.includes('scale=1080:1920') && cmdBlur.includes('gblur=sigma=28')
++assert.ok(cmdBlur.includes('scale=1080:1920') && cmdBlur.includes('gblur=sigma=3')
+   && cmdBlur.includes('overlay=(W-w)/2:(H-h)/2'),
+   'o comando 9:16 blur reutiliza o filtro que preserva o quadro inteiro no worker');
++/* O fundo TEM de ser borrado pequeno e ampliado depois: borrar em 1080x1920 custava ~18s
++   dos ~20s de um corte de 30s. Se alguém "simplificar" para gblur direto, isto quebra. */
++assert.ok(cmdBlur.includes('crop=108:192,gblur=sigma=3,scale=1080:1920'),
++  'o desfoque é feito no quadro pequeno e só depois ampliado — é daí que vem a velocidade');
+ const cmdCrop = V.ffmpegCutCommand('AULA [x].webm', 100, 115, 'corte-1-9x16-crop.mp4', 'crop');
+ assert.ok(cmdCrop.includes('scale=1080:1920') && cmdCrop.includes('crop=1080:1920')
+   && !cmdCrop.includes('gblur='), 'o perfil crop continua fechado e usa o recorte central do worker');
+@@ -472,10 +476,43 @@ assert.ok(cmdPerigoso.endsWith("'$(Write-Output OUT)''s.mp4'"),
+ assert.strictEqual(V.ffmpegCutCommand('', 10, 20, 'x.mp4'), '', 'sem arquivo não há comando');
+ assert.strictEqual(V.ffmpegCutCommand('a.mp4', 20, 20, 'x.mp4'), '', 'intervalo vazio não vira comando');
+ assert.strictEqual(V.ffmpegCutCommand('a.mp4', 30, 10, 'x.mp4'), '', 'fim antes do início também não');
+-assert.strictEqual(V.cutFileName('Três erros: comuns', 100, 115), 'Tres erros- comuns-100s-115s.mp4',
+-  'o nome de saída é seguro no Windows e diz o intervalo');
++assert.strictEqual(V.cutFileName('Três erros: comuns', 100, 115), 'Tres erros- comuns-100s-115s-16x9.mp4',
++  'o nome de saída é seguro no Windows, diz o intervalo E o formato');
+ assert.strictEqual(V.cutFileName('Três erros: comuns', 100, 115, 'blur'),
+   'Tres erros- comuns-100s-115s-9x16-blur.mp4', 'a saída vertical não sobrescreve a horizontal');
++assert.ok(V.cutFileName('a', 1, 2, 'horizontal').includes('-16x9'),
++  'o horizontal também se identifica na pasta de Downloads: sem marcador, os dois arquivos se confundem');
++
++// ---------------------------------------------------------------------------
++// Baixar o corte na revisão: a corrente do 1 clique tem de ficar LIGADA.
++// Estes casos existem porque a corrente já esteve rompida em três pontos ao mesmo tempo:
++// downloadRenderedCut era código morto, downloadBlob não existia (ReferenceError em tempo
++// de execução) e onDialogClick não tratava 'download-cut'. Nada disso aparece em
++// node --check nem em teste de função pura — só quando o operador clica.
++// ---------------------------------------------------------------------------
++const FONTE_VOP = fs.readFileSync(path.join(__dirname, 'video-ops.js'), 'utf8');
++
++assert.ok(/function downloadBlob\(/.test(FONTE_VOP),
++  'downloadBlob precisa existir: downloadRenderedCut a chama para salvar o MP4');
++assert.ok(/data-dialog-act="download-cut"/.test(FONTE_VOP),
++  'os botões de baixar o corte continuam no diálogo de revisão');
++assert.ok(/action === 'download-cut'/.test(FONTE_VOP),
++  'onDialogClick trata download-cut; sem esse ramo o clique cai em saveVariantForm e nada baixa');
++assert.ok(/downloadRenderedCut\(button,/.test(FONTE_VOP),
++  'o ramo de download-cut chama downloadRenderedCut de verdade');
++assert.ok(/name === 'cutSourceFile'/.test(FONTE_VOP),
++  'o seletor do original está ligado no onDialogChange, senão o painel só reclama e não libera nada');
++assert.ok(/fetch\('\/api\/video-cut'/.test(FONTE_VOP),
++  'a rota do renderizador local é a que o serve.py atende');
++
++// O contrato com o serve.py: os dois lados têm de usar as MESMAS strings.
++['token=', 'name=', 'start=', 'end=', 'profile=', 'output='].forEach(function (chave) {
++  assert.ok(FONTE_VOP.includes(chave), 'a query de /api/video-cut mantém o parâmetro ' + chave);
++});
++assert.ok(FONTE_VOP.includes("'X-Video-Source-Cached'"),
++  'o cabeçalho de cache da fonte é o mesmo que o servidor manda');
++assert.ok(/response\.status === 409/.test(FONTE_VOP),
++  '409 continua sendo o sinal de reenviar o arquivo de origem');
+ 
+ // ===========================================================================
+ // Fase 4 — hash integrado à aprovação
+diff --git a/video-ops.js b/video-ops.js
+index 2f29eb8..8dff6f8 100644
+--- a/video-ops.js
++++ b/video-ops.js
+@@ -32,6 +32,10 @@
+   var BROKEN_RAW = '';
+   var MIGRATED_FROM_V3 = false;
+   var SESSION_FILES = Object.create(null);
++  /* O File real também vive só na sessão. A URL alimenta a prévia; o File é enviado ao
++     renderizador local sob demanda, sem Base64, nuvem ou localStorage. */
++  var SESSION_FILE_OBJECTS = Object.create(null);
++  var SESSION_RENDER = Object.create(null);
+   /* Marcação de corte: TUDO aqui é da sessão e morre no reload. Nenhum byte, Base64 ou
+      blob do vídeo entra no localStorage — só nome, tamanho e a duração medida. */
+   var SESSION_DURATION = Object.create(null);
+@@ -46,8 +50,12 @@
+      saídas; blur é o 9:16 padrão porque preserva o quadro inteiro. */
+   var FFMPEG_FILTERS = {
+     horizontal: '-vf "scale=-2:1080"',
++    /* Espelho do build_filter do worker.py — TEM de casar, senão o comando manual de
++       emergência entrega um vídeo com outra cara. O fundo é borrado num quadro 10x menor
++       e ampliado depois: mesmo resultado, ~18x menos trabalho (medido em corte de 30s). */
+     blur: '-filter_complex "[0:v]split=2[bg][fg];'
+-      + '[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=28[bgb];'
++      + '[bg]scale=108:192:force_original_aspect_ratio=increase,crop=108:192,'
++      + 'gblur=sigma=3,scale=1080:1920[bgb];'
+       + '[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fgs];'
+       + '[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1"',
+     crop: '-filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,'
+@@ -58,7 +66,7 @@
+   /* cuts: os trechos marcados neste vídeo. Marcar vários é edição de vídeo, não cadastro —
+      a lista vive só nesta sessão e nunca entra no localStorage nem cria registro algum. */
+   var INTAKE = {
+-    url: '', name: '', size: 0, lastModified: 0, type: '', duration: 0,
++    url: '', file: null, name: '', size: 0, lastModified: 0, type: '', duration: 0,
+     state: 'empty', message: '', replaced: false, inSec: '', outSec: '',
+     cuts: [], editingId: ''
+   };
+@@ -1606,7 +1614,7 @@
+   function intakeReset() {
+     intakeRelease();
+     INTAKE = {
+-      url: '', name: '', size: 0, lastModified: 0, type: '', duration: 0,
++      url: '', file: null, name: '', size: 0, lastModified: 0, type: '', duration: 0,
+       state: 'empty', message: '', replaced: false, inSec: '', outSec: '',
+       cuts: [], editingId: ''
+     };
+@@ -1620,7 +1628,7 @@
+     intakeRelease();
+     if (!isVideoFile(file)) {
+       INTAKE = {
+-        url: '', name: String(file && file.name || ''), size: num(file && file.size),
++        url: '', file: null, name: String(file && file.name || ''), size: num(file && file.size),
+         lastModified: 0, type: '', duration: 0,
+         state: 'error', replaced: replacing,
+         message: 'Este arquivo não parece ser um vídeo. Escolha um MP4 do seu computador.',
+@@ -1632,7 +1640,7 @@
+       return;
+     }
+     INTAKE = {
+-      url: URL.createObjectURL(file), name: String(file.name || ''), size: num(file.size),
++      url: URL.createObjectURL(file), file: file, name: String(file.name || ''), size: num(file.size),
+       /* Metadados seguros do arquivo: entram na fonte se o rascunho for promovido e são o
+          que dá chave estável de origem sem guardar um byte do vídeo. */
+       lastModified: num(file.lastModified), type: String(file.type || ''),
+@@ -1695,8 +1703,7 @@
+         + ' → ' + esc(fmtClock(cut.outSec)) + ' · ' + (num(cut.outSec) - num(cut.inSec)) + 's</span>'
+         + '<span class="vop-cut-acts">'
+         + '<button class="vop-inline-action" type="button" data-act="intake-cut-play" data-id="' + esc(cut.id) + '">Tocar</button>'
+-        + '<button class="vop-inline-action" type="button" data-act="intake-cut-command" data-format="horizontal" data-id="' + esc(cut.id) + '">Copiar horizontal</button>'
+-        + '<button class="vop-inline-action" type="button" data-act="intake-cut-command" data-format="blur" data-id="' + esc(cut.id) + '">Copiar 9:16 (blur)</button>'
++        + '<button class="vop-inline-action vop-cut-save" type="button" data-act="intake-cut-save" data-id="' + esc(cut.id) + '">⬇ Salvar</button>'
+         + '<button class="vop-inline-action" type="button" data-act="intake-cut-edit" data-id="' + esc(cut.id) + '">Editar</button>'
+         + '<button class="vop-inline-action vop-cut-danger" type="button" data-act="intake-cut-remove" data-id="' + esc(cut.id) + '">Remover</button>'
+         + '</span></li>';
+@@ -1717,16 +1724,21 @@
+       : 'nenhum trecho marcado';
+     return '<div class="vop-mark" data-intake-mark>'
+       + '<div class="vop-mark-head"><span>Marcar cortes</span></div>'
+-      + '<p class="vop-form-note">Marque quantos trechos quiser neste mesmo vídeo: defina início e fim, '
+-      + 'clique em “Adicionar corte” e repita. Cada corte oferece os comandos <strong>horizontal</strong> e '
+-      + '<strong>9:16 com fundo desfocado</strong>. O botão copia o comando; cole no PowerShell dentro da pasta '
+-      + 'do projeto e o FFmpeg local gera o arquivo — sem conta nem cadastro. '
+-      + 'A lista fica nesta sessão e some ao recarregar a página.</p>'
++      + '<p class="vop-form-note"><strong>Arraste na barra</strong> para marcar o trecho — as bordas da '
++      + 'faixa puxam início e fim. Depois clique em <strong>Salvar corte</strong> e o MP4 cai na sua pasta '
++      + 'de Downloads em 9:16, pronto para TikTok e Instagram. Quem corta é o FFmpeg do projeto, atendendo '
++      + 'em 127.0.0.1 — nada para instalar, nada para colar no PowerShell. '
++      + 'Marque quantos trechos quiser no mesmo vídeo; a lista fica nesta sessão e some ao recarregar.</p>'
+       + '<div class="vop-form-grid">'
+       + field('Início (segundos)', 'intakeInSec', hasIn ? String(INTAKE.inSec) : '', 'type="number" min="0" step="1" data-intake-cut-field="inSec"')
+       + field('Fim (segundos)', 'intakeOutSec', hasOut ? String(INTAKE.outSec) : '', 'type="number" min="0" step="1" data-intake-cut-field="outSec"')
+       + '</div>'
+-      + '<div class="vop-mark-track"><div class="vop-mark-band" data-intake-mark-band hidden></div>'
++      /* A barra É o controle: arrastar nela marca o trecho. Os campos de segundos continuam
++         valendo (teclado, precisão) e são a fonte da verdade — o arrasto escreve neles. */
++      + '<div class="vop-mark-track" data-intake-mark-track role="presentation">'
++      + '<div class="vop-mark-band" data-intake-mark-band hidden>'
++      + '<span class="vop-mark-handle" data-intake-handle="in" aria-hidden="true"></span>'
++      + '<span class="vop-mark-handle" data-intake-handle="out" aria-hidden="true"></span></div>'
+       + '<div class="vop-mark-playhead" data-intake-mark-playhead></div></div>'
+       + '<div class="vop-mark-read"><strong data-intake-mark-now>0:00</strong><span>de</span>'
+       + '<span data-intake-mark-dur>' + esc(fmtClock(INTAKE.duration)) + '</span>'
+@@ -1745,7 +1757,11 @@
+          secundária e rotulada como opcional. As duas só habilitam com trecho válido; quando
+          estão bloqueadas, quem explica é a faixa de estado logo acima (BP-008). */
+       + '<div class="vop-mark-acts">'
+-      + '<button class="vop-btn vop-btn-primary" type="button" data-act="intake-cut-add" data-intake-add'
++      /* Ação principal = o que o operador vem fazer: levar o MP4 do trecho. Uma primária só. */
++      + '<button class="vop-btn vop-btn-primary" type="button" data-act="intake-cut-save" data-intake-save'
++      + (status.tone === 'ok' ? '' : ' disabled title="' + esc(status.text) + '"')
++      + '>⬇ Salvar corte</button>'
++      + '<button class="vop-btn vop-btn-secondary" type="button" data-act="intake-cut-add" data-intake-add'
+       + (status.tone === 'ok' ? '' : ' disabled title="' + esc(status.text) + '"')
+       + '>' + (INTAKE.editingId ? 'Atualizar corte' : 'Adicionar corte') + '</button>'
+       + '<button class="vop-btn vop-btn-secondary" type="button" data-act="intake-promote" data-intake-promote'
+@@ -1813,6 +1829,13 @@
+       promote.disabled = status.tone !== 'ok';
+       promote.title = status.tone === 'ok' ? '' : status.text;
+     }
++    /* Não mexer no rótulo enquanto o render está em andamento: downloadRenderedCut é dono
++       do texto e do aria-busy do botão até a resposta chegar. */
++    var save = panel.querySelector('[data-intake-save]');
++    if (save && save.getAttribute('aria-busy') !== 'true') {
++      save.disabled = status.tone !== 'ok';
++      save.title = status.tone === 'ok' ? '' : status.text;
++    }
+     var band = panel.querySelector('[data-intake-mark-band]');
+     if (band) {
+       var valid = duration > 0 && hasIn && hasOut
+@@ -1839,6 +1862,80 @@
+     var duration = secs(video.duration);
+     if (head) head.style.left = duration ? (secs(video.currentTime) / duration * 100) + '%' : '0%';
+   }
++  /* --- Arrastar o trecho na barra --------------------------------------------------- */
++  /* Um arrasto por vez, num estado de módulo: o segundo dedo TEM de ser ignorado, senão a
++     borda salta para o outro toque no meio do gesto. */
++  var DRAG = null;
++  /* Puro: converte posição do ponteiro em segundo do vídeo. Testável sem DOM de verdade. */
++  function trackRatio(box, clientX) {
++    if (!box || !box.width) return 0;
++    var ratio = (clientX - box.left) / box.width;
++    return ratio < 0 ? 0 : (ratio > 1 ? 1 : ratio);
++  }
++  function trackSeconds(track, clientX) {
++    var duration = secs(INTAKE.duration);
++    /* Segundos inteiros: os campos são step="1" e o comando do FFmpeg usa inteiros. */
++    return duration ? Math.round(trackRatio(track.getBoundingClientRect(), clientX) * duration) : 0;
++  }
++  /* Os campos de segundos continuam sendo a fonte da verdade; o arrasto escreve neles e
++     deixa intakeMarkRefresh cuidar de faixa, status e botões — uma via só. */
++  function dragWrite(panel) {
++    var inField = panel.querySelector('[data-intake-cut-field="inSec"]');
++    var outField = panel.querySelector('[data-intake-cut-field="outSec"]');
++    if (inField) inField.value = INTAKE.inSec === '' ? '' : String(INTAKE.inSec);
++    if (outField) outField.value = INTAKE.outSec === '' ? '' : String(INTAKE.outSec);
++    intakeMarkRefresh(panel);
++  }
++  function onRootPointerDown(event) {
++    if (DRAG || !event.target || !event.target.closest) return;
++    var track = event.target.closest('[data-intake-mark-track]');
++    if (!track) return;
++    var panel = intakePanel();
++    /* Sem vídeo aberto não há duração, e sem duração a barra não significa nada (BP-004). */
++    if (!panel || !secs(INTAKE.duration)) return;
++    var handle = event.target.closest('[data-intake-handle]');
++    var at = trackSeconds(track, event.clientX);
++    if (handle) {
++      /* Arrastar uma borda mantém a outra parada: ela é a âncora do gesto. */
++      DRAG = { track: track, panel: panel,
++               anchor: num(handle.dataset.intakeHandle === 'in' ? INTAKE.outSec : INTAKE.inSec) };
++    } else {
++      /* Apertar na barra vazia começa uma seleção nova daquele ponto. */
++      DRAG = { track: track, panel: panel, anchor: at };
++    }
++    track.dataset.dragging = '1';
++    /* Captura: o gesto sobrevive a sair do elemento, e não morre no meio do movimento. */
++    if (track.setPointerCapture) track.setPointerCapture(event.pointerId);
++    track.addEventListener('pointermove', onTrackPointerMove);
++    track.addEventListener('pointerup', onTrackPointerEnd);
++    track.addEventListener('pointercancel', onTrackPointerEnd);
++    onTrackPointerMove(event);
++    /* Sem isto o navegador começa a selecionar texto no meio do arrasto. */
++    if (event.preventDefault) event.preventDefault();
++  }
++  function onTrackPointerMove(event) {
++    if (!DRAG) return;
++    var at = trackSeconds(DRAG.track, event.clientX);
++    /* Cruzar a âncora não trava: as bordas trocam de papel, como em qualquer editor. */
++    var start = Math.min(DRAG.anchor, at);
++    var end = Math.max(DRAG.anchor, at);
++    /* Trecho de zero segundo não existe; garante 1s para a faixa nascer visível. */
++    if (end === start) {
++      if (start > 0) start -= 1; else end = Math.min(secs(INTAKE.duration), 1);
++    }
++    INTAKE.inSec = start;
++    INTAKE.outSec = end;
++    dragWrite(DRAG.panel);
++  }
++  function onTrackPointerEnd() {
++    if (!DRAG) return;
++    var track = DRAG.track;
++    track.removeEventListener('pointermove', onTrackPointerMove);
++    track.removeEventListener('pointerup', onTrackPointerEnd);
++    track.removeEventListener('pointercancel', onTrackPointerEnd);
++    delete track.dataset.dragging;
++    DRAG = null;
++  }
+   function intakeMarkAction(panel, video, act) {
+     var inField = panel.querySelector('[data-intake-cut-field="inSec"]');
+     var outField = panel.querySelector('[data-intake-cut-field="outSec"]');
+@@ -1925,18 +2022,107 @@
+     var selected = commandProfile(profile);
+     var name = safeName(String(base || 'corte').replace(/\.[^.]+$/, '')
+       + '-' + num(inSec) + 's-' + num(outSec) + 's', 80);
+-    return name + (selected === 'horizontal' ? '' : '-9x16-' + selected) + '.mp4';
++    /* O formato entra no nome nos DOIS casos: na pasta de Downloads é o que diz, de
++       relance, qual arquivo vai para TikTok/Instagram (9x16) e qual não. */
++    return name + (selected === 'horizontal' ? '-16x9' : '-9x16-' + selected) + '.mp4';
++  }
++  /* O vídeo do primeiro contato não tem fonte cadastrada, mas o renderizador local acha o
++     arquivo por SESSION_FILE_OBJECTS[sourceId]. Chave reservada (não colide com uid('src'))
++     e registrada na hora do download, então não depende da ordem de carregamento. */
++  var INTAKE_SOURCE_ID = 'intake-session';
++  function intakeResolved(inSec, outSec, base) {
++    if (!INTAKE.file) return null;
++    if (SESSION_FILE_OBJECTS[INTAKE_SOURCE_ID] !== INTAKE.file) {
++      SESSION_FILE_OBJECTS[INTAKE_SOURCE_ID] = INTAKE.file;
++      /* Trocar o vídeo invalida o cache de upload: o token subiria o arquivo errado. */
++      delete SESSION_RENDER[INTAKE_SOURCE_ID];
++    }
++    return {
++      source: { id: INTAKE_SOURCE_ID },
++      clip: { inSec: num(inSec), outSec: num(outSec), topic: base || INTAKE.name }
++    };
+   }
+-  function copyCutCommand(fileName, inSec, outSec, base, profile) {
++  function renderSession(sourceId) {
++    var file = SESSION_FILE_OBJECTS[sourceId];
++    if (!file) return null;
++    var current = SESSION_RENDER[sourceId];
++    if (!current || current.file !== file) {
++      current = { file: file, token: uid('render'), uploaded: false };
++      SESSION_RENDER[sourceId] = current;
++    }
++    return current;
++  }
++  function renderError(response) {
++    if (!response || typeof response.json !== 'function') return Promise.resolve('O renderizador local não respondeu.');
++    return response.json().then(function (payload) {
++      return cleanText(payload && payload.error, 500) || 'O renderizador local recusou o vídeo.';
++    }).catch(function () { return 'O renderizador local não está ativo neste endereço.'; });
++  }
++  /* A aba não processa AV1/4K: envia o File somente ao helper local da mesma origem. O
++     primeiro download sobe a fonte; o segundo reaproveita o cache temporário pelo token. */
++  function downloadRenderedCut(button, resolved, profile) {
++    var sourceId = resolved && resolved.source && resolved.source.id;
++    var session = sourceId && renderSession(sourceId);
++    var start = num(resolved && resolved.clip && resolved.clip.inSec);
++    var stop = num(resolved && resolved.clip && resolved.clip.outSec);
+     var selected = commandProfile(profile);
+-    var outName = cutFileName(base, inSec, outSec, selected);
+-    var comando = ffmpegCutCommand(fileName, inSec, outSec, outName, selected);
+-    if (!comando) { toast('Sem arquivo de origem ou intervalo válido, não há comando a gerar.', 'error'); return; }
+-    copyText(comando).then(function () {
+-      toast('Comando ' + (selected === 'horizontal' ? 'horizontal' : '9:16 com ' + selected)
+-        + ' copiado. Saída: ' + outName + '. Cole no PowerShell dentro da pasta do projeto; '
+-        + 'o vídeo é procurado na pasta acima ($v).');
+-    }).catch(function () { toast('Não consegui copiar o comando. Copie à mão pelo console.', 'error'); });
++    if (!session || stop <= start) {
++      toast('Abra o vídeo nesta sessão e confirme um intervalo válido antes de baixar.', 'error');
++      return;
++    }
++    if (typeof fetch !== 'function') {
++      toast('Este navegador não consegue falar com o renderizador local.', 'error');
++      return;
++    }
++    var outName = cutFileName(resolved.clip.topic || resolved.clip.name, start, stop, selected);
++    var query = '?token=' + encodeURIComponent(session.token)
++      + '&name=' + encodeURIComponent(session.file.name || 'video.mp4')
++      + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(stop)
++      + '&profile=' + encodeURIComponent(selected) + '&output=' + encodeURIComponent(outName);
++    var form = button.closest('form');
++    var buttons = form ? Array.prototype.slice.call(form.querySelectorAll('[data-dialog-act="download-cut"]')) : [button];
++    var labels = buttons.map(function (item) { return item.textContent; });
++    buttons.forEach(function (item) { item.disabled = true; });
++    button.setAttribute('aria-busy', 'true');
++    button.textContent = 'Gerando ' + (selected === 'horizontal' ? 'horizontal' : '9:16') + '…';
++
++    function request(includeFile, retried) {
++      var headers = { Accept: 'video/mp4' };
++      if (includeFile) headers['Content-Type'] = session.file.type || 'application/octet-stream';
++      return fetch('/api/video-cut' + query, {
++        method: 'POST', headers: headers, body: includeFile ? session.file : null
++      }).then(function (response) {
++        if (response.headers && response.headers.get('X-Video-Source-Cached') === '1') session.uploaded = true;
++        if (response.status === 409 && !includeFile && !retried) {
++          session.uploaded = false;
++          return request(true, true);
++        }
++        if (!response.ok) {
++          return renderError(response).then(function (message) { throw new Error(message); });
++        }
++        session.uploaded = true;
++        return response.blob().then(function (blob) {
++          if (!blob || !blob.size) throw new Error('O renderizador devolveu um arquivo vazio.');
++          downloadBlob(outName, blob);
++        });
++      });
++    }
++
++    request(!session.uploaded, false).catch(function (error) {
++      var motivo = cleanText(error && error.message, 500) || 'Não consegui gerar o vídeo.';
++      /* Renderizador fora do ar não pode deixar o operador sem saída: o comando do FFmpeg
++         é a rede de segurança e vem copiado JUNTO com o motivo — nunca calado e nunca sem
++         dizer por que apareceu (BP-008). */
++      var manual = ffmpegCutCommand(session.file.name, start, stop, outName, selected);
++      if (!manual) { toast(motivo, 'error'); return; }
++      return copyText(manual).then(function () {
++        toast(motivo + ' Copiei o comando do FFmpeg (saída ' + outName
++          + '): cole no PowerShell dentro da pasta do projeto.', 'error');
++      }, function () { toast(motivo, 'error'); });
++    }).then(function () {
++      buttons.forEach(function (item, index) { item.disabled = false; item.textContent = labels[index]; });
++      button.removeAttribute('aria-busy');
++    });
+   }
+   /* Adicionar, tocar, editar e remover corte. NENHUM destes caminhos chama render(),
+      cria registro ou grava algo: só a lista e o estado dos botões são atualizados. */
+@@ -1979,11 +2165,6 @@
+     }
+     var cut = findById(INTAKE.cuts, id);
+     if (!cut) { toast('Este corte não está mais na lista.', 'error'); return; }
+-    if (act === 'command') {
+-      copyCutCommand(INTAKE.name, cut.inSec, cut.outSec,
+-        'corte-' + (INTAKE.cuts.indexOf(cut) + 1) + '-' + INTAKE.name, profile);
+-      return;
+-    }
+     if (act === 'play') {
+       if (!video || INTAKE.state !== 'ready') {
+         toast('Aguarde o navegador terminar de abrir o vídeo.', 'error');
+@@ -2586,22 +2767,33 @@
+     if (outSec <= inSec) {
+       return '<p class="vop-warn-text">Este corte está sem início e fim marcados; não há trecho para gerar.</p>';
+     }
+-    var nome = v.source && v.source.fileMeta && v.source.fileMeta.name;
+-    if (!nome) {
+-      return '<p class="vop-warn-text">Esta fonte não tem arquivo local registrado, então não dá para montar o '
+-        + 'comando de corte. Use o job de render do trabalhador local.</p>';
++    var sourceId = v.source && v.source.id;
++    if (!sourceId) {
++      return '<p class="vop-warn-text">Esta variante não tem fonte vinculada; não há original para cortar.</p>';
++    }
++    if (!SESSION_FILE_OBJECTS[sourceId]) {
++      /* O arquivo local morre no reload — nunca é persistido, de propósito. Em vez de só
++         avisar, o seletor fica aqui: abrir o original libera o download na hora (BP-008). */
++      var esperado = v.source.fileMeta ? v.source.fileMeta.name : '';
++      return '<label class="vop-mark-file"><input type="file" name="cutSourceFile" accept="video/mp4,video/*">'
++        + '<span>Abrir o vídeo original para baixar este corte</span></label>'
++        + (esperado ? '<small>Registrado nesta fonte: ' + esc(esperado) + '</small>' : '');
+     }
+     var reframe = v.reframe === 'crop' ? 'crop' : 'blur';
+-    var base = v.clip.topic || v.clip.name;
++    /* O nome à vista é o MESMO que downloadRenderedCut manda para o disco: o operador sabe
++       o que procurar na pasta de Downloads antes de clicar, e qual dos dois é o de postar. */
++    var baseNome = v.clip.topic || v.clip.name;
+     return '<div class="vop-card-actions">'
+-      + '<button class="vop-btn vop-btn-secondary" type="button" data-dialog-act="export-cut" data-format="horizontal">'
+-      + 'Copiar horizontal (' + (outSec - inSec) + 's)</button>'
+-      + '<button class="vop-btn vop-btn-primary" type="button" data-dialog-act="export-cut" data-format="' + reframe + '">'
+-      + 'Copiar 9:16 (' + reframe + ', ' + (outSec - inSec) + 's)</button></div>'
+-      + '<p class="vop-form-note">Cola no PowerShell dentro da pasta do projeto. Horizontal: '
+-      + esc(cutFileName(base, inSec, outSec, 'horizontal')) + '. 9:16: '
+-      + esc(cutFileName(base, inSec, outSec, reframe))
+-      + '. Ambos saem em H.264; o FFmpeg já vem no repositório. O navegador não corta o arquivo sozinho.</p>';
++      + '<button class="vop-btn vop-btn-secondary" type="button" data-dialog-act="download-cut" data-format="horizontal">'
++      + 'Baixar horizontal (' + (outSec - inSec) + 's)</button>'
++      + '<button class="vop-btn vop-btn-primary" type="button" data-dialog-act="download-cut" data-format="' + reframe + '">'
++      + 'Baixar 9:16 (' + reframe + ', ' + (outSec - inSec) + 's)</button></div>'
++      + '<small class="vop-form-note">Cai na pasta de Downloads como <code>'
++      + esc(cutFileName(baseNome, inSec, outSec, reframe)) + '</code> — 9:16, H.264/AAC, '
++      + 'pronto para TikTok e Instagram — ou <code>'
++      + esc(cutFileName(baseNome, inSec, outSec, 'horizontal')) + '</code>. '
++      + 'Quem corta não é o navegador: o FFmpeg já vem no repositório e atende em '
++      + '127.0.0.1 — a aba só salva o arquivo.</small>';
+   }
+   function variantDialogHTML(v) {
+     var path = drivePathFor(v);
+@@ -2852,6 +3044,8 @@
+     if (file) {
+       if (SESSION_FILES[candidate.id]) URL.revokeObjectURL(SESSION_FILES[candidate.id]);
+       SESSION_FILES[candidate.id] = URL.createObjectURL(file);
++      SESSION_FILE_OBJECTS[candidate.id] = file;
++      delete SESSION_RENDER[candidate.id];
+     }
+     toast((existing ? 'Fonte atualizada.' : 'Fonte registrada.') + (invalidated ? ' ' + invalidated + ' aprovação(ões) voltaram para pendente.' : ''));
+   }
+@@ -3007,15 +3201,20 @@
+        seguida já vê uma conta cadastrada e revogaria justamente o blob que a fonte acabou
+        de herdar. Entregue, não revogada — e devolvida ao intake se a gravação falhar. */
+     var handed = INTAKE.url;
++    var handedFile = INTAKE.file;
+     SESSION_FILES[source.id] = handed;
++    SESSION_FILE_OBJECTS[source.id] = handedFile;
+     SESSION_FILE_META[source.id] = { name: INTAKE.name, size: INTAKE.size };
+     SESSION_DURATION[source.id] = INTAKE.duration;
+     INTAKE.url = '';
++    INTAKE.file = null;
+     if (!commit(before, null, 'queue')) {
+       delete SESSION_FILES[source.id];
++      delete SESSION_FILE_OBJECTS[source.id];
+       delete SESSION_FILE_META[source.id];
+       delete SESSION_DURATION[source.id];
+       INTAKE.url = handed;
++      INTAKE.file = handedFile;
+       ACTIVE_ACCOUNT = activeBefore;
+       return;
+     }
+@@ -3280,6 +3479,8 @@
+     if (!sourceId) { toast('Escolha a fonte do corte antes de carregar o arquivo.', 'error'); return; }
+     if (SESSION_FILES[sourceId]) URL.revokeObjectURL(SESSION_FILES[sourceId]);
+     SESSION_FILES[sourceId] = URL.createObjectURL(file);
++    SESSION_FILE_OBJECTS[sourceId] = file;
++    delete SESSION_RENDER[sourceId];
+     SESSION_FILE_META[sourceId] = { name: file.name, size: file.size };
+     delete SESSION_DURATION[sourceId];
+     panel.dataset.fileError = '';
+@@ -3346,6 +3547,30 @@
+     markPanelRefresh();
+   }
+ 
++  /* Abre o original da fonte desta variante sem re-renderizar o modal: trocar o innerHTML
++     inteiro levaria embora o foco e a posição do player (mesma razão do markPanelRefresh). */
++  function cutSetSourceFile(form, file) {
++    var resolved = form ? resolvedOf(form.dataset.id) : null;
++    var sourceId = resolved && resolved.source ? resolved.source.id : '';
++    if (!sourceId) { toast('Esta variante não tem fonte vinculada.', 'error'); return; }
++    if (SESSION_FILES[sourceId]) URL.revokeObjectURL(SESSION_FILES[sourceId]);
++    SESSION_FILES[sourceId] = URL.createObjectURL(file);
++    SESSION_FILE_OBJECTS[sourceId] = file;
++    SESSION_FILE_META[sourceId] = { name: file.name, size: file.size };
++    /* Arquivo novo invalida o cache de upload do renderizador: o token subiria o vídeo errado. */
++    delete SESSION_RENDER[sourceId];
++    delete SESSION_DURATION[sourceId];
++    var box = form.querySelector('[data-cut-export]');
++    if (box) box.innerHTML = cutExportHTML(resolvedOf(form.dataset.id));
++    var registrado = resolved.source.fileMeta;
++    if (registrado && (registrado.name !== file.name || num(registrado.size) !== num(file.size))) {
++      toast('Arquivo diferente do registrado nesta fonte (' + registrado.name
++        + '). O corte vai usar o que você abriu agora.', 'error');
++      return;
++    }
++    toast('Original aberto nesta sessão. Os downloads deste corte estão liberados.');
++  }
++
+   function onDialogChange(event) {
+     var target = event.target;
+     if (target.name === 'markFile' && target.files && target.files[0]) {
+@@ -3353,6 +3578,10 @@
+       if (filePanel) markSetFile(filePanel, target.files[0]);
+       return;
+     }
++    if (target.name === 'cutSourceFile' && target.files && target.files[0]) {
++      cutSetSourceFile(target.closest('form'), target.files[0]);
++      return;
++    }
+     if (target.name === 'sourceId') {
+       /* Trocar a fonte troca o vídeo de referência: marcar no arquivo da fonte anterior
+          produziria timestamps que não valem para o original escolhido. */
+@@ -3404,14 +3633,12 @@
+     var form = button.closest('form');
+     if (!form) return;
+     if (action === 'open-clip') { openClipDialog(button.dataset.id); return; }
+-    if (action === 'export-cut') {
+-      var alvoCorte = resolvedOf(form.dataset.id);
+-      if (!alvoCorte || !alvoCorte.clip || !alvoCorte.source || !alvoCorte.source.fileMeta) {
+-        toast('Sem arquivo local registrado nesta fonte não dá para montar o comando.', 'error');
+-        return;
+-      }
+-      copyCutCommand(alvoCorte.source.fileMeta.name, alvoCorte.clip.inSec, alvoCorte.clip.outSec,
+-        alvoCorte.clip.topic || alvoCorte.clip.name, button.dataset.format);
++    /* O caminho de 1 clique da revisão: o renderizador local devolve o MP4 pronto para
++       postar. Sem este ramo o clique caía em saveVariantForm e o download nunca acontecia. */
++    if (action === 'download-cut') {
++      var alvoBaixar = resolvedOf(form.dataset.id);
++      if (!alvoBaixar) { toast('Variante não encontrada.', 'error'); return; }
++      downloadRenderedCut(button, alvoBaixar, button.dataset.format);
+       return;
+     }
+     if (action === 'suggest-copy') {
+@@ -3474,7 +3701,12 @@
+   }
+ 
+   function download(name, content, type) {
+-    var url = URL.createObjectURL(new Blob([content], { type: type || 'text/plain;charset=utf-8' }));
++    downloadBlob(name, new Blob([content], { type: type || 'text/plain;charset=utf-8' }));
++  }
++  /* Salvar arquivo JÁ pronto — o MP4 que o renderizador local devolve — passa pela mesma
++     âncora do download() de texto: um único lugar cria e revoga a URL temporária. */
++  function downloadBlob(name, blob) {
++    var url = URL.createObjectURL(blob);
+     var anchor = document.createElement('a');
+     anchor.href = url;
+     anchor.download = name;
+@@ -3607,8 +3839,31 @@
+     else if (action === 'source-edit') openSourceDialog(button.dataset.id);
+     else if (action === 'clip-add') openClipDialog('', button.dataset.source);
+     else if (action === 'intake-promote') openPromoteDialog();
++    /* Um clique, um arquivo. Sem escolher perfil: 9:16 com fundo desfocado é o formato de
++       postar, e é o único que preserva o quadro inteiro do original. */
++    else if (action === 'intake-cut-save') {
++      var daLista = button.dataset.id ? findById(INTAKE.cuts, button.dataset.id) : null;
++      if (button.dataset.id && !daLista) {
++        toast('Este corte não está mais na lista.', 'error');
++        return;
++      }
++      var trecho = daLista || { inSec: INTAKE.inSec, outSec: INTAKE.outSec };
++      if (intakeMarkStatus(daLista ? { duration: INTAKE.duration, state: INTAKE.state,
++        inSec: trecho.inSec, outSec: trecho.outSec } : INTAKE).tone !== 'ok' && !daLista) {
++        toast('Marque um trecho válido na barra antes de salvar.', 'error');
++        return;
++      }
++      var nomeBase = daLista
++        ? 'corte-' + (INTAKE.cuts.indexOf(daLista) + 1) + '-' + INTAKE.name
++        : INTAKE.name;
++      var pronto = intakeResolved(trecho.inSec, trecho.outSec, nomeBase);
++      if (!pronto) {
++        toast('Abra um vídeo nesta aba antes de salvar o corte.', 'error');
++        return;
++      }
++      downloadRenderedCut(button, pronto, 'blur');
++    }
+     else if (action === 'intake-cut-add' || action === 'intake-cut-play'
+-      || action === 'intake-cut-command'
+       || action === 'intake-cut-edit' || action === 'intake-cut-remove') {
+       /* Delegação na raiz: a lista é reescrita por innerHTML, então ouvinte preso a cada
+          botão morreria no primeiro refresh. Botões explícitos, nunca dblclick (BP-001). */
+@@ -3660,6 +3915,7 @@
+     root.addEventListener('click', onRootClick);
+     root.addEventListener('change', onRootChange);
+     root.addEventListener('input', onRootInput);
++    root.addEventListener('pointerdown', onRootPointerDown);
+     /* O vídeo do primeiro contato é da sessão: a URL temporária morre ao sair da página. */
+     if (window.addEventListener) window.addEventListener('pagehide', intakeRelease);
+     render();
+diff --git a/video-worker/__pycache__/worker.cpython-312.pyc b/video-worker/__pycache__/worker.cpython-312.pyc
+index bf267e7..36de75a 100644
+Binary files a/video-worker/__pycache__/worker.cpython-312.pyc and b/video-worker/__pycache__/worker.cpython-312.pyc differ
+diff --git a/video-worker/worker.py b/video-worker/worker.py
+index 56dd0b6..7c15916 100644
+--- a/video-worker/worker.py
++++ b/video-worker/worker.py
+@@ -48,6 +48,11 @@ FFMPEG = os.path.join(REPO, "video-apresentacao", "_tools", "imageio_ffmpeg",
+ CONTRACT_VERSION = 1
+ OUT_W = 1080
+ OUT_H = 1920
++# O fundo desfocado é construído num quadro OUT/BLUR_DIV e depois ampliado — ver build_filter.
++# São os dois botões de ajuste do fundo: BLUR_DIV troca velocidade por detalhe, BLUR_SIGMA é
++# o quanto borra. Mexer em BLUR_DIV pede mexer em BLUR_SIGMA junto (sigma ≈ 28 / BLUR_DIV).
++BLUR_DIV = 10
++BLUR_SIGMA = 3
+ # Tolerância de duração declarada: ~7 quadros a 30 fps. O recorte com recodificação erra
+ # menos que isso, mas o empacotamento do AAC pode esticar o fim alguns milissegundos.
+ TOLERANCE_SEC = 0.25
+@@ -259,21 +264,39 @@ def build_filter(reframe):
+     if reframe == "blur":
+         # Preserva o conteúdo inteiro: o quadro original cabe deitado sobre um fundo
+         # tirado dele mesmo, ampliado e desfocado. Nada é cortado.
++        #
++        # O desfoque é feito num quadro BLUR_DIV vezes menor e só depois ampliado. Medido
++        # neste repositório, num corte de 30 s a 1080p: `gblur=sigma=28` direto em
++        # 1080x1920 custava ~18 s dos ~20 s totais; no quadro pequeno custa ~1 s. O
++        # resultado é igual ou mais liso — reduzir a 1/10 já apaga todo detalhe menor que
++        # 10 px, e a ampliação de volta interpola o que sobrou. Sigma acompanha a escala
++        # (28/10 ≈ 3), senão o fundo mudaria de aparência junto com a velocidade.
++        bg_w, bg_h = OUT_W // BLUR_DIV, OUT_H // BLUR_DIV
+         return (
+             "[0:v]split=2[bg][fg];"
+-            "[bg]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,gblur=sigma=28[bgb];"
++            "[bg]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,"
++            "gblur=sigma=%d,scale=%d:%d[bgb];"
+             "[fg]scale=%d:%d:force_original_aspect_ratio=decrease[fgs];"
+             "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1"
+-            % (OUT_W, OUT_H, OUT_W, OUT_H, OUT_W, OUT_H)
++            % (bg_w, bg_h, bg_w, bg_h, BLUR_SIGMA, OUT_W, OUT_H, OUT_W, OUT_H)
+         )
+     # Alternativa simples: reenquadramento central. Corta as laterais, sem rastreamento.
+     return ("[0:v]scale=%d:%d:force_original_aspect_ratio=increase,"
+             "crop=%d:%d,setsar=1" % (OUT_W, OUT_H, OUT_W, OUT_H))
+ 
+ 
+-def run_ffmpeg(args):
+-    proc = subprocess.run([FFMPEG] + args, capture_output=True, text=True,
+-                          encoding="utf-8", errors="replace")
++def run_ffmpeg(args, timeout=None):
++    """timeout=None mantém o comportamento do lote: esperar o que o corte precisar.
++
++    O servidor local (serve.py) passa um teto porque lá o FFmpeg atende uma requisição
++    do navegador — um processo travado prenderia a thread para sempre.
++    """
++    try:
++        proc = subprocess.run([FFMPEG] + args, capture_output=True, text=True,
++                              encoding="utf-8", errors="replace", timeout=timeout)
++    except subprocess.TimeoutExpired:
++        raise WorkerError("ffmpeg_failed",
++                          "O FFmpeg passou de %ss e foi encerrado." % timeout)
+     if proc.returncode != 0:
+         tail = (proc.stderr or "").strip().splitlines()[-6:]
+         raise WorkerError("ffmpeg_failed",
+@@ -281,7 +304,34 @@ def run_ffmpeg(args):
+     return proc.stderr or ""
+ 
+ 
+-def render_cut(src, dest, start, duration, reframe, has_audio):
++_QSV = None
++
++
++def video_encoder_args():
++    """Encoder de vídeo: QSV da Intel se existir, libx264 se não.
++
++    A GPU integrada faz o mesmo trabalho em ~40% menos tempo, mas nem toda máquina tem
++    (e um build de FFmpeg pode listar o encoder sem conseguir usá-lo). O teste é um
++    encode de 1 quadro 64x64, roda UMA vez por processo e, na menor dúvida, cai no
++    libx264: velocidade nunca vale trocar um MP4 pronto por um erro.
++    """
++    global _QSV
++    if _QSV is None:
++        try:
++            proc = subprocess.run(
++                [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
++                 "-i", "testsrc=size=64x64:rate=1:duration=1",
++                 "-c:v", "h264_qsv", "-f", "null", "-"],
++                capture_output=True, timeout=60)
++            _QSV = proc.returncode == 0
++        except Exception:
++            _QSV = False
++    if _QSV:
++        return ["-c:v", "h264_qsv", "-global_quality", "22"]
++    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
++
++
++def render_cut(src, dest, start, duration, reframe, has_audio, timeout=None):
+     """Renderiza UM corte vertical direto do original.
+ 
+     Toda variante nasce do original: nada aqui aceita a saída de outra plataforma como
+@@ -294,8 +344,8 @@ def render_cut(src, dest, start, duration, reframe, has_audio):
+         # precisão de quadro. -t depois de -i limita a duração da SAÍDA.
+         "-ss", "%.3f" % start, "-i", src, "-t", "%.3f" % duration,
+         "-filter_complex", filtro,
+-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+-        "-profile:v", "high", "-level", "4.0",
++    ] + video_encoder_args() + [
++        "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.0",
+     ]
+     if has_audio:
+         args += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+@@ -308,7 +358,7 @@ def render_cut(src, dest, start, duration, reframe, has_audio):
+         # e aborta com "Unable to choose an output format".
+         "-f", "mp4", dest,
+     ]
+-    run_ffmpeg(args)
++    run_ffmpeg(args, timeout=timeout)
+ 
+ 
+ def check_output(path, expect_duration, expect_audio):

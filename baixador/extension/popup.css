@@ -1,0 +1,184 @@
+* { box-sizing: border-box; }
+
+body {
+  width: 320px;
+  margin: 0;
+  padding: 14px;
+  font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
+  color: #1c1c1e;
+  background: #fff;
+}
+
+h1 { margin: 0 0 12px; font-size: 15px; font-weight: 650; }
+
+label { display: block; margin-bottom: 5px; color: #6b6b70; font-size: 12px; }
+
+input {
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid #d3d3d8;
+  border-radius: 7px;
+  font: inherit;
+  transition: border-color 140ms cubic-bezier(.32, .72, 0, 1);
+}
+input:focus { outline: none; border-color: #1c1c1e; }
+
+button {
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: #1c1c1e;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms cubic-bezier(.32, .72, 0, 1),
+              transform 110ms cubic-bezier(.32, .72, 0, 1),
+              opacity 140ms cubic-bezier(.32, .72, 0, 1);
+}
+button:hover:not(:disabled) { background: #333338; }
+button:active:not(:disabled) { transform: scale(.97); }
+button:disabled { opacity: .45; cursor: default; }
+
+/* Vídeo da aba atual. Sempre visível: quando a aba não é do YouTube o bloco é justamente
+   quem diz isso — esconder deixaria a detecção muda (BP-008). */
+.aba {
+  display: block;
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  border: 1px solid #e4e4e8;
+  border-radius: 8px;
+  background: #fafafb;
+}
+.aba-rot { display: block; margin-bottom: 3px; color: #6b6b70; font-size: 11px; }
+#aba-titulo { display: block; font-weight: 650; overflow-wrap: anywhere; }
+#aba-titulo:empty { display: none; }
+#aba-url { display: block; color: #46464b; font-size: 12px; overflow-wrap: anywhere; }
+
+.ghost {
+  width: auto;
+  margin-top: 8px;
+  padding: 5px 10px;
+  border: 1px solid #d3d3d8;
+  background: #fff;
+  color: #1c1c1e;
+  font-size: 12px;
+}
+.ghost:hover:not(:disabled) { background: #f1f1f4; }
+
+/* Buscar vídeo: ação de leitura (não baixa nada), então mantém o peso de botão secundário —
+   largura cheia porque é o passo obrigatório antes do download no TikTok. */
+.busca { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; }
+
+/* Roda só enquanto a busca acontece: 4 s de silêncio é indistinguível de travado. Rápido de
+   propósito — giro veloz faz a espera parecer curta. */
+.giro {
+  width: 12px; height: 12px; flex: none;
+  border: 2px solid #d3d3d8;
+  border-top-color: #1c1c1e;
+  border-radius: 50%;
+  animation: giro 600ms linear infinite;
+}
+.busca:not(.buscando) .giro { display: none; }
+@keyframes giro { to { transform: rotate(360deg); } }
+
+/* Cartão de pré-visualização. Entra uma vez por busca: sobe 6px e aparece, 180 ms na mesma
+   curva do resto do popup. Nada de scale(0) — o cartão nasce quase do tamanho final. */
+.preview {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #e4e4e8;
+  border-radius: 8px;
+  background: #fafafb;
+  animation: sobe 180ms cubic-bezier(.32, .72, 0, 1) both;
+}
+@keyframes sobe {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview { animation: none; }
+  .giro { animation-duration: 1600ms; }
+}
+
+.pv-topo { display: flex; gap: 9px; align-items: flex-start; }
+.pv-capa {
+  width: 54px;
+  height: 72px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 5px;
+  background: #ececef;
+}
+.pv-txt { min-width: 0; }
+#pv-titulo { display: block; overflow-wrap: anywhere; }
+#pv-criador, #pv-dur { display: block; color: #6b6b70; font-size: 12px; }
+#pv-criador:empty, #pv-dur:empty { display: none; }
+
+.preview label { margin: 10px 0 4px; }
+select {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #d3d3d8;
+  border-radius: 7px;
+  background: #fff;
+  font: inherit;
+  color: inherit;
+  transition: border-color 140ms cubic-bezier(.32, .72, 0, 1);
+}
+select:focus { outline: none; border-color: #1c1c1e; }
+
+/* A frase da marca d'água muda de cor com o ESTADO, não de enfeite: confirmado sem marca,
+   não confirmado e com marca são três respostas diferentes e precisam parecer diferentes. */
+.pv-marca { margin: 8px 0 0; font-size: 12px; line-height: 1.35; color: #46464b; }
+.pv-marca::before {
+  content: "";
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #9a9aa0;
+}
+.pv-marca.sem-marca::before { background: #2f7d4f; }
+.pv-marca.desconhecida::before { background: #9a7013; }
+.pv-marca.com-marca::before { background: #a8322a; }
+.pv-marca.com-marca { color: #a8322a; }
+
+/* Portão de direitos: a caixa fica ao lado do texto, não em cima dele. */
+.direitos {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin: 10px 0 0;
+  color: #46464b;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.direitos input { width: auto; flex: none; margin-top: 2px; }
+
+p { margin: 10px 0 0; }
+
+#status { color: #46464b; }
+
+.prog { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+progress {
+  flex: 1;
+  height: 6px;
+  appearance: none;
+  border: 0;
+}
+progress::-webkit-progress-bar { background: #ececef; border-radius: 3px; }
+progress::-webkit-progress-value {
+  background: #1c1c1e;
+  border-radius: 3px;
+  transition: width 180ms cubic-bezier(.32, .72, 0, 1);
+}
+
+#pct { min-width: 34px; text-align: right; color: #6b6b70; font-variant-numeric: tabular-nums; }
+
+#arquivo { color: #46464b; word-break: break-all; }
+#arquivo:empty, #erro:empty { display: none; }
+
+#erro { color: #a8322a; }

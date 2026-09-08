@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Entrar · Dootu</title>
+<link rel="icon" href="assets/favicon.png" />
+<style>
+  /* Porta de entrada local. NÃO é segurança: o site é 100% client-side, então quem abrir o
+     DevTools passa. Serve para não deixar o painel escancarado numa tela ligada. Segurança
+     real só existe com o Supabase Auth (Fase 3, pausada) — ver supabase-client.js. */
+
+  :root {
+    --ease-out: cubic-bezier(.23, 1, .32, 1);
+    --ink: #f4f6fa;
+    --ink-dim: rgba(244, 246, 250, .62);
+    --line: rgba(255, 255, 255, .14);
+    --red: #c8102e;
+    --red-hi: #e01536;
+    --navy: #002b5c;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    color: var(--ink);
+    background: #0a0d12;
+    font: 400 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Foto em full-bleed. O scrim existe por função, não por enfeite: sem ele o texto do
+     cartão cai sobre a arena clara e perde contraste. */
+  .bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      linear-gradient(100deg, rgba(6, 9, 14, .96) 0%, rgba(6, 9, 14, .82) 34%, rgba(6, 9, 14, .34) 68%, rgba(6, 9, 14, .58) 100%),
+      url("assets/nba/wizards/2026/wizards-young-core.jpg") center / cover no-repeat;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 372px;
+    padding: 30px 28px 26px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(14, 18, 25, .72);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 24px 60px -22px rgba(0, 0, 0, .78), 0 2px 8px rgba(0, 0, 0, .45);
+    animation: rise 260ms var(--ease-out) both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px) scale(.985); }
+  }
+
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 22px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .mark span {
+    width: 26px;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--navy), var(--red));
+  }
+
+  h1 { margin: 0 0 4px; font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
+  .sub { margin: 0 0 24px; font-size: 14px; color: var(--ink-dim); }
+
+  label {
+    display: block;
+    margin-bottom: 7px;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--ink-dim);
+  }
+
+  input {
+    width: 100%;
+    height: 44px;
+    padding: 0 13px;
+    color: var(--ink);
+    font: inherit;
+    background: rgba(0, 0, 0, .34);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+  }
+  input::placeholder { color: rgba(244, 246, 250, .3); }
+  input:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, .34);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, .1);
+  }
+  .card[data-state="erro"] input { border-color: rgba(224, 21, 54, .6); }
+
+  button {
+    width: 100%;
+    height: 44px;
+    margin-top: 18px;
+    color: #fff;
+    font: 600 15px/1 inherit;
+    font-family: inherit;
+    background: var(--red);
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    button:hover { background: var(--red-hi); }
+  }
+  button:active { transform: scale(.97); }
+  button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  button[disabled] { opacity: .6; cursor: default; }
+
+  /* Nenhum ramo termina calado (BP-008): acerto, senha errada e navegador sem crypto.subtle
+     todos escrevem aqui. */
+  .msg {
+    min-height: 18px;
+    margin: 12px 0 0;
+    font-size: 13px;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+  }
+  .msg[data-show] { opacity: 1; transform: translateY(0); }
+  .msg[data-tone="erro"] { color: #ff8a9c; }
+  .msg[data-tone="ok"] { color: #7fd39b; }
+
+  .foot { margin: 22px 0 0; font-size: 12px; line-height: 1.45; color: rgba(244, 246, 250, .38); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card { animation: none; }
+    button:active { transform: none; }
+    .msg { transform: none; transition: opacity 180ms linear; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg" role="presentation"></div>
+
+<main class="card" id="card">
+  <div class="mark"><span></span>Acesso restrito</div>
+  <h1>Dootu</h1>
+  <p class="sub">Entre para abrir o painel.</p>
+
+  <form id="form" novalidate>
+    <label for="pass">Senha</label>
+    <input id="pass" name="pass" type="password" autocomplete="current-password"
+           placeholder="••••••••" required autofocus />
+    <button type="submit" id="go">Entrar</button>
+  </form>
+
+  <p class="msg" id="msg" role="status" aria-live="polite"></p>
+
+  <noscript>
+    <p class="msg" data-show data-tone="erro">Esta página precisa de JavaScript para conferir a senha.</p>
+  </noscript>
+
+  <p class="foot">
+    Porta de entrada local, não segurança — o painel é client-side.
+    Trocar a senha: gere um novo hash e substitua <code>HASH</code> neste arquivo.
+  </p>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* SHA-256 da senha, em hex. A senha em si nunca aparece no arquivo.
+     Padrão de fábrica: "wizards" — TROQUE. Para gerar o hash da sua senha, no PowerShell:
+
+       py -3.12 -c "import hashlib;print(hashlib.sha256(input('senha: ').encode()).hexdigest())"
+
+     Cole o resultado aqui embaixo. */
+  var HASH = 'acf118f37b4c5723a2afcbcaa880bfa01d33639cf1a1b5132441313ea83975f5';
+
+  var DESTINO = 'index.html';
+  var CHAVE = 'hubi_auth';
+
+  var form = document.getElementById('form');
+  var input = document.getElementById('pass');
+  var botao = document.getElementById('go');
+  var msg = document.getElementById('msg');
+  var card = document.getElementById('card');
+
+  function diga(texto, tom) {
+    msg.textContent = texto;
+    msg.setAttribute('data-tone', tom);
+    msg.setAttribute('data-show', '');
+    card.setAttribute('data-state', tom === 'erro' ? 'erro' : 'ok');
+  }
+
+  function limpe() {
+    msg.removeAttribute('data-show');
+    card.removeAttribute('data-state');
+  }
+
+  function sha256Hex(texto) {
+    var bytes = new TextEncoder().encode(texto);
+    return crypto.subtle.digest('SHA-256', bytes).then(function (buf) {
+      return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+    });
+  }
+
+  input.addEventListener('input', limpe);
+
+  form.addEventListener('submit', function (evento) {
+    evento.preventDefault();
+    var senha = input.value;
+    if (!senha) { diga('Digite a senha.', 'erro'); input.focus(); return; }
+
+    /* crypto.subtle só existe em contexto seguro. Por file:// ele não existe, e ficar calado
+       aqui seria indistinguível de senha errada — então o motivo real vai na tela. */
+    if (!window.crypto || !crypto.subtle) {
+      diga('Este navegador não expõe crypto.subtle nesta origem. Abra pelo atalho do Desktop (http://127.0.0.1:8765).', 'erro');
+      return;
+    }
+
+    botao.disabled = true;
+    sha256Hex(senha).then(function (hex) {
+      if (hex !== HASH) {
+        botao.disabled = false;
+        diga('Senha incorreta.', 'erro');
+        input.select();
+        return;
+      }
+      try { sessionStorage.setItem(CHAVE, '1'); } catch (e) { /* modo restrito: segue mesmo assim */ }
+      diga('Entrando…', 'ok');
+      location.replace(DESTINO);
+    }).catch(function () {
+      botao.disabled = false;
+      diga('Não consegui conferir a senha neste navegador.', 'erro');
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

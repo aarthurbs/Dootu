@@ -1,0 +1,19 @@
+Tema Brasil — imagens do Wikimedia Commons (licença livre).
+
+bg.jpg:
+  File:Rio de Janeiro from Sugarloaf mountain, May 2004.jpg
+  Licença: CC BY-SA 3.0
+  Autor: Breogan67
+  Fonte: https://commons.wikimedia.org/wiki/File:Rio_de_Janeiro_from_Sugarloaf_mountain,_May_2004.jpg
+
+sidebar.jpg:
+  File:Rio de janeiro copacabana beach 2010.JPG
+  Licença: CC BY-SA 4.0
+  Autor: chensiyuan
+  Fonte: https://commons.wikimedia.org/wiki/File:Rio_de_janeiro_copacabana_beach_2010.JPG
+
+logo.png:
+  File:Flag of Brazil.svg
+  Licença: Public domain
+  Autor: Raimundo Teixeira Mendes
+  Fonte: https://commons.wikimedia.org/wiki/File:Flag_of_Brazil.svg

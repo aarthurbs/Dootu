@@ -1,0 +1,447 @@
+# -*- coding: utf-8 -*-
+"""Servidor local do Estúdio de Vídeos: o site estático MAIS a rota POST /api/video-cut.
+
+Por que existe: video-ops.js chama `fetch('/api/video-cut?...')` com caminho relativo
+(video-ops.js:1992). O roteiro de operação subia `python -m http.server 8765`, que só
+serve arquivo e responde 501 a POST — então o botão "Baixar" da revisão nunca recebia o
+MP4. Este script substitui aquele comando servindo as duas coisas na MESMA origem.
+
+O corte NÃO é reimplementado aqui. Quem valida a entrada, mede, confere espaço,
+renderiza o 9:16, grava atômico e reprova saída torta continua sendo o worker.py. Este
+arquivo é só o porteiro HTTP: lê a requisição, recusa o que está errado, chama as funções
+que já existem e devolve os bytes.
+
+Uso (Windows, PowerShell, na pasta do projeto):
+    py -3.12 video-worker\\serve.py
+    # abra http://127.0.0.1:8765/index.html
+
+Mais restrito que o http.server padrão: escuta só em 127.0.0.1 e recusa qualquer caminho
+com componente começando por ponto (.env, .git, .claude nunca saem pela porta).
+"""
+
+import argparse
+import atexit
+import functools
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+import threading
+import time
+from http import HTTPStatus
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from typing import Dict, List, NamedTuple, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import worker  # noqa: E402  (a pasta do worker entra no path na linha acima)
+
+ROUTE = "/api/video-cut"
+# Token de sessão gerado pelo navegador (uid('render')). Lista fechada de caracteres
+# porque ele também vira nome de arquivo no diretório temporário.
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# Os mesmos três de FFMPEG_FILTERS no video-ops.js. blur/crop são 9:16 (worker.build_filter).
+PROFILES = ("horizontal", "blur", "crop")
+DEFAULT_PORT = 8765
+DEFAULT_MAX_SECONDS = 900.0
+DEFAULT_MAX_UPLOAD_BYTES = 12 * 1024 ** 3
+DEFAULT_FFMPEG_TIMEOUT = 900.0
+CHUNK = 1024 * 1024
+
+STATUS_BY_CODE = {
+    "job_invalid": HTTPStatus.BAD_REQUEST,
+    "cut_invalid": HTTPStatus.BAD_REQUEST,
+    "path_outside_root": HTTPStatus.BAD_REQUEST,
+    "input_empty": HTTPStatus.BAD_REQUEST,
+    "probe_failed": HTTPStatus.BAD_REQUEST,
+    "hash_mismatch": HTTPStatus.BAD_REQUEST,
+    # 409 é o combinado do contrato: fonte não está mais em cache, o navegador reenvia
+    # o arquivo (video-ops.js:1996-1999).
+    "input_missing": HTTPStatus.CONFLICT,
+    "input_not_source": HTTPStatus.BAD_REQUEST,
+    "no_space": HTTPStatus.INSUFFICIENT_STORAGE,
+    "ffmpeg_failed": HTTPStatus.INTERNAL_SERVER_ERROR,
+    "output_invalid": HTTPStatus.INTERNAL_SERVER_ERROR,
+    "contract_version": HTTPStatus.BAD_REQUEST,
+    "unsupported_type": HTTPStatus.BAD_REQUEST,
+}
+
+
+def remove_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+# --------------------------------------------------------------------------- requisição
+
+class CutRequest(NamedTuple):
+    token: str
+    profile: str
+    start: float
+    end: float
+    output: str
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+def _one(params: Dict[str, List[str]], key: str) -> str:
+    values = params.get(key) or []
+    return values[0] if values else ""
+
+
+def _finite(raw: str, label: str) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise worker.WorkerError("cut_invalid", "%s não é um número: %r" % (label, raw[:40]))
+    # NaN/inf passam pelo float() e viram "-ss nan" no FFmpeg. Recusar aqui (BP-004).
+    if value != value or value in (float("inf"), float("-inf")):
+        raise worker.WorkerError("cut_invalid", "%s não é um número finito." % label)
+    return value
+
+
+def parse_cut_query(raw_query: str, max_seconds: float = DEFAULT_MAX_SECONDS) -> CutRequest:
+    """Único lugar que lê a query do navegador. Puro de propósito: o teste confere cada
+    recusa sem abrir socket nem chamar FFmpeg."""
+    params = parse_qs(raw_query, keep_blank_values=True)
+    token = _one(params, "token")
+    if not TOKEN_RE.match(token):
+        raise worker.WorkerError("job_invalid", "Token da sessão inválido.")
+    profile = _one(params, "profile") or "horizontal"
+    if profile not in PROFILES:
+        raise worker.WorkerError("job_invalid", "Perfil não reconhecido: %r." % profile[:20])
+    start = _finite(_one(params, "start"), "start")
+    end = _finite(_one(params, "end"), "end")
+    if start < 0:
+        raise worker.WorkerError("cut_invalid", "O início do corte não pode ser negativo.")
+    if end <= start:
+        raise worker.WorkerError("cut_invalid", "O fim do corte tem de ser depois do início.")
+    if end - start > max_seconds:
+        raise worker.WorkerError(
+            "cut_invalid",
+            "Corte de %.1fs passa do teto de %.0fs desta rota." % (end - start, max_seconds))
+    # safe_component é o mesmo saneador do worker: devolve UM componente de nome, nunca
+    # um caminho. "..\\..\\index.html" não sobrevive a ele.
+    output = worker.safe_component(_one(params, "output"), fallback="corte.mp4", max_len=120)
+    if not output.lower().endswith(".mp4"):
+        output += ".mp4"
+    return CutRequest(token=token, profile=profile, start=start, end=end, output=output)
+
+
+# --------------------------------------------------------------------------- render
+
+def horizontal_args(src: str, dest: str, start: float, duration: float,
+                    has_audio: bool) -> List[str]:
+    """Espelha FFMPEG_FILTERS.horizontal do video-ops.js (`-vf scale=-2:1080`): mantém o
+    enquadramento e só desce para 1080p, porque TikTok e Instagram recusam AV1 em 4K.
+
+    O 9:16 não passa por aqui: blur/crop são worker.render_cut + worker.build_filter, que
+    já existem e são fixos em 1080x1920.
+    """
+    args = ["-hide_banner", "-loglevel", "error", "-y",
+            "-ss", "%.3f" % start, "-i", src, "-t", "%.3f" % duration,
+            "-vf", "scale=-2:1080",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-profile:v", "high", "-level", "4.0"]
+    args += (["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+             if has_audio else ["-an"])
+    # "-f mp4" é obrigatório: escrevendo em ".part" o FFmpeg não deduz o container.
+    args += ["-movflags", "+faststart", "-f", "mp4", dest]
+    return args
+
+
+def check_horizontal(path: str, expect_duration: float, expect_audio: bool) -> dict:
+    """worker.check_output exige 1080x1920; o horizontal tem outra forma. Aqui confere o
+    que vale para os dois casos, com a MESMA tolerância declarada pelo worker."""
+    info = worker.probe(path)
+    problems = []
+    if info["videoCodec"] != "h264":
+        problems.append("codec de vídeo %s (esperado h264)" % info["videoCodec"])
+    if expect_audio and info["audioCodec"] != "aac":
+        problems.append("codec de áudio %s (esperado aac)" % info["audioCodec"])
+    if not expect_audio and info["audioCodec"]:
+        problems.append("faixa de áudio inesperada (%s)" % info["audioCodec"])
+    if info["durationSec"] is None:
+        problems.append("duração ilegível")
+    elif abs(info["durationSec"] - expect_duration) > worker.TOLERANCE_SEC:
+        problems.append("duração %.3fs (esperado %.3fs, tolerância %.2fs)"
+                        % (info["durationSec"], expect_duration, worker.TOLERANCE_SEC))
+    if problems:
+        raise worker.WorkerError("output_invalid",
+                                 "Arquivo gerado reprovado: " + "; ".join(problems))
+    return info
+
+
+def render_to(dest: str, src: str, req: CutRequest, has_audio: bool,
+              timeout: Optional[float]) -> dict:
+    """Grava por write_atomic — o .part morre em qualquer falha, nunca sobra meio arquivo —
+    e confere a saída antes de afirmar que ela existe."""
+    def produce(part: str) -> None:
+        if req.profile == "horizontal":
+            worker.run_ffmpeg(horizontal_args(src, part, req.start, req.duration, has_audio),
+                              timeout=timeout)
+        else:
+            worker.render_cut(src, part, req.start, req.duration, req.profile, has_audio,
+                              timeout=timeout)
+
+    worker.write_atomic(dest, produce)
+    if req.profile == "horizontal":
+        return check_horizontal(dest, req.duration, has_audio)
+    return worker.check_output(dest, req.duration, has_audio)
+
+
+# --------------------------------------------------------------------------- cache
+
+class SourceCache:
+    """Guarda o original que o navegador subiu, por token de sessão, para o segundo
+    download do mesmo vídeo não subir os mesmos gigabytes de novo.
+
+    ponytail: um dicionário em memória e um lock só. O cache morre com o processo, de
+    propósito — quem retoma é o navegador, que reenvia o arquivo ao receber 409.
+    """
+
+    def __init__(self, folder: str) -> None:
+        self.folder = folder
+        self._lock = threading.Lock()
+        self._entries: Dict[str, Tuple[str, dict]] = {}
+
+    def get(self, token: str) -> Optional[Tuple[str, dict]]:
+        with self._lock:
+            entry = self._entries.get(token)
+        # Confere o disco: temporário apagado por fora não pode virar corte fantasma.
+        if entry and os.path.isfile(entry[0]):
+            return entry
+        return None
+
+    def put(self, token: str, path: str, media: dict) -> None:
+        with self._lock:
+            self._entries[token] = (path, media)
+
+    def path_for(self, token: str) -> str:
+        return os.path.join(self.folder, token + ".src")
+
+
+# --------------------------------------------------------------------------- HTTP
+
+class CutHandler(SimpleHTTPRequestHandler):
+    """Estático + /api/video-cut. Os atributos de classe são postos por build_server."""
+
+    cache: Optional[SourceCache] = None
+    max_seconds = DEFAULT_MAX_SECONDS
+    max_upload_bytes = DEFAULT_MAX_UPLOAD_BYTES
+    ffmpeg_timeout: Optional[float] = DEFAULT_FFMPEG_TIMEOUT
+    # ponytail: um FFmpeg por vez. Dois cortes 4K simultâneos afogam a máquina do operador
+    # e terminam mais tarde do que em fila. Se um dia houver máquina sobrando, tire o lock.
+    render_lock = threading.Lock()
+
+    # ---------------------------------------------------------------- estático
+    def send_head(self):
+        """Nenhum componente começando por ponto sai pela porta: .env, .git e .claude
+        estão na raiz servida e não são conteúdo do site."""
+        parts = urlparse(self.path).path.split("/")
+        if any(part.startswith(".") for part in parts if part):
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return None
+        return SimpleHTTPRequestHandler.send_head(self)
+
+    # ---------------------------------------------------------------- log
+    def log_request(self, code="-", size="-"):
+        # Sem query: o nome do arquivo do operador não precisa ir para o console.
+        self.log_message('"%s %s" %s', self.command, urlparse(self.path).path, code)
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[serve] %s\n" % (fmt % args))
+
+    # ---------------------------------------------------------------- POST
+    def do_POST(self) -> None:
+        if urlparse(self.path).path != ROUTE:
+            self._error(HTTPStatus.NOT_FOUND, "job_invalid", "Rota inexistente.")
+            return
+        started = time.monotonic()
+        try:
+            self._handle_cut()
+        except worker.WorkerError as err:
+            # Erro PREVISTO: vira JSON com a mensagem que o navegador já sabe ler
+            # (video-ops.js:1957 usa payload.error).
+            self._error(STATUS_BY_CODE.get(err.code, HTTPStatus.BAD_REQUEST),
+                        err.code, err.message)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Aba fechada no meio do download: não é falha do servidor e não derruba a thread.
+            self.log_message("cliente desligou antes do fim")
+        except OSError as err:
+            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, "output_invalid",
+                        "Falha de disco ao cortar: %s" % (err.strerror or err))
+        finally:
+            self.log_message("corte em %.1fs", time.monotonic() - started)
+
+    def _handle_cut(self) -> None:
+        # A query é conferida ANTES de ler o corpo: recusar 4 GB de upload por causa de um
+        # parâmetro errado seria desperdício.
+        req = parse_cut_query(urlparse(self.path).query, self.max_seconds)
+        length = self._content_length()
+        cached = self.cache.get(req.token)
+        if length == 0:
+            if not cached:
+                raise worker.WorkerError(
+                    "input_missing",
+                    "A fonte desta sessão não está mais no servidor; reenvie o arquivo.")
+            src, media = cached
+        else:
+            src = self.cache.path_for(req.token)
+            self._receive(src, length)
+            # validate_input é o portão que já existe: arquivo vazio, ilegível ou sem
+            # faixa de vídeo é recusado aqui, não no meio do render.
+            media = worker.validate_input(src)
+            self.cache.put(req.token, src, media)
+
+        source_duration = media.get("durationSec")
+        if source_duration is not None and req.end > source_duration + worker.TOLERANCE_SEC:
+            raise worker.WorkerError(
+                "cut_invalid",
+                "O corte termina em %.1fs, depois do fim do vídeo (%.1fs)."
+                % (req.end, source_duration))
+        has_audio = bool(media.get("audioCodec"))
+        worker.ensure_space(self.cache.folder, req.duration)
+
+        dest = os.path.join(self.cache.folder, req.token + "-" + req.output)
+        try:
+            with self.render_lock:
+                render_to(dest, src, req, has_audio, self.ffmpeg_timeout)
+            self._send_video(dest, req.output)
+        finally:
+            # O MP4 não precisa sobreviver à resposta: quem guarda é a pasta de Downloads.
+            remove_quietly(dest)
+
+    # ---------------------------------------------------------------- corpo
+    def _content_length(self) -> int:
+        raw = self.headers.get("Content-Length")
+        if not raw:
+            return 0
+        try:
+            length = int(raw)
+        except ValueError:
+            raise worker.WorkerError("job_invalid", "Content-Length inválido.")
+        if length < 0:
+            raise worker.WorkerError("job_invalid", "Content-Length negativo.")
+        if length > self.max_upload_bytes:
+            raise worker.WorkerError(
+                "job_invalid",
+                "Arquivo de %.1f GB passa do teto de %.1f GB desta rota."
+                % (length / 1024 ** 3, self.max_upload_bytes / 1024 ** 3))
+        return length
+
+    def _receive(self, dest: str, length: int) -> None:
+        """Grava em blocos de 1 MB: o original AV1 4K nunca entra inteiro na memória."""
+        remaining = length
+        try:
+            with open(dest, "wb") as handle:
+                while remaining > 0:
+                    block = self.rfile.read(min(CHUNK, remaining))
+                    if not block:
+                        raise worker.WorkerError(
+                            "input_empty", "O navegador enviou menos bytes do que anunciou.")
+                    handle.write(block)
+                    remaining -= len(block)
+        except BaseException:
+            remove_quietly(dest)
+            raise
+
+    def _send_video(self, path: str, download_name: str) -> None:
+        size = os.path.getsize(path)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Content-Disposition", 'attachment; filename="%s"' % download_name)
+        # O navegador marca a sessão como já enviada ao ver este cabeçalho (video-ops.js:1995).
+        self.send_header("X-Video-Source-Cached", "1")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        with open(path, "rb") as handle:
+            shutil.copyfileobj(handle, self.wfile, CHUNK)
+
+    def _error(self, status, code: str, message: str) -> None:
+        body = json.dumps({"error": message, "code": code}, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+
+# --------------------------------------------------------------------------- servidor
+
+def build_server(root: str, port: int = 0, max_seconds: float = DEFAULT_MAX_SECONDS,
+                 max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
+                 ffmpeg_timeout: Optional[float] = DEFAULT_FFMPEG_TIMEOUT,
+                 folder: Optional[str] = None) -> ThreadingHTTPServer:
+    """port=0 pega porta livre — é assim que o teste sobe o servidor sem brigar pela 8765.
+
+    Todo temporário fica num mkdtemp fora da pasta do projeto: nenhuma requisição escreve
+    dentro do repositório.
+    """
+    temp = folder or tempfile.mkdtemp(prefix="video-cut-")
+    atexit.register(shutil.rmtree, temp, ignore_errors=True)
+
+    # Subclasse por servidor: dois servidores num teste não compartilham cache nem limites.
+    bound = type("BoundCutHandler", (CutHandler,), {
+        "cache": SourceCache(temp),
+        "max_seconds": max_seconds,
+        "max_upload_bytes": max_upload_bytes,
+        "ffmpeg_timeout": ffmpeg_timeout,
+        "render_lock": threading.Lock(),
+    })
+    server = ThreadingHTTPServer(("127.0.0.1", port), functools.partial(bound, directory=root))
+    server.daemon_threads = True
+    server.temp_folder = temp
+    return server
+
+
+def close_server(server: ThreadingHTTPServer) -> None:
+    server.server_close()
+    shutil.rmtree(getattr(server, "temp_folder", ""), ignore_errors=True)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Servidor local do Estúdio de Vídeos: site estático + POST /api/video-cut.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--root", default=worker.REPO,
+                        help="pasta servida como site (padrão: raiz do repositório)")
+    parser.add_argument("--max-seconds", type=float, default=DEFAULT_MAX_SECONDS,
+                        help="duração máxima de um corte")
+    parser.add_argument("--max-upload-bytes", type=int, default=DEFAULT_MAX_UPLOAD_BYTES)
+    parser.add_argument("--ffmpeg-timeout", type=float, default=DEFAULT_FFMPEG_TIMEOUT)
+    args = parser.parse_args(argv)
+
+    if not os.path.exists(worker.FFMPEG):
+        print("FALHOU: FFmpeg do projeto não encontrado em %s" % worker.FFMPEG)
+        return 2
+    root = os.path.realpath(args.root)
+    if not os.path.isdir(root):
+        print("FALHOU: pasta do site não encontrada: %s" % root)
+        return 2
+
+    server = build_server(root, port=args.port, max_seconds=args.max_seconds,
+                          max_upload_bytes=args.max_upload_bytes,
+                          ffmpeg_timeout=args.ffmpeg_timeout)
+    host, bound_port = server.server_address[0], server.server_address[1]
+    print("Estúdio de Vídeos servindo em http://%s:%d/index.html" % (host, bound_port))
+    print("Corte de 1 clique ativo em POST %s (só 127.0.0.1). Ctrl+C encerra." % ROUTE)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nencerrando…")
+    finally:
+        close_server(server)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

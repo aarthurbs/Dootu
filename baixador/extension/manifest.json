@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Baixador yt-dlp",
+  "version": "1.0.0",
+  "description": "Baixa um vídeo pela URL usando o yt-dlp que já está instalado na máquina.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab"],
+  "host_permissions": ["http://127.0.0.1:8770/*"]
+}

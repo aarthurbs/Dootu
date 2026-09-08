@@ -1,0 +1,18 @@
+Snapshot do seller-arthur-2 gerado em 2026-09-08 (SO CODIGO).
+
+Este zip tem APENAS: codigo, docs, configs, assets pequenos.
+NAO tem: videos, audios, .git, .env, node_modules, __pycache__, .obsidian, binarios grandes.
+
+Como reconstruir no outro PC:
+
+1. Extraia este zip em C:\Users\<seu-usuario>\Downloads\seller-arthur-2\
+2. Historico Git:
+   git clone https://github.com/aarthurbs/seller-arthru.git seller-arthur-git-tmp
+   Copie a pasta .git de seller-arthur-git-tmp para dentro de seller-arthur-2.
+   Depois: git status
+3. node_modules:
+   cd my-video && npm install
+   cd ../studio && npm install
+4. .env: crie com as chaves (Supabase URL/anonKey e afins).
+5. Videos/audio (pasta video-apresentacao/): re-renderize via Remotion em my-video/ OU transfira via pendrive/cloud do PC original.
+6. ffmpeg: winget install Gyan.FFmpeg (ou baixe manualmente).

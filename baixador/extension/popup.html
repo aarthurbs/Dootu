@@ -1,0 +1,48 @@
+<meta charset="utf-8">
+<link rel="stylesheet" href="popup.css">
+<h1>Baixador de vídeo</h1>
+
+<section id="aba" class="aba">
+  <span class="aba-rot">Vídeo da aba atual</span>
+  <strong id="aba-titulo"></strong>
+  <span id="aba-url"></span>
+  <button id="aba-usar" type="button" class="ghost">Usar este vídeo</button>
+</section>
+
+<label for="url">URL do vídeo</label>
+<input id="url" type="url" placeholder="https://..." autocomplete="off" spellcheck="false">
+
+<button id="buscar" type="button" class="ghost busca"><span class="giro"></span>Buscar vídeo</button>
+
+<section id="preview" class="preview" hidden>
+  <div class="pv-topo">
+    <img id="pv-capa" class="pv-capa" alt="" referrerpolicy="no-referrer" hidden>
+    <div class="pv-txt">
+      <strong id="pv-titulo"></strong>
+      <span id="pv-criador"></span>
+      <span id="pv-dur"></span>
+    </div>
+  </div>
+  <label for="pv-fmt">Qualidade</label>
+  <select id="pv-fmt"></select>
+  <p id="pv-marca" class="pv-marca"></p>
+</section>
+
+<label class="direitos"><input id="direitos" type="checkbox">
+  <span>Declaro que tenho autorização do criador para baixar este vídeo. Baixar mídia de
+  terceiro sem autorização é violação de direito autoral; esta declaração vale para esta
+  URL.</span></label>
+
+<button id="go" type="button">Baixar</button>
+
+<p id="status" role="status">Verificando o serviço local...</p>
+
+<div class="prog">
+  <progress id="bar" max="100" value="0"></progress>
+  <span id="pct">0%</span>
+</div>
+
+<p id="arquivo"></p>
+<p id="erro" role="alert"></p>
+
+<script src="popup.js"></script>
