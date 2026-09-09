@@ -61,6 +61,25 @@ def falar(inicio, quantidade, passo=3.0, texto="Fala continua de teste."):
     return [(inicio + i * passo, passo, texto) for i in range(quantidade)]
 
 
+def falar_cues(inicio, quantidade, passo=3.0, texto="Fala continua de teste."):
+    """O mesmo `falar`, ja no formato de cue -- para montar grade a mao sem passar por json3."""
+    return [{"start": inicio + i * passo, "end": inicio + (i + 1) * passo, "text": texto}
+            for i in range(quantidade)]
+
+
+def palavras_falar(inicio, quantidade, passo=3.0, texto="Fala continua de teste."):
+    """Tempo por PALAVRA da mesma fala, distribuido dentro de cada cue."""
+    saida = []
+    for i in range(quantidade):
+        base = inicio + i * passo
+        fatia = texto.split()
+        largura = passo / len(fatia)
+        for j, w in enumerate(fatia):
+            saida.append({"start": round(base + j * largura, 3),
+                          "end": round(base + (j + 1) * largura, 3), "text": w})
+    return saida
+
+
 def main():
     # ------------------------------------------------------------------ 1. id
     check("1a. watch?v=", ytclip.video_id("https://www.youtube.com/watch?v=aircAruvnKk") == "aircAruvnKk")
@@ -103,16 +122,18 @@ def main():
     fala = ytclip.parse_json3(json3(
         [(0.0, 3.0, "Abertura sem ponto"), (3.0, 3.0, "continuando a ideia."),
          (6.0, 3.0, "Aqui comeca outra coisa")] + falar(9.0, 30)))
-    inicio, fim, texto = ytclip._window(fala, 4.0, 200.0)
+    janela = ytclip._window(fala, 4.0, 200.0)
+    inicio, fim, texto = janela["inSec"], janela["outSec"], janela["text"]
     check("4a. recua ate o comeco da frase", abs(inicio - 0.0) < 1e-6)
     check("4b. respeita o minimo", fim - inicio >= ytclip.MIN_CLIP_SEC - 1e-6)
     check("4c. respeita o teto", fim - inicio <= ytclip.MAX_CLIP_SEC + 1e-6)
     check("4d. comeca numa fronteira de fala", any(abs(c["start"] - inicio) < 1e-6 for c in fala))
     check("4e. devolve o texto do trecho", "Abertura" in texto)
-    vazio_in, vazio_out, _ = ytclip._window([], 50.0, 600.0)
+    vazio = ytclip._window([], 50.0, 600.0)
+    vazio_in, vazio_out = vazio["inSec"], vazio["outSec"]
     check("4f. sem legenda ainda produz janela", vazio_out > vazio_in)
     check("4g. janela nao passa da duracao do video",
-          ytclip._window(fala, 190.0, 200.0)[1] <= 200.0 + 1e-6)
+          ytclip._window(fala, 190.0, 200.0)["outSec"] <= 200.0 + 1e-6)
 
     # ----------------------------------------------------------- 5. candidatos
     info = {
@@ -136,7 +157,15 @@ def main():
         (c["score"] for c in lista), reverse=True))
     check("5i. nenhum passa do fim do video", all(c["outSec"] <= 300.0 + 1e-6 for c in lista))
     check("5j. respeita o teto de sugestoes", len(ytclip.candidates(info, limit=3)) <= 3)
-    check("5k. capitulo virou assunto", any("erro mais comum" in c["topic"] for c in lista))
+    perto = ytclip.candidates(dict(info, chapters=[{"start_time": 0.0, "title": "O erro mais comum"}]))
+    check("5k. capitulo que ABRE o corte vira a manchete",
+          any("erro mais comum" in c["topic"] for c in perto))
+    check("5k2. capitulo LONGE do inicio nao nomeia o trecho (prometeria outro assunto)",
+          all("erro mais comum" not in c["topic"] for c in lista
+              if abs(c["inSec"] - 100.0) > ytclip.MERGE_GAP_SEC))
+    check("5k3. sem capitulo perto, a manchete sai da FALA escolhida e nao do titulo do video",
+          all(c["topic"] and "Fala continua" in c["topic"] or c["topic"].startswith("Trecho em")
+              for c in lista))
 
     # ------------------------------------------------- 6. honestidade do sinal
     lista2 = ytclip.candidates(dict(info, heatmap=[]))
@@ -256,18 +285,30 @@ def main():
          (3.0, 3.0, "Mas ninguem tinha percebido ainda"),
          (6.0, 3.0, "e o caixa foi secando devagar.")] + falar(9.0, 30)))
     check("11e. recua para fugir da abertura pendurada",
-          abs(ytclip._window(pendurado, 4.0, 200.0)[0] - 0.0) < 1e-6)
+          abs(ytclip._window(pendurado, 4.0, 200.0)["inSec"] - 0.0) < 1e-6)
     preso = ytclip.parse_json3(json3(
         [(0.0, 3.0, "Fala antiga la atras."), (40.0, 3.0, "Mas isso mudou tudo depois.")]
         + falar(43.0, 30)))
-    check("11f. sem para onde recuar, mantem o inicio",
-          abs(ytclip._window(preso, 41.0, 200.0)[0] - 40.0) < 1e-6)
+    j_preso = ytclip._window(preso, 41.0, 200.0)
+    check("11f. sem para onde recuar, mantem o inicio (a menos do respiro)",
+          abs(j_preso["inSec"] - 40.0) <= ytclip.RESPIRO_ANTES_SEC + 1e-6)
+    check("11f2. o respiro nunca invade a fala anterior",
+          j_preso["inSec"] >= preso[0]["end"] - 1e-6)
     avisados = ytclip.candidates({"durationSec": 200.0, "heatmap": [], "cues": preso,
                                   "chapters": [{"start_time": 41.0, "title": "Virada"}]})
-    check("11g. candidato pendurado avisa o operador em portugues",
-          bool(avisados) and "mas" in avisados[0]["contextWarning"].lower())
+    check("11g. nenhum candidato entregue abre em conector solto (reprova, nao aviso)",
+          all(not ytclip._dangling_opener(c["hook"]) for c in avisados))
+    _, resumo_pend = ytclip.candidates_report(
+        {"durationSec": 200.0, "heatmap": [], "cues": pendurado, "words": [],
+         "chapters": [{"start_time": 4.0, "title": "Virada"}]})
+    check("11g2. o resumo conta o descarte em portugues, em vez de reprovar calado",
+          isinstance(resumo_pend, str))
     check("11h. corte com abertura limpa NAO recebe aviso",
           bool(lista) and all(c["contextWarning"] == "" for c in lista))
+    check("11i. trecho SEM legenda avisa que a borda veio da audiencia, nao da fala",
+          all(c["contextWarning"] and "audi" in c["contextWarning"].lower()
+              for c in ytclip.candidates({"durationSec": 300.0, "cues": [], "words": [],
+                                          "heatmap": plano})))
 
     # ------------------------------------- 12. duração vem da ideia, não do cronômetro
     curta = ytclip.parse_json3(json3(
@@ -286,9 +327,14 @@ def main():
         + [(26.5 + i * 2.5, 2.5, "assunto completamente diferente agora") for i in range(30)]))
     longa = ytclip.parse_json3(json3(
         [(i * 2.5, 2.5, "a historia continua sem pausa nenhuma.") for i in range(40)]))
-    dur_curta = ytclip._window(curta, 1.0, 300.0)[1] - ytclip._window(curta, 1.0, 300.0)[0]
-    dur_longa = ytclip._window(longa, 1.0, 300.0)[1] - ytclip._window(longa, 1.0, 300.0)[0]
-    check("12a. ideia curta fecha na pausa (~25s)", abs(dur_curta - 25.0) < 1e-6)
+    j_curta = ytclip._window(curta, 1.0, 300.0)
+    j_longa = ytclip._window(longa, 1.0, 300.0)
+    dur_curta = j_curta["outSec"] - j_curta["inSec"]
+    dur_longa = j_longa["outSec"] - j_longa["inSec"]
+    check("12a. ideia curta fecha na pausa (~25s, mais o respiro)",
+          0.0 <= dur_curta - 25.0 <= ytclip.RESPIRO_DEPOIS_SEC + 1e-6)
+    check("12a2. o respiro do fim nao invade a fala seguinte",
+          j_curta["outSec"] <= 26.5 + 1e-6)
     check("12b. historia sem pausa corre ate o teto suave (~70s)", dur_longa >= 65.0)
     check("12c. duracoes materialmente diferentes", dur_longa - dur_curta >= 20.0)
     check("12d. nenhuma das duas grudou no alvo antigo de 45s",
@@ -299,7 +345,7 @@ def main():
               for d in (dur_curta, dur_longa)))
     troca = ytclip._window(longa, 1.0, 300.0, (40.0,))
     check("12f. troca de assunto fecha antes do teto suave",
-          abs((troca[1] - troca[0]) - 40.0) < 1e-6)
+          abs((troca["outSec"] - troca["inSec"]) - 40.0) < 1e-6)
 
     # --------------------------------------- 13. nota reflete momento forte
     neutro = {"durationSec": 300.0, "heatmap": [],
@@ -578,13 +624,66 @@ def main():
     check("17l. e a frase manual chega inteira ao clipe",
           [c["text"] for c in linhas_manual] == ["Eu perdi quarenta mil.", "No primeiro ano."])
 
-    # RESTRICAO do pedido: a grade GROSSA nao muda, porque o `candidates()` mede a pausa ENTRE
-    # FALAS nela para decidir onde o corte fecha. Prova comportamental, nao textual: com e sem
-    # `words` no info, a recomendacao sai IDENTICA. Quem fiar palavra no detector reprova aqui.
+    # MUDOU EM 2026-09-09, por pedido explicito do usuario: "Snap approximate boundaries to
+    # suitable sentence, utterance, or pause boundaries using the best available timing
+    # evidence." Aqui morava o inverso -- `candidates(info) == candidates(info + words)`, que
+    # prendia o detector na grade GROSSA. Essa amarra ERA a causa medida do defeito relatado:
+    # a legenda rolante do YouTube fecha a cue no MEIO da oracao, entao 12 de 12 candidatos do
+    # video do print abriam em fragmento ("total. Eh, e super importante...") e 8 de 12
+    # fechavam com a fala no ar. O `parse_json3` continua intocado (19k/19l provam); o que
+    # mudou e o detector ganhar a evidencia de tempo mais fina que a fonte publica.
+    #
+    # E o check tem de ter DENTE: com a amostra rolante os dois lados dao lista vazia (a
+    # transcricao dela e inaproveitavel de proposito), e `[] == []` passaria de graca -- a
+    # mesma armadilha do "in arquivo so prova que alguem escreveu a palavra". Por isso a prova
+    # roda numa grade onde o ponto final cai DENTRO da cue, que e a forma real do defeito.
     info_rec = {"durationSec": 400.0, "cues": grossas,
                 "chapters": [{"start_time": 30.0, "title": "Dinheiro"}], "heatmap": []}
-    check("17m. a RECOMENDACAO de cortes ignora o tempo por palavra (grade grossa intacta)",
-          ytclip.candidates(info_rec) == ytclip.candidates(dict(info_rec, words=palavras)))
+    check("17m0. a amostra rolante e inaproveitavel e sai VAZIA em vez de encher cota",
+          ytclip.candidates(info_rec) == [] == ytclip.candidates(dict(info_rec, words=palavras)))
+    _, motivo_vazio = ytclip.candidates_report(info_rec)
+    check("17m1. e a analise DIZ por que saiu vazia, em portugues",
+          "Nenhum trecho passou" in motivo_vazio)
+
+    # Grade onde o ponto final mora no MEIO da cue -- a forma real da legenda rolante.
+    # Cue 1 termina em "...mes." + o comeco da frase seguinte; sem tempo por palavra a unica
+    # borda disponivel e a da cue, e o corte abre em "A gente descobriu".
+    corta_no_meio = [
+        {"start": 0.0, "end": 4.0, "text": "Ninguem olhava o caixa naquele mes. A gente"},
+        {"start": 4.0, "end": 8.0, "text": "descobriu que o custo tinha dobrado sem aviso."},
+        {"start": 8.0, "end": 12.0, "text": "Eu chamei o socio numa quinta a noite e falei"},
+        {"start": 12.0, "end": 16.0, "text": "que ia cortar tudo. Ele concordou na hora."},
+        {"start": 16.0, "end": 20.0, "text": "Em tres meses a margem voltou ao normal."},
+        {"start": 20.0, "end": 24.0, "text": "Foi a decisao mais dificil daquele ano."},
+    ]
+    palavras_meio = []
+    for cue in corta_no_meio:
+        fatia = cue["text"].split()
+        passo = (cue["end"] - cue["start"]) / len(fatia)
+        for i, w in enumerate(fatia):
+            palavras_meio.append({"start": round(cue["start"] + i * passo, 3),
+                                  "end": round(cue["start"] + (i + 1) * passo, 3), "text": w})
+    # Capitulo em 0 s so para EXISTIR ancora: sem nenhum sinal a lista sai vazia e os
+    # checks abaixo passariam de graca (`[] == []`), que e a armadilha que o 17m0 documenta.
+    info_meio = {"durationSec": 200.0, "heatmap": [],
+                 "chapters": [{"start_time": 0.0, "title": "O mes do caixa negativo"}],
+                 "cues": corta_no_meio + falar_cues(24.0, 20)}
+    grade_grossa = ytclip.sentences_from(info_meio["cues"])
+    grade_fina = ytclip.sentences_from(info_meio["cues"], palavras_meio + palavras_falar(24.0, 20))
+    check("17m2. na grade GROSSA a primeira frase engole a cue inteira (ponto no meio)",
+          bool(grade_grossa) and grade_grossa[0]["end"] >= 8.0 - 1e-6)
+    check("17m3. com tempo por PALAVRA a frase fecha onde o ponto esta, nao onde a cue acaba",
+          bool(grade_fina) and 2.5 <= grade_fina[0]["end"] <= 3.5)
+    check("17m4. e a frase seguinte comeca na PALAVRA, nao na borda da cue",
+          len(grade_fina) > 1 and abs(grade_fina[1]["start"] - grade_fina[0]["end"]) < 0.2
+          and grade_fina[1]["text"].startswith("A gente"))
+    finas = palavras_meio + palavras_falar(24.0, 20)
+    check("17m5. a recomendacao MUDA por causa disso (a fiacao existe de verdade)",
+          bool(ytclip.candidates(info_meio))
+          and ytclip.candidates(info_meio) != ytclip.candidates(dict(info_meio, words=finas)))
+    check("17m6. e a borda declarada muda de `fala` para `palavra` -- a tela sabe qual e",
+          [c["boundary"] for c in ytclip.candidates(info_meio)] == ["fala"]
+          and [c["boundary"] for c in ytclip.candidates(dict(info_meio, words=finas))] == ["palavra"])
 
     # ------ o efeito na legenda do clipe, medido na amostra
     antes = captions.to_pages(ytclip.cues_for_range(grossas, 0.0, fim_amostra))
@@ -709,9 +808,14 @@ def main():
               [{"start": l["start"], "end": l["end"], "text": l["text"]} for l in corte]))
     # A restricao central do pedido, repetida aqui com a chave `words` JA presente nas cues:
     # o detector nao pode ver palavra nenhuma.
-    check("18i. a RECOMENDACAO continua identica com as cues carregando `words`",
-          ytclip.candidates(info_rec)
-          == ytclip.candidates(dict(info_rec, cues=[dict(c, words=[dict(c)]) for c in grossas])))
+    # `words` DENTRO da cue e campo da legenda de CLIPE (karaoke do Remotion), nao da
+    # deteccao: o detector le `info["words"]`, a grade absoluta. Este check prende essa
+    # separacao -- e prende com dente, porque a lista vazia da amostra rolante nao serve de
+    # prova: roda na grade do 17m2, que produz candidatos.
+    com_words_na_cue = [dict(c, words=[dict(c)]) for c in info_meio["cues"]]
+    check("18i. `words` DENTRO da cue nao mexe na recomendacao (e campo da legenda do clipe)",
+          bool(ytclip.candidates(info_meio))
+          and ytclip.candidates(info_meio) == ytclip.candidates(dict(info_meio, cues=com_words_na_cue)))
 
     # ---- 19. o marcador do reconhecedor nao atravessa a fronteira de cue de clipe -------
     # O `cues_for_range` e a fronteira UNICA: os dois renderizadores 9:16 (ASS do FFmpeg e
@@ -792,6 +896,163 @@ def main():
     check("19l. o texto que o detector le e o CRU, com marcador (a limpeza nao vazou para "
           "dentro do `parse_json3`)",
           any(">>" in c["text"] for c in grossas))
+
+    # --------- 20. popularidade NAO resgata trecho incoerente (o defeito do print)
+    # Reproducao do caso relatado: a abertura 0:00-0:40 do video do print entrava com nota
+    # 72 porque o primeiro balde do grafico do YouTube marca 65% do maior pico -- e o
+    # primeiro balde e alto em TODO video, porque quem abre o video assiste os primeiros
+    # segundos. Aqui o pico e o MAXIMO possivel (razao 1,0) e a fala e a mesma coisa que
+    # estava la: briga censurada, com troca de falante a cada linha.
+    # O pico e o MAXIMO possivel e cobre SO a briga (0-50 s); a fala aproveitavel esta longe
+    # dali, em 150 s. A fixture isola de proposito: se houvesse fala boa colada na briga, a
+    # janela escaparia para ela e o check passaria sem provar nada sobre o resgate.
+    picareta = [{"start_time": i * 10.0, "end_time": i * 10.0 + 10.0, "value": 0.05}
+                for i in range(30)]
+    for i in range(0, 5):
+        picareta[i]["value"] = 1.0
+    banter = ytclip.parse_json3(json3([
+        (0.0, 3.0, ">> O, para com essa [ __ ] Para com essa"),
+        (3.0, 3.0, "[ __ ] de buzina, [ __ ] To em pao."),
+        (6.0, 3.0, ">> Queria achar um call para entrar."),
+        (9.0, 3.0, ">> Tudo bem, chefe? [ __ ] Estao te boletando o que ai?"),
+        (12.0, 3.0, ">> [ __ ] Calma, eu vou pra casa."),
+        (15.0, 3.0, ">> [ __ ] Para com essa buzina."),
+        (18.0, 3.0, ">> [ __ ] Ai, ai."),
+    ] + falar(150.0, 30)))
+    # Capitulo longe da briga: garante ancora nos DOIS cenarios (com e sem pico), senao o
+    # 20c compararia lista vazia com lista vazia -- de novo a armadilha do 17m0.
+    longe = [{"start_time": 150.0, "title": "A parte que presta"}]
+    quente = {"durationSec": 400.0, "heatmap": picareta, "chapters": longe, "cues": banter}
+    saiu = ytclip.candidates(quente)
+    # A briga termina em 21 s. Nada entregue pode encostar nela -- e o piso e 21, nao 150,
+    # porque o respiro de RESPIRO_ANTES_SEC recua o inicio para 149,88 de propriedade.
+    check("20a. pico MAXIMO nao entrega nada de dentro da briga censurada",
+          bool(saiu) and all(c["inSec"] >= 21.0 for c in saiu))
+    check("20a2. e o trecho que sobrou nem e apresentado como recomendado",
+          bool(saiu) and saiu[0]["quality"] == "fraco")
+    check("20b. e o motivo do descarte sai em portugues em vez de sumir calado",
+          "não se entendiam sozinhos" in ytclip.candidates_report(quente)[1])
+    # A mesma fala, sem o pico: a lista tem de ser a MESMA. Se mudar, audiencia esta
+    # decidindo quem entra -- e o pedido proibe exatamente isso.
+    frio = dict(quente, heatmap=[])
+    check("20c. tirar o pico nao muda QUEM entra (audiencia nao decide, so ordena)",
+          bool(saiu) and [(c["inSec"], c["outSec"]) for c in saiu]
+          == [(c["inSec"], c["outSec"]) for c in ytclip.candidates(frio)])
+    # Teto do empurrao: a MESMA janela com e sem audiencia nao pode variar mais que
+    # INTERESSE_PESO pontos.
+    limpa = ytclip.parse_json3(json3([
+        (0.0, 4.0, "Eu perdi quarenta mil reais no primeiro ano de loja."),
+        (4.0, 4.0, "O erro foi comprar estoque sem saber girar nada."),
+        (8.0, 4.0, "Hoje eu compro pouco e giro rapido, e a margem dobrou."),
+        (12.0, 4.0, "Foi a licao mais caraque eu aprendi na pratica."),
+    ] + falar(16.0, 30)))
+    base_cap = [{"start_time": 0.0, "title": "A licao dos quarenta mil"}]
+    com_pico = ytclip.candidates({"durationSec": 300.0, "heatmap": picareta,
+                                  "chapters": base_cap, "cues": limpa})
+    sem_pico = ytclip.candidates({"durationSec": 300.0, "heatmap": [],
+                                  "chapters": base_cap, "cues": limpa})
+    check("20d. a mesma janela com e sem audiencia varia no MAXIMO o teto do empurrao",
+          bool(com_pico) and bool(sem_pico)
+          and abs(com_pico[0]["score"] - sem_pico[0]["score"]) <= ytclip.INTERESSE_PESO)
+    check("20e. a nota nao e mais o unico rotulo: sai a PALAVRA da faixa",
+          all(c["qualityLabel"] and c["quality"] in ("forte", "bom", "fraco") for c in com_pico))
+    check("20f. e a decomposicao rastreavel vem com ela (seis fatores, com peso e frase)",
+          bool(com_pico) and len(com_pico[0]["factors"]) == len(ytclip.FATORES) + 1
+          and all(f["note"] and f["weight"] > 0 for f in com_pico[0]["factors"]))
+    check("20g. o fator de audiencia nunca pesa mais que os editoriais somados",
+          ytclip.INTERESSE_PESO < sum(peso for _, peso, _ in ytclip.FATORES))
+    # ------ 21. titulo e fecho: os dois defeitos visiveis do print
+    check("21a. nenhum titulo entregue carrega marcador de transcricao",
+          all(">>" not in c["topic"] and "[ __ ]" not in c["topic"] for c in com_pico + saiu))
+    check("21b. nenhum gancho entregue carrega marcador",
+          all(">>" not in c["hook"] and "[ __ ]" not in c["hook"] for c in com_pico + saiu))
+    check("21c. nenhum titulo repete o titulo do video (vem da FALA escolhida)",
+          all(c["topic"] != "A licao dos quarenta mil ao vivo" for c in com_pico))
+    check("21d. todo trecho entregue fecha frase (o fator `fecho` nunca sai zerado)",
+          all(next(f["value"] for f in c["factors"] if f["id"] == "fecho") > 0
+              for c in com_pico + saiu))
+    check("21e. nenhum trecho entregue abre no meio da oracao",
+          all(next(f["value"] for f in c["factors"] if f["id"] == "abertura") > 0
+              for c in com_pico + saiu))
+    # ------ 22. sobreposicao e limites
+    todos = com_pico
+    check("22a. dois trechos entregues nunca se sobrepoem em mais da metade do menor",
+          all(not (min(a["outSec"], b["outSec"]) - max(a["inSec"], b["inSec"])
+                   > 0.5 * min(a["outSec"] - a["inSec"], b["outSec"] - b["inSec"]))
+              for i, a in enumerate(todos) for b in todos[i + 1:]))
+    check("22b. nenhum instante entregue e negativo nem passa da duracao",
+          all(0.0 <= c["inSec"] < c["outSec"] <= 300.0 + 1e-6 for c in todos))
+    # O intervalo resolvido e SEGUNDO INTEIRO em todo o sistema: o nome do arquivo baixado
+    # e `%d-%d`, o `/api/yt-fetch` recebe `num(inSec)` (que arredonda no navegador), o
+    # `?start=` do player e inteiro e o `/api/clip-status` acha o arquivo pelo mesmo par.
+    # Fracao aqui fazia o detector prometer 2071,35 e o export entregar 2071 -- borda
+    # diferente da calculada, calada. Piso no comeco e teto no fim: os dois ALARGAM para
+    # dentro do silencio, entao arredondar nunca come fala.
+    check("22d. todo intervalo entregue e em segundo INTEIRO",
+          all(float(c["inSec"]).is_integer() and float(c["outSec"]).is_integer()
+              for c in todos))
+    check("22e. e a duracao fecha com as duas pontas",
+          all(abs(c["durationSec"] - (c["outSec"] - c["inSec"])) < 1e-9 for c in todos))
+    check("22f. arredondar ALARGA, nunca aperta (comeco no piso, fim no teto)",
+          all(c["inSec"] <= c["outSec"] - ytclip.MIN_CLIP_SEC + 1e-9 for c in todos))
+    check("22c. a ordem e estavel: mesma entrada, mesma saida",
+          [ (c["inSec"], c["score"]) for c in ytclip.candidates(
+                {"durationSec": 300.0, "heatmap": picareta, "chapters": base_cap, "cues": limpa}) ]
+          == [ (c["inSec"], c["score"]) for c in com_pico ])
+
+    # ------- 23. a pausa vem da grade GROSSA; a borda, da PALAVRA
+    # A grade por palavra nao tem pausa nenhuma por construcao: o `parse_json3_words` poe o
+    # `end` de cada palavra no `start` da seguinte. MEDIDO no video do print: 0 de 496
+    # pausas na grade fina contra 9 de 146 acima de CLOSE_PAUSE_SEC na grossa. Sem cruzar as
+    # duas, `FECHO_PAUSA_SEC`, `CLOSE_PAUSE_SEC` e o respiro do fim ficavam INERTES no
+    # caminho bom -- e, pior, o fim da frase caia DEPOIS do silencio inteiro, entao um corte
+    # que fechasse numa lacuna de 12,8 s levava 12,8 s de silencio no rabo.
+    fala_1 = [(0.0, 3.0, "A margem estava negativa naquele mes."),
+              (3.0, 3.0, "Eu cortei tudo numa quinta a noite.")]
+    # 6,0 s -> 20,0 s: catorze segundos de silencio, medido na grade GROSSA.
+    fala_2 = [(20.0, 3.0, "Tres meses depois a conta fechava de novo."),
+              (23.0, 3.0, "Foi a decisao mais dificil daquele ano.")]
+    cues_pausa = ytclip.parse_json3(json3(fala_1 + fala_2 + falar(26.0, 30)))
+    lacunas = ytclip._silencios_das_cues(cues_pausa)
+    check("23a. a lacuna de 14 s e MEDIDA na grade grossa",
+          any(abs(i - 6.0) < 0.01 and abs(d - 14.0) < 0.01 for i, d in lacunas))
+    # A grade por palavra do MESMO trecho: `end` da palavra = `start` da seguinte, sempre.
+    pal_pausa = []
+    for inicio, dur, texto in fala_1 + fala_2 + falar(26.0, 30):
+        fatia = texto.split()
+        largura = dur / len(fatia)
+        for i, w in enumerate(fatia):
+            pal_pausa.append({"start": round(inicio + i * largura, 3),
+                              "end": round(inicio + (i + 1) * largura, 3), "text": w})
+    for pos in range(len(pal_pausa) - 1):
+        pal_pausa[pos]["end"] = pal_pausa[pos + 1]["start"]
+    crua = ytclip._sentences_from_words(pal_pausa)
+    antes_da_correcao = [f for f in crua if abs(f["start"] - 3.0) < 0.01]
+    check("23b. sem a correcao, a frase antes do silencio termina DEPOIS dele",
+          bool(antes_da_correcao) and antes_da_correcao[0]["end"] > 19.0)
+    check("23c. e sem pausa nenhuma anotada (a grade fina nao a mede)",
+          all(f["pauseAfter"] == 0.0 for f in crua[:-1]))
+    fina = ytclip.sentences_from(cues_pausa, pal_pausa)
+    corrigida = [f for f in fina if abs(f["start"] - 3.0) < 0.01]
+    check("23d. com a correcao, o fim volta para onde a FALA parou",
+          bool(corrigida) and abs(corrigida[0]["end"] - 6.0) < 0.5)
+    check("23e. e a duracao da pausa fica anotada, vinda da grade grossa",
+          bool(corrigida) and corrigida[0]["pauseAfter"] >= 13.0)
+    check("23f. a frase depois do silencio e inicio FIRME",
+          any(abs(f["start"] - 20.0) < 0.5 and f["hardStart"] for f in fina))
+    # E o efeito que importa: o corte fecha na fala, nao catorze segundos depois dela.
+    info_pausa = {"durationSec": 300.0, "heatmap": [], "words": pal_pausa,
+                  "chapters": [{"start_time": 0.0, "title": "A margem negativa"}],
+                  "cues": cues_pausa}
+    com_pausa = ytclip.candidates(info_pausa)
+    check("23g. nenhum trecho entregue termina DENTRO de um silencio medido",
+          all(not any(i + 0.5 < c["outSec"] < i + d - 0.5 for i, d in lacunas)
+              for c in com_pausa))
+    check("23h. e nenhum passa do fim do video",
+          all(c["outSec"] <= 300.0 + 1e-6 for c in com_pausa))
+    # O caminho SEM palavra a palavra nao muda: quem mede a pausa la sempre foi a cue.
+    check("23i. sem `words` a grade continua sendo a da cue, com as pausas dela",
+          ytclip.sentences_from(cues_pausa) == ytclip.sentences_from(cues_pausa, []))
 
     # ---------------------------------------------------------------- relatório
     print("\n--- verificacoes ---")

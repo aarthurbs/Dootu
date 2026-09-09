@@ -68,7 +68,7 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
   Registro em `docs/archive/HISTORICO-performance-2026-06-30.md`.
 
 # Estúdio de Vídeos (regra de topo)
-Cinco telas: `1 Vídeo` › `2 Cortes` › `3 Clips`, mais `Central` e `YouTube`.
+Cinco telas: `1 Vídeo` › `2 Cortes` › `3 Revisão`, mais `Central` e `YouTube`.
 **Direção editorial (decisão do usuário):** cortes de podcast de negócios/empreendedorismo em
 PT-BR — *conteúdo forte → corte certo → comunicação clara → edição discreta → autoridade*,
 **nunca** "efeito, efeito, efeito". Proibido por escrito: meme, emoji, texto em movimento
@@ -88,7 +88,9 @@ Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as oito suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**300**) · `test_ytclip.py` (194) · `test_worker.py` (**116**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**322**) · `test-video-ops.js` (**73**) · `test-video-ops-dom.js` (**108**) — **1499 verificações nas oito, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**300**) · `test_ytclip.py` (**234**) · `test_worker.py` (**116**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**322**) · `test-video-ops.js` (**83**) · `test-video-ops-dom.js` (**133**) — **1574 verificações nas oito, zero falhas**.
+    - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
+      nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 
 # Economia de Tokens e Contexto (Think in Code)
 - Pare de agir como um processador de dados e atue estritamente como um gerador de código.

@@ -196,6 +196,14 @@ async function main() {
         note: 'sem legenda em pt-BR',
         candidates: [{ inSec: 600, outSec: 640, topic: 'O erro que custou caro', score: 88,
           signals: ['heatmap', 'transcript'], hook: 'Eu perdi tudo', reason: 'pico de audiência',
+          quality: 'forte', qualityLabel: 'Recomendado', boundary: 'palavra',
+          evidence: 'Começa numa frase inteira e com gancho na primeira fala.',
+          factors: [{ id: 'abertura', label: 'Abertura', weight: 20, value: 1,
+                      note: 'Começa numa frase inteira.' },
+                    { id: 'fecho', label: 'Fecho', weight: 20, value: 0.7,
+                      note: 'Fecha a frase.' },
+                    { id: 'interesse', label: 'Interesse do público', weight: 12, value: 0.6,
+                      note: 'Audiência soma no máximo 12 pontos.' }],
           contextWarning: 'Começa com "mas"' }]
       })
     });
@@ -205,11 +213,17 @@ async function main() {
   await tick(); await tick(); await tick();
   html = b.html();
   ok('a análise chamou /api/yt-probe', rotaChamada === '/api/yt-probe');
-  /* Após a análise, o usuário é redirecionado para a aba "Meus projetos". */
-  ok('redireciona para Meus projetos', html.indexOf('Meus Projetos') > 0 || html.indexOf('meus projetos') > 0);
-  /* O projeto deve aparecer no grid de projetos. */
+  /* MUDOU EM 2026-09-09: a tela FICA no hub depois de analisar. Antes ia para "Meus
+     projetos", o que punha um clique entre a analise e o resultado que ela acabou de
+     produzir -- e o fluxo pedido e "cola a URL -> analisa -> compara os trechos". */
+  ok('depois de analisar, as sugestoes aparecem na hora (sem passar por outra aba)',
+    html.indexOf('O erro que custou caro') > 0 && /class="yt-grid"/.test(html));
+  /* E o projeto continua SALVO: e por ele que se volta ao video depois de recarregar. */
+  ok('o projeto foi salvo e conta na aba Meus projetos',
+    /data-tab="projects"[^>]*>Meus projetos<span>1<\/span>/.test(html));
+  b.aba('projects');
+  html = b.html();
   ok('o projeto aparece no dashboard', /abcdefghijk/.test(html) || /O erro que custou caro/.test(html));
-  /* Abre o projeto clicando no card — isso carrega os candidatos na aba YouTube. */
   const projectId = (html.match(/data-project-id="([^"]+)"/) || [])[1];
   ok('o card do projeto expõe o id', !!projectId);
   if (projectId) {
@@ -219,20 +233,73 @@ async function main() {
   await tick(); await tick();
   html = b.html();
   ok('abrir o projeto carrega os candidatos na aba YouTube', html.indexOf('O erro que custou caro') > 0);
-  ok('o sinal medido é mostrado com nome legível', html.indexOf('Mais reproduzidos') > 0);
   ok('o aviso de contexto do detector não é engolido', /Começa com/.test(html));
   ok('a nota da análise aparece', /sem legenda em pt-BR/.test(html));
+
+  // ---- a GRADE e compacta: nada de producao dentro dela ---------------------------------
+  // Ate 2026-09-09 cada card carregava titulo editavel, card de marca, enquadramento,
+  // legenda e dois botoes de render -- uma linha inteira por sugestao, e comparar dois
+  // trechos exigia rolar a pagina. O pedido e explicito: "Do not place entire transcripts,
+  // score breakdowns, framing selectors, subtitle settings, branded title-card presets, or
+  // rendering controls in the grid." Estes checks sao o que impede a volta disso.
+  ok('a grade nao tem seletor de enquadramento', html.indexOf('vop-reframe') < 0);
+  ok('a grade nao tem seletor de card visual', html.indexOf('vop-cardstyle') < 0);
+  ok('a grade nao tem controle de render', html.indexOf('data-act="yt-render"') < 0);
+  ok('a grade nao tem a decomposicao da nota', html.indexOf('yt-factors') < 0);
+  ok('a grade nao mostra nota numerica no card (nao e probabilidade de sucesso)',
+    !/nota\s*\d/.test(html));
+  ok('a grade e uma grade de verdade, nao uma lista de linhas', /class="yt-grid"/.test(html));
+
+  // ---- miniatura 16:9, com play e duracao ----------------------------------------------
+  // O id do candidato e uid('cand'), gerado na hora -- o teste o LE do card em vez de
+  // adivinhar, senao o clique cairia em "trecho nao esta mais na lista" e o resto passaria
+  // por engano.
+  const clipId = (b.html().match(/data-clip="([^"]+)"/) || [])[1];
+  ok('o card do trecho expoe o id que os botoes usam', !!clipId);
+  ok('o card tem miniatura que abre a previa',
+    /class="yt-thumb"[^>]*data-act="yt-preview"/.test(html));
+  ok('com rotulo acessivel dizendo de que trecho e a previa',
+    /aria-label="Ver prévia de/.test(html));
+  ok('e a duracao do trecho na miniatura', /class="yt-dur"/.test(html));
+  ok('nenhum player do YouTube e instanciado antes de pedir previa',
+    html.indexOf('youtube.com/embed') < 0);
+  // Sem storyboard no payload, a miniatura cai na capa do video -- e DIZ que e a capa, em
+  // vez de passar a capa por quadro do trecho.
+  ok('sem storyboard a miniatura e a capa, rotulada como tal',
+    html.indexOf('Imagem do vídeo') > 0);
+
+  // ---- previa: UM player, num dialogo --------------------------------------------------
+  b.clique({ act: 'yt-preview', id: clipId });
+  html = b.html();
+  ok('a previa abre um dialogo', /class="yt-modal"/.test(html) && /role="dialog"/.test(html));
+  ok('e AI sim existe um player, um so',
+    (html.match(/youtube\.com\/embed/g) || []).length === 1);
+  ok('o player abre no comeco do trecho e para no fim',
+    /embed\/abcdefghijk\?start=600&end=640/.test(html));
+  b.clique({ act: 'yt-preview-close' });
+  html = b.html();
+  ok('fechar a previa tira o player do DOM', html.indexOf('youtube.com/embed') < 0);
+
+  // ---- baixar: o menu diz QUAL arquivo -------------------------------------------------
+  // "Baixar" sozinho nao diz se sai o recorte cru ou o 9:16 editado, e entregar o arquivo
+  // errado sob esse rotulo e o defeito que o pedido nomeia.
+  b.clique({ act: 'yt-dl-menu', id: clipId });
+  html = b.html();
+  ok('o menu distingue trecho original de video editado',
+    html.indexOf('Baixar trecho original') > 0 && html.indexOf('Baixar vídeo editado') > 0);
   ok('o botão de baixar o trecho existe', html.indexOf('data-act="yt-fetch"') > 0);
   ok('baixar o trecho está BLOQUEADO sem a declaração', /yt-fetch"[^>]* disabled/.test(html));
-  ok('o motivo do bloqueio está à vista (BP-008)', /Baixar o trecho está bloqueado/.test(html));
-  ok('o botão do Remotion não aparece antes do trecho existir em disco',
-    html.indexOf('data-act="yt-render"') < 0);
+  ok('o motivo do bloqueio está à vista (BP-008)',
+    /bloqueado: você ainda não declarou/.test(html));
+  ok('o video editado nao e oferecido sem o trecho em disco',
+    /yt-render"[^>]* disabled/.test(html));
+  ok('e o motivo esta escrito nele', /baixe o trecho original primeiro/.test(html));
 
   // Declarar a autorização libera o download — e só ele.
   b.muda('[data-yt-rights]', { checked: true });
   html = b.html();
   ok('com a declaração o botão de baixar libera', !/yt-fetch"[^>]* disabled/.test(html));
-  ok('com a declaração o aviso de bloqueio sai', !/Baixar o trecho está bloqueado/.test(html));
+  ok('com a declaração o aviso de bloqueio sai', !/bloqueado: você ainda não declarou/.test(html));
 
   // ---- Revisão da legenda no trecho recomendado (o caminho do Remotion) ----------------
   // A ASR do YouTube erra palavra e censura palavrão; este é o ÚLTIMO ponto antes do render
@@ -250,16 +317,28 @@ async function main() {
       })
     });
   };
-  // O id do candidato e uid('cand'), gerado na hora -- o teste o LE do card em vez de
-  // adivinhar, senao o clique cairia em "trecho nao esta mais na lista" e o resto passaria
-  // por engano.
-  const clipId = (b.html().match(/data-clip="([^"]+)"/) || [])[1];
-  ok('o card do trecho expoe o id que os botoes usam', !!clipId);
   b.clique({ act: 'yt-fetch', id: clipId });
   await tick(); await tick(); await tick();
   html = b.html();
+  ok('com o trecho em disco a grade diz que o arquivo esta la',
+    html.indexOf('Trecho no disco') > 0);
+  // Os controles de producao vivem na TELA DE DETALHE. `Editar` e a acao primaria do card,
+  // e e ela que abre esta tela com o trecho, as bordas e as escolhas salvas.
+  ok('o card tem Editar como acao primaria',
+    /class="vop-btn vop-btn-primary"[^>]*data-act="yt-open"/.test(html));
+  b.clique({ act: 'yt-open', id: clipId });
+  html = b.html();
+  ok('Editar abre a tela de detalhe do trecho', /class="yt-detail"/.test(html));
+  ok('com o caminho de volta para a grade', html.indexOf('data-act="yt-back"') > 0);
+  ok('a tela de detalhe diz DE ONDE vem a borda do corte',
+    /class="yt-detail-boundary"/.test(html));
+  ok('o sinal medido é mostrado com nome legível', html.indexOf('Mais reproduzidos') > 0);
+  ok('a decomposicao da nota fica aqui, e diz que nao e previsao de desempenho',
+    html.indexOf('yt-factors') > 0 && /previsão de desempenho/.test(html));
   ok('com o trecho em disco o botão de legenda aparece', html.indexOf('data-act="yt-cap"') > 0);
   ok('e o botão do Remotion também', html.indexOf('data-act="yt-render"') > 0);
+  ok('o botao de render nao expoe o nome do renderizador ao operador',
+    html.indexOf('Remotion') < 0);
   b.clique({ act: 'yt-cap', id: clipId });
   html = b.html();
   ok('abrir a legenda mostra as falas do trecho', html.indexOf('data-cap-panel') > 0);

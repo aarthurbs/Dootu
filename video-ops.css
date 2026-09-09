@@ -1,7 +1,9 @@
 #view-video-ops {
   --vop-ease-out: cubic-bezier(.23, 1, .32, 1);
   --vop-ease-move: cubic-bezier(.77, 0, .175, 1);
-  max-width: 1120px;
+  /* Acompanha o teto do proprio #main (1200px): a bancada de duas colunas precisa da
+     largura, e inventar um teto maior so faria a sessao destoar do resto do site. */
+  max-width: 1200px;
 }
 
 #view-video-ops[hidden] { display: none !important; }
@@ -118,10 +120,10 @@
   text-decoration: none;
   white-space: nowrap;
 }
-.vop-btn-primary { background: var(--accent); color: #fff; }
-.vop-btn-secondary { border-color: var(--border); background: var(--surface-2); color: var(--text); }
+.vop-btn-primary { background: var(--accent); color: var(--accent-ink); }
+.vop-btn-secondary { border-color: var(--border-strong); background: var(--surface-2); color: var(--text); }
 .vop-btn-quiet { border-color: transparent; background: transparent; color: var(--text-dim); }
-.vop-btn-danger { border-color: rgba(235, 87, 87, .28); background: rgba(235, 87, 87, .09); color: #f0a0a0; }
+.vop-btn-danger { border-color: rgba(235, 87, 87, .28); background: rgba(235, 87, 87, .09); color: var(--danger); }
 /* Ação bloqueada tem de PARECER bloqueada, senão o clique sem efeito lê como defeito.
    Sem movimento no estado impedido: o :active acima prometeria uma resposta que não vem.
    A opacidade já está na transição declarada acima (160ms), então liga e desliga suave. */
@@ -129,7 +131,7 @@
 .vop-btn[disabled]:active { transform: none; }
 
 @media (hover: hover) and (pointer: fine) {
-  .vop-btn-primary:hover { background: var(--accent-hover, #c91430); }
+  .vop-btn-primary:hover { background: var(--accent-hover); }
   .vop-btn-secondary:hover,
   .vop-btn-quiet:hover { border-color: var(--border-hover); background: var(--surface-3, rgba(255, 255, 255, .07)); color: var(--text); }
   .vop-btn-danger:hover { border-color: rgba(235, 87, 87, .46); background: rgba(235, 87, 87, .14); }
@@ -188,7 +190,7 @@
   font-size: 10.5px;
   font-weight: 800;
 }
-.vop-flow button.active b { border-color: transparent; background: var(--accent); color: #fff; }
+.vop-flow button.active b { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
 .vop-flow-hint {
   margin: 0 0 16px;
   padding-left: 7px;
@@ -246,13 +248,13 @@
   white-space: nowrap;
 }
 .approval-pending,
-.publication-draft { background: rgba(255, 255, 255, .07); color: var(--text-dim); }
+.publication-draft { background: var(--veil); color: var(--text-dim); }
 .approval-approved,
-.publication-published { background: rgba(68, 194, 119, .13); color: #8bdcab; }
+.publication-published { background: rgba(229, 229, 235, .12); color: var(--text); }
 .approval-changes,
-.publication-scheduled { background: rgba(241, 183, 72, .13); color: #e6c680; }
+.publication-scheduled { background: rgba(241, 183, 72, .13); color: var(--warn); }
 .approval-rejected,
-.publication-error { background: rgba(235, 87, 87, .12); color: #efa1a1; }
+.publication-error { background: rgba(235, 87, 87, .12); color: var(--danger); }
 .vop-warning,
 .vop-note {
   margin-top: 10px;
@@ -261,7 +263,7 @@
   font-size: 11px;
   line-height: 1.45;
 }
-.vop-warning { border: 1px solid rgba(241, 183, 72, .24); background: rgba(241, 183, 72, .08); color: #e6c680; }
+.vop-warning { border: 1px solid rgba(241, 183, 72, .24); background: rgba(241, 183, 72, .08); color: var(--warn); }
 .vop-list-empty,
 .vop-empty {
   padding: 42px 20px;
@@ -302,7 +304,7 @@
 .vop-field textarea:focus,
 .vop-date input:focus,
 .vop-account-picker select:focus,
-.vop-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(227, 24, 55, .12); }
+.vop-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(229, 229, 235, .14); }
 .vop-field small { color: var(--text-muted); font-size: 10px; }
 /* O vermelho do tema é a cor de PERIGO (Rejeitar, Excluir). Uma ação auxiliar em vermelho,
    ao lado dessas, lê como mensagem de erro — "Sugerir texto local" parecia um aviso. Aqui
@@ -377,20 +379,17 @@
 .vop-chip.source-draft,
 .vop-chip.permission-unverified,
 .vop-chip.drive-planned,
-.vop-chip.vop-chip-quiet { background: rgba(255, 255, 255, .07); color: var(--text-dim); }
+.vop-chip.vop-chip-quiet { background: var(--veil); color: var(--text-dim); }
 .vop-chip.source-ready,
 .vop-chip.permission-valid,
-.vop-chip.drive-sync_confirmed { background: rgba(68, 194, 119, .13); color: #8bdcab; }
+.vop-chip.drive-sync_confirmed { background: rgba(229, 229, 235, .12); color: var(--text); }
 .vop-chip.source-rights_pending,
-.vop-chip.drive-written { background: rgba(241, 183, 72, .13); color: #e6c680; }
+.vop-chip.drive-written { background: rgba(241, 183, 72, .13); color: var(--warn); }
 .vop-chip.source-blocked,
 .vop-chip.permission-expired,
-.vop-chip.permission-revoked { background: rgba(235, 87, 87, .12); color: #efa1a1; }
+.vop-chip.permission-revoked { background: rgba(235, 87, 87, .12); color: var(--danger); }
 
 #view-video-ops .vop-entity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-/* Cartão com cortes sugeridos ocupa a linha inteira: a lista de trechos é o conteúdo
-   principal do Passo 2 e ficava espremida em meia largura, com a outra metade vazia. */
-#view-video-ops .vop-entity-card:has(.vop-cand-list) { grid-column: 1 / -1; }
 #view-video-ops .vop-entity-card {
   display: grid;
   align-content: start;
@@ -522,9 +521,9 @@
   line-height: 1.5;
   transition: border-color 160ms var(--vop-ease-out), color 160ms var(--vop-ease-out);
 }
-.vop-mark-status[data-tone="ok"] { border-left-color: #56b877; color: var(--text); }
+.vop-mark-status[data-tone="ok"] { border-left-color: var(--accent); color: var(--text); }
 .vop-mark-status[data-tone="warn"] { border-left-color: #d8a24d; color: var(--text); }
-.vop-mark-status[data-tone="error"] { border-left-color: var(--accent); color: var(--text); }
+.vop-mark-status[data-tone="error"] { border-left-color: var(--danger); color: var(--text); }
 .vop-mark-note { color: var(--text-muted); font-size: 10.5px; }
 
 /* Lista de cortes do rascunho. SEM animação de entrada de propósito: a lista é reescrita
@@ -546,7 +545,7 @@
 .vop-cut[data-editing="true"] { border-color: var(--accent); background: var(--surface-3, rgba(255, 255, 255, .06)); }
 .vop-cut-label { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
 .vop-cut-acts { display: flex; flex-wrap: wrap; gap: 12px; }
-.vop-cut-danger { color: #f0a0a0; }
+.vop-cut-danger { color: var(--danger); }
 
 @media (max-width: 720px) {
   .vop-mark-head { align-items: stretch; flex-direction: column; }
@@ -564,7 +563,9 @@
   padding: 40px 24px;
   border: 1px dashed var(--border);
   border-radius: 12px;
-  background: var(--surface-2);
+  /* Tela de midia VAZIA usa o mesmo preto da barra lateral (--bg-subtle), nao a cor de
+     input: e uma area de trabalho esperando conteudo, nao um campo para digitar. */
+  background: var(--bg-subtle);
   text-align: center;
   transition: background-color 140ms var(--vop-ease-out), border-color 140ms var(--vop-ease-out);
 }
@@ -594,7 +595,7 @@
   width: 100%;
   max-height: 56vh;
   border-radius: 12px;
-  background: #090b0f;
+  background: var(--bg-subtle);
   object-fit: contain;
 }
 .vop-intake-meta { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; }
@@ -618,56 +619,6 @@
   .vop-intake-pick:active > span { transform: none; }
 }
 
-/* --- Trechos sugeridos pela análise do YouTube -------------------------------------
-   Sem animação de entrada de propósito: a lista é reescrita por innerHTML a cada
-   selecionar/descartar, então qualquer keyframe de entrada reexecutaria em toda ação.
-   Só transição de cor, que sobrevive ao prefers-reduced-motion sem virar movimento. */
-#view-video-ops .vop-cand-list { display: grid; gap: 8px; margin-top: 10px; }
-#view-video-ops .vop-cand {
-  display: grid;
-  gap: 7px;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--surface-2);
-  transition: border-color 160ms var(--vop-ease-out);
-}
-@media (hover: hover) and (pointer: fine) {
-  #view-video-ops .vop-cand:hover { border-color: var(--border-hover); }
-}
-#view-video-ops .vop-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-#view-video-ops .vop-cand-head code {
-  color: var(--text);
-  font-size: 11.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-#view-video-ops .vop-cand h4 { margin: 0; color: var(--text); font-size: 13px; line-height: 1.35; }
-/* O titulo do card, editavel. Herda o visual do `.vop-cut-name` do Passo 2/3 — o mesmo
-   gesto (clicar e digitar) devia ter a mesma cara nas duas telas. Sem moldura em repouso
-   para nao virar formulario; ela aparece ao passar o mouse, dizendo que da para escrever,
-   e firma no foco. */
-#view-video-ops .vop-cand-title {
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  padding: 6px 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  line-height: 1.35;
-  transition: border-color 160ms var(--vop-ease-out), background-color 160ms var(--vop-ease-out);
-}
-#view-video-ops .vop-cand-title:hover { border-color: var(--border); }
-#view-video-ops .vop-cand-title:focus {
-  border-color: var(--border-hover);
-  background: var(--surface-2);
-  outline: none;
-}
 /* --- "Card visual": qual das duas identidades o card do titulo veste -------------------
    Segmentado feito de RADIO nativo: o `:checked` desenha o estado selecionado, e nenhuma
    classe e trocada no clique. Estado visual mantido a mao e o que dessincroniza do dado.
@@ -684,7 +635,9 @@
   background: var(--bg-subtle);
   /* Abraca o proprio conteudo. O `.vop-cand` e um grid, e item de grid ESTICA por padrao:
      sem isto o seletor virava uma faixa de 1052px com duas pilulas encostadas na esquerda,
-     que le como barra e nao como controle. Medido: 1052px -> 218px, mesma altura. */
+     que le como barra e nao como controle. Medido: 1052px -> 218px, mesma altura.
+     O grid de cima e o `.yt-detail-side` desde 2026-09-09 (era o `.vop-cand`, quando os
+     controles moravam no cartao da grade); os dois sao grid, e a regra vale igual. */
   justify-self: start;
   /* ARMADILHA MEDIDA (nao re-descobrir): este `position: relative` NAO e enfeite -- e ele
      que impede a tela de "bugar" ao trocar a identidade do card.
@@ -768,28 +721,6 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-#view-video-ops .vop-cand-reason { margin: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }
-#view-video-ops .vop-cand-hook {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11.5px;
-  font-style: italic;
-  line-height: 1.5;
-}
-#view-video-ops .vop-chip.vop-cand-score {
-  background: rgba(255, 255, 255, .07);
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-#view-video-ops .vop-cand-frame {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border: 0;
-  border-radius: 9px;
-  background: #090b0f;
-}
-#view-video-ops .vop-cand .vop-card-actions { gap: 6px; }
 
 /* --- Recolhido, NÃO removido -------------------------------------------------------
    Todo controle avançado do Estúdio mora num <details>: continua no DOM, continua no
@@ -1005,6 +936,45 @@
    conferir o vídeo É a tarefa, ele continua grande. */
 #view-video-ops .vop-intake-work .vop-intake-video { max-height: 34vh; }
 
+/* --- Bancada de edicao: previa a esquerda, ajustes do corte a direita --------------
+   So CSS, sobre o MESMO DOM que os passos 2 e 3 ja montam — nenhum elemento entra,
+   sai ou troca de lugar no HTML, entao todo data-* e todo handler seguem valendo.
+   Abaixo de 1100px volta a empilhar, que e como cabe no tablet e no telefone. */
+@media (min-width: 1100px) {
+  #view-video-ops .vop-intake-work {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr);
+    gap: 16px 20px;
+    align-items: start;
+  }
+  /* Titulo e passagem de etapa atravessam as duas colunas. */
+  #view-video-ops .vop-intake-work > .vop-section-head { grid-column: 1 / -1; margin-bottom: 0; }
+  #view-video-ops .vop-intake-work > .vop-step-next { grid-column: 1 / -1; margin-top: 0; }
+
+  /* Coluna 1 = a previa e a identidade do video em uso. */
+  #view-video-ops .vop-intake-work > .vop-intake-video { grid-column: 1; }
+  #view-video-ops .vop-intake-work > .vop-intake-id { grid-column: 1; margin-top: 0; }
+
+  /* Passo 2 — coluna 2: o painel de marcacao inteiro (regua, tempos, acoes, lista). */
+  #view-video-ops .vop-intake-work > .vop-mark { grid-column: 2; grid-row: 2 / span 2; }
+
+  /* Passo 3 — a regua e o relogio ficam colados na previa (coluna 1) e a lista de
+     clips ocupa a coluna 2, na altura das duas. */
+  #view-video-ops .vop-intake-work > .vop-mark-track,
+  #view-video-ops .vop-intake-work > .vop-mark-read { grid-column: 1; }
+  #view-video-ops .vop-intake-work > .vop-cuts-review { grid-column: 2; grid-row: 2 / span 4; }
+
+  /* Com a coluna mais estreita, a previa pode crescer: e o unico lugar onde olhar o
+     video de perto e a tarefa. */
+  #view-video-ops .vop-intake-work .vop-intake-video { max-height: 46vh; }
+
+  /* A linha do corte e flex-wrap:nowrap e so quebra em max-width:720px — media query que
+     olha para a VIEWPORT. Aqui a viewport e LARGA e quem esta estreito e a COLUNA (~683px):
+     sem isto o campo de nome encolhia ate 20px, com o texto digitado ainda dentro dele.
+     Mesmas duas declaracoes do breakpoint de telefone, acionadas pelo container. */
+  #view-video-ops .vop-intake-work .vop-cut { flex-wrap: wrap; }
+  #view-video-ops .vop-intake-work .vop-cut-name { flex: 1 1 100%; }
+}
+
 /* ------------------------------------------------------------------ Central de Clips
    O cartão do clip é o MESMO .vop-entity-card do resto do Estúdio (borda, raio, hover):
    inventar um segundo estilo de cartão para a mesma coisa é o tipo de detalhe que o olho
@@ -1078,8 +1048,8 @@
 #view-video-ops .vop-yt-rights strong { color: var(--text); font-weight: 700; }
 #view-video-ops .vop-yt-rights:active { transform: scale(.99); }
 #view-video-ops .vop-yt-rights:has(:checked) {
-  border-color: rgba(126, 190, 122, .3);
-  background: rgba(126, 190, 122, .06);
+  border-color: var(--border-hover);
+  background: var(--surface-3);
 }
 @media (prefers-reduced-motion: reduce) {
   #view-video-ops .vop-yt-rights { transition: background-color 160ms linear, border-color 160ms linear; }
@@ -1159,16 +1129,16 @@
   align-items: center;
   font-size: 11.5px;
 }
-#view-video-ops .vop-status-ok { color: #81c995; font-weight: 600; }
-#view-video-ops .vop-status-warn { color: #fdd663; font-weight: 600; }
-#view-video-ops .vop-status-error { color: #f28b82; font-weight: 600; }
+#view-video-ops .vop-status-ok { color: var(--text); font-weight: 600; }
+#view-video-ops .vop-status-warn { color: var(--warn); font-weight: 600; }
+#view-video-ops .vop-status-error { color: var(--danger); font-weight: 600; }
 #view-video-ops .vop-project-error {
   margin: 0;
   padding: 6px 8px;
   border-radius: 6px;
   background: rgba(242, 139, 130, .12);
   border: 1px solid rgba(242, 139, 130, .25);
-  color: #f28b82;
+  color: var(--danger);
   font-size: 11.5px;
   line-height: 1.45;
 }
@@ -1258,8 +1228,9 @@
    conteúdo maior que ele. Rolar um contêiner de overflow oculto empurra o conteúdo para fora
    SEM barra e sem volta: sobra uma faixa de ~200px. Medido no Chrome na época:
    `.layout.scrollTop` de 0 para 1696. O par com o `top: 0; left: 0` do radio é o conserto.
-   `justify-self: start` porque `.vop-cand` é grid e item de grid estica: sem isto o seletor
-   viraria uma faixa da largura do cartão, que lê como barra e não como controle. */
+   `justify-self: start` porque o pai (`.yt-detail-side` desde 2026-09-09, antes o
+   `.vop-cand`) é grid e item de grid estica: sem isto o seletor viraria uma faixa da
+   largura da coluna, que lê como barra e não como controle. */
 #view-video-ops .vop-reframe {
   display: flex;
   align-items: center;
@@ -1346,11 +1317,10 @@
   line-height: 1.45;
 }
 
-/* A prévia do recorte, sobre o iframe do YouTube que o cartão já monta. Envelope só para a
-   máscara ter de onde se posicionar. */
-#view-video-ops .vop-cand-prev { position: relative; }
 /* As duas faixas do que o recorte joga fora, em UM elemento: dois gradientes duros, um de
-   cada lado, na largura que o `cropInsetPct` calculou (`--corte`).
+   cada lado, na largura que o `cropInsetPct` calculou (`--corte`). Quem lhe da o bloco
+   containing e o `.yt-detail-player` (`position: relative`) — era o `.vop-cand-prev`, que
+   saiu com o cartao antigo.
    `pointer-events: none` é obrigatório — sem ele o player do YouTube para de aceitar clique.
    Sem `transition`: isto é informação, aparece com a escolha e fica PARADA. */
 #view-video-ops .vop-cand-mask {
@@ -1361,4 +1331,391 @@
   background:
     linear-gradient(to right, rgba(6, 8, 12, .78) var(--corte), transparent var(--corte)),
     linear-gradient(to left, rgba(6, 8, 12, .78) var(--corte), transparent var(--corte));
+}
+
+/* ====================================================================================
+   Hub de recomendações (grade compacta + tela de detalhe) — 2026-09-09
+   Substitui o cartão de linha inteira que carregava todos os controles de produção.
+   Preto + gelo, mesmos tokens do design-system: nenhuma cor nova, nenhum glow.
+   ==================================================================================== */
+
+/* A grade escolhe as colunas pela largura do PRÓPRIO contêiner, não da janela: esta tela
+   vive dentro de `.vop-body`, que tem a sidebar do site do lado — medir a janela erra a
+   conta sempre que a sidebar muda. Sem suporte a container query o padrão de UMA coluna
+   continua valendo, que é a degradação certa. */
+#view-video-ops .yt-hub { container-type: inline-size; container-name: hub; }
+#view-video-ops .yt-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 14px; }
+@container hub (min-width: 620px) {
+  #view-video-ops .yt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container hub (min-width: 920px) {
+  #view-video-ops .yt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* --- entrada da URL: uma linha, uma decisão ---------------------------------------- */
+#view-video-ops .yt-intake {
+  display: flex; align-items: flex-end; gap: 10px; margin-top: 12px; flex-wrap: wrap;
+}
+#view-video-ops .yt-intake-field { flex: 1 1 280px; display: grid; gap: 5px; min-width: 0; }
+#view-video-ops .yt-intake-field span {
+  color: var(--text-dim); font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+#view-video-ops .yt-intake-field input {
+  width: 100%; min-height: 38px; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
+  font-size: 13px; font-family: inherit;
+  transition: border-color 160ms var(--vop-ease-out);
+}
+#view-video-ops .yt-intake-field input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--border-hover);
+}
+#view-video-ops .yt-intake > .vop-btn { flex: 0 0 auto; min-height: 38px; }
+
+/* --- resumo da fonte: pequeno, não domina a página -------------------------------- */
+#view-video-ops .yt-source {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+#view-video-ops .yt-source img {
+  width: 72px; height: 41px; flex: 0 0 auto;
+  border-radius: 5px; object-fit: cover; background: var(--bg-subtle);
+}
+#view-video-ops .yt-source div { min-width: 0; display: grid; gap: 2px; }
+#view-video-ops .yt-source strong {
+  color: var(--text); font-size: 12.5px; font-weight: 700; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#view-video-ops .yt-source span { color: var(--text-muted); font-size: 11.5px; }
+#view-video-ops .yt-source a { color: var(--text-dim); }
+#view-video-ops .yt-analysis-note {
+  margin: 10px 0 0; padding: 8px 10px;
+  border: 1px solid var(--border); border-left: 2px solid var(--border-strong);
+  border-radius: 8px; background: var(--surface-2);
+  color: var(--text-dim); font-size: 11.5px; line-height: 1.55;
+}
+
+/* --- cabeçalho dos resultados ------------------------------------------------------ */
+#view-video-ops .yt-results-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin-top: 18px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+#view-video-ops .yt-results-head h3 { margin: 0; color: var(--text); font-size: 14px; }
+#view-video-ops .yt-results-tools { display: flex; align-items: center; gap: 8px; }
+#view-video-ops .yt-sort { display: inline-flex; align-items: center; gap: 6px; }
+#view-video-ops .yt-sort span { color: var(--text-muted); font-size: 11.5px; }
+#view-video-ops .yt-sort select {
+  min-height: 32px; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); color: var(--text); font-size: 12px; font-family: inherit;
+}
+
+/* --- o card ----------------------------------------------------------------------- */
+#view-video-ops .yt-card {
+  display: grid; grid-template-rows: auto 1fr auto; min-width: 0;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface-2); overflow: hidden;
+  /* Profundidade com deslocamento e contida: sombra realista, nunca halo colorido. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .28);
+  transition: border-color 160ms var(--vop-ease-out), box-shadow 160ms var(--vop-ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  #view-video-ops .yt-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .34);
+  }
+}
+
+/* Miniatura: 16:9 reservado antes da imagem chegar — sem salto de layout. */
+#view-video-ops .yt-thumb {
+  position: relative; display: block; width: 100%; padding: 0;
+  aspect-ratio: 16 / 9; overflow: hidden;
+  border: 0; border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle); cursor: pointer;
+  transition: transform 140ms var(--vop-ease-out);
+}
+#view-video-ops .yt-thumb:active { transform: scale(.985); }
+#view-video-ops .yt-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#view-video-ops .yt-thumb img {
+  position: absolute; inset: 0; display: block;
+  opacity: 0; transition: opacity 200ms var(--vop-ease-out);
+  /* A folha de storyboard é recortada por transform; a origem tem de ser o canto. */
+  transform-origin: 0 0;
+}
+#view-video-ops .yt-thumb-capa { width: 100%; height: 100%; object-fit: cover; }
+#view-video-ops .yt-thumb img[data-pronto="1"] { opacity: 1; }
+/* Imagem que não carrega: a etiqueta assume, e diz o que houve (BP-008). */
+#view-video-ops .yt-thumb-quebrou {
+  position: absolute; inset: 0; display: none; place-items: center;
+  color: var(--text-muted); font-size: 11.5px;
+}
+#view-video-ops .yt-thumb[data-fallback] img { display: none; }
+#view-video-ops .yt-thumb[data-fallback] .yt-thumb-tag { display: none; }
+#view-video-ops .yt-thumb[data-fallback] .yt-thumb-quebrou { display: grid; }
+#view-video-ops .yt-thumb-tag,
+#view-video-ops .yt-dur {
+  position: absolute; z-index: 2;
+  padding: 2px 6px; border-radius: 5px;
+  background: rgba(6, 6, 8, .82); color: #F3F3F5;
+  font-size: 10.5px; font-weight: 700; line-height: 1.4; letter-spacing: .02em;
+}
+#view-video-ops .yt-thumb-tag { top: 6px; left: 6px; font-weight: 600; }
+#view-video-ops .yt-dur { bottom: 6px; right: 6px; font-variant-numeric: tabular-nums; }
+/* O play: afirma que a miniatura toca. Triângulo em CSS, sem ícone externo. */
+#view-video-ops .yt-play {
+  position: absolute; z-index: 2; top: 50%; left: 50%;
+  width: 38px; height: 38px; margin: -19px 0 0 -19px;
+  border-radius: 50%; background: rgba(6, 6, 8, .6);
+  border: 1px solid rgba(243, 243, 245, .5);
+  transition: background-color 160ms var(--vop-ease-out), transform 160ms var(--vop-ease-out);
+}
+#view-video-ops .yt-play::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  margin: -6px 0 0 -4px;
+  border-style: solid; border-width: 6px 0 6px 10px;
+  border-color: transparent transparent transparent #F3F3F5;
+}
+@media (hover: hover) and (pointer: fine) {
+  #view-video-ops .yt-thumb:hover .yt-play { background: rgba(6, 6, 8, .82); transform: scale(1.06); }
+}
+
+#view-video-ops .yt-card-body { display: grid; gap: 6px; padding: 10px 11px 4px; min-width: 0; }
+#view-video-ops .yt-card-title {
+  margin: 0; color: var(--text); font-size: 13px; font-weight: 700; line-height: 1.35;
+  /* Duas linhas visíveis: o título é frase falada e varia muito de tamanho; sem o teto
+     um card fica com o dobro da altura do vizinho e a grade perde o alinhamento. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#view-video-ops .yt-card-meta {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+#view-video-ops .yt-range {
+  color: var(--text-dim); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#view-video-ops .yt-card-why {
+  margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+#view-video-ops .yt-card-warn {
+  margin: 0; color: var(--warning, #E2B341); font-size: 11px; line-height: 1.45;
+}
+#view-video-ops .yt-card-acts {
+  display: flex; align-items: center; gap: 8px; padding: 10px 11px 11px;
+}
+#view-video-ops .yt-card-acts .vop-btn-primary { flex: 1 1 auto; }
+
+/* Faixa de qualidade: só aparece quando NÃO é a melhor, então é sempre ressalva. */
+#view-video-ops .vop-chip.yt-q-bom {
+  border-color: var(--border-hover); background: var(--surface-3); color: var(--text-dim);
+}
+#view-video-ops .vop-chip.yt-q-fraco {
+  border-color: rgba(226, 179, 65, .32); background: rgba(226, 179, 65, .10);
+  color: var(--warning, #E2B341);
+}
+
+/* --- menu de download ------------------------------------------------------------- */
+#view-video-ops .yt-dl { position: relative; flex: 0 0 auto; }
+#view-video-ops .yt-dl-trigger { display: inline-flex; gap: 5px; }
+#view-video-ops .yt-dl-caret {
+  width: 0; height: 0; align-self: center;
+  border-style: solid; border-width: 4px 3.5px 0;
+  border-color: currentColor transparent transparent;
+  transition: transform 160ms var(--vop-ease-out);
+}
+#view-video-ops .yt-dl.open .yt-dl-caret { transform: rotate(180deg); }
+#view-video-ops .yt-dl-menu {
+  position: absolute; z-index: 8; right: 0; bottom: calc(100% + 6px);
+  min-width: 230px; padding: 4px;
+  border: 1px solid var(--border-hover); border-radius: 10px;
+  background: var(--surface); box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+  /* Cresce a partir do gatilho, não do centro: ele está embaixo, à direita. */
+  transform-origin: 100% 100%;
+  animation: yt-pop 160ms var(--vop-ease-out) both;
+}
+@keyframes yt-pop { from { opacity: 0; transform: scale(.96); } }
+#view-video-ops .yt-dl-menu button {
+  display: grid; gap: 2px; width: 100%; padding: 7px 9px;
+  border: 0; border-radius: 7px; background: transparent;
+  color: var(--text); font: inherit; font-size: 12.5px; font-weight: 700;
+  text-align: left; cursor: pointer;
+  transition: background-color 140ms var(--vop-ease-out), transform 140ms var(--vop-ease-out);
+}
+#view-video-ops .yt-dl-menu button small {
+  color: var(--text-muted); font-size: 10.5px; font-weight: 500; line-height: 1.4;
+}
+#view-video-ops .yt-dl-menu button:not([disabled]):hover { background: var(--accent-dim2); }
+#view-video-ops .yt-dl-menu button:not([disabled]):active { transform: scale(.985); }
+#view-video-ops .yt-dl-menu button[disabled] { cursor: not-allowed; opacity: .5; }
+#view-video-ops .yt-dl-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* --- vazio, carregando ------------------------------------------------------------ */
+#view-video-ops .yt-empty {
+  margin-top: 18px; padding: 26px 18px; text-align: center;
+  border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-2);
+}
+#view-video-ops .yt-empty h3 { margin: 0 0 6px; color: var(--text); font-size: 14px; }
+#view-video-ops .yt-empty p {
+  max-width: 52ch; margin: 0 auto 14px; color: var(--text-muted);
+  font-size: 12.5px; line-height: 1.6;
+}
+#view-video-ops .yt-skel {
+  aspect-ratio: 16 / 9; border: 1px solid var(--border); border-radius: 12px;
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%);
+  background-size: 300% 100%;
+  animation: yt-skel 1.1s linear infinite;
+}
+@keyframes yt-skel { from { background-position: 150% 0; } to { background-position: -150% 0; } }
+
+/* --- tela de detalhe -------------------------------------------------------------- */
+#view-video-ops .yt-detail { margin-top: 14px; }
+#view-video-ops .yt-detail-top {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+}
+#view-video-ops .yt-detail-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@container hub (min-width: 800px) {
+  #view-video-ops .yt-detail-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+}
+#view-video-ops .yt-detail-main,
+#view-video-ops .yt-detail-side {
+  display: grid; gap: 10px; align-content: start; min-width: 0;
+}
+#view-video-ops .yt-detail-player {
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 12px; background: #000;
+}
+#view-video-ops .yt-detail-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+#view-video-ops .yt-detail-title {
+  width: 100%; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  transition: border-color 160ms var(--vop-ease-out);
+}
+#view-video-ops .yt-detail-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#view-video-ops .yt-detail-boundary {
+  margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5;
+}
+#view-video-ops .yt-detail-hook {
+  margin: 0; padding: 9px 12px;
+  border: 0; border-left: 2px solid var(--border-strong); border-radius: 0 8px 8px 0;
+  background: var(--surface-2);
+  color: var(--text-dim); font-size: 12.5px; font-style: italic; line-height: 1.6;
+  max-height: 9.6em; overflow: auto;
+}
+#view-video-ops .yt-detail-reason { margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.55; }
+#view-video-ops .yt-detail-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
+/* Decomposição da nota. Fechada por padrão: é auditoria, não decisão do dia a dia. */
+#view-video-ops .yt-factors {
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+#view-video-ops .yt-factors > summary {
+  padding: 9px 11px; color: var(--text-dim); font-size: 12px; font-weight: 700; cursor: pointer;
+}
+#view-video-ops .yt-factors > summary span {
+  color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 500;
+}
+#view-video-ops .yt-factors > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#view-video-ops .yt-factors-note {
+  margin: 0 11px 8px; color: var(--text-muted); font-size: 11px; line-height: 1.5;
+}
+#view-video-ops .yt-factors ul { margin: 0; padding: 0 11px 11px; list-style: none; display: grid; gap: 9px; }
+#view-video-ops .yt-factors li {
+  display: grid; grid-template-columns: minmax(88px, auto) 1fr auto; gap: 4px 8px; align-items: center;
+}
+#view-video-ops .yt-factor-name { color: var(--text); font-size: 11.5px; font-weight: 700; }
+#view-video-ops .yt-factor-bar {
+  height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden;
+}
+#view-video-ops .yt-factor-bar i { display: block; height: 100%; background: var(--accent-3); }
+#view-video-ops .yt-factor-val {
+  color: var(--text-muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
+}
+#view-video-ops .yt-factors li small {
+  grid-column: 1 / -1; color: var(--text-muted); font-size: 10.5px; line-height: 1.45;
+}
+
+/* Começo e fim */
+#view-video-ops .yt-trim {
+  margin: 0; padding: 10px 11px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+#view-video-ops .yt-trim > legend {
+  padding: 0 4px; color: var(--text-dim); font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+#view-video-ops .yt-trim-note { margin: 0 0 9px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+#view-video-ops .yt-trim-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 7px;
+}
+#view-video-ops .yt-trim-row label {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: var(--text-dim); font-size: 11.5px;
+}
+#view-video-ops .yt-trim-row input {
+  min-height: 32px; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+#view-video-ops .yt-trim-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#view-video-ops .yt-trim-nudge { display: inline-flex; gap: 4px; }
+#view-video-ops .yt-trim-nudge .vop-btn {
+  min-height: 30px; padding: 5px 8px;
+  border-color: var(--border); background: var(--surface); font-size: 11.5px;
+}
+#view-video-ops .yt-trim-dur {
+  color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+
+/* --- prévia: um diálogo, um player ------------------------------------------------ */
+#view-video-ops .yt-modal {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center; padding: 18px;
+  background: rgba(6, 6, 8, .74);
+  animation: yt-fade 160ms var(--vop-ease-out) both;
+}
+@keyframes yt-fade { from { opacity: 0; } }
+#view-video-ops .yt-modal-box {
+  width: min(880px, 100%); max-height: 100%; overflow: auto;
+  border: 1px solid var(--border-hover); border-radius: 14px;
+  background: var(--surface); box-shadow: 0 18px 48px rgba(0, 0, 0, .6);
+  /* Modal cresce do CENTRO: não está ancorado num gatilho. */
+  transform-origin: center;
+  animation: yt-modal 200ms var(--vop-ease-out) both;
+}
+@keyframes yt-modal { from { opacity: 0; transform: scale(.96); } }
+#view-video-ops .yt-modal-head {
+  display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+}
+#view-video-ops .yt-modal-head strong {
+  flex: 1 1 auto; min-width: 0; color: var(--text); font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#view-video-ops .yt-modal-head span {
+  color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#view-video-ops .yt-modal-player { position: relative; aspect-ratio: 16 / 9; background: #000; }
+#view-video-ops .yt-modal-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+#view-video-ops .yt-modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px; padding: 11px 13px;
+  border-top: 1px solid var(--border);
+}
+
+/* Movimento reduzido: fica a opacidade, sai o deslocamento e a escala. */
+@media (prefers-reduced-motion: reduce) {
+  #view-video-ops .yt-thumb,
+  #view-video-ops .yt-card,
+  #view-video-ops .yt-play { transition: none; }
+  #view-video-ops .yt-thumb:active { transform: none; }
+  #view-video-ops .yt-skel { animation: none; }
+  #view-video-ops .yt-modal-box { animation: yt-fade 160ms linear both; }
+  #view-video-ops .yt-dl-menu { animation: yt-fade 120ms linear both; }
 }

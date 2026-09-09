@@ -37,6 +37,7 @@ Lógica pura (`parse_json3`, `candidates` e auxiliares) exportada para test_ytcl
 """
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -66,6 +67,17 @@ CLOSE_PAUSE_SEC = 0.6
 MAX_CANDIDATES = 12
 # Duas sugestões que começam a menos disto uma da outra são a mesma sugestão.
 MERGE_GAP_SEC = 8.0
+# Fração do trecho MENOR que, sobreposta, já faz das duas a mesma sugestão. Era 0,5 e
+# deixava passar par com 43% em comum (medido: 25:04-25:41 e 25:28-25:57 no vídeo do
+# print) — dois cartões, treze segundos idênticos, e o operador escolhendo entre gêmeos.
+MERGE_OVERLAP = 0.35
+# Abertura do VÍDEO, onde o gráfico de audiência do YouTube é alto por construção: quem
+# abre o vídeo assiste os primeiros segundos, então o primeiro balde mede carregamento de
+# página e não interesse editorial. MEDIDO no vídeo do print (bNkQaTQ4SE0): o balde de
+# 0 s a 22,4 s marca 65% do maior pico do vídeo — e era a única razão pela qual a abertura
+# entrava na lista com nota 72. Não é lista negra de palavra de abertura (o pedido proíbe
+# isso): é desconto no SINAL DE MEDIÇÃO, no trecho onde a medição é sabidamente enviesada.
+ABERTURA_VIDEO_SEC = 30.0
 
 PROBE_TIMEOUT = 120.0
 FETCH_TIMEOUT = 900.0
@@ -471,79 +483,506 @@ def _dangling_opener(text):
     return ""
 
 
-def _window(cues, anchor, total, stops=()):
-    """Trecho que começa numa abertura limpa e fecha ONDE A IDEIA ACABA.
+# ------------------------------------------------- grade de FRASES (borda do corte)
+# A borda do corte é medida na FRASE, não na cue — e esta é a correção mais cara desta
+# entrega. MEDIDO no vídeo do print (bNkQaTQ4SE0, 988 cues / 6408 palavras): a legenda
+# rolante do YouTube fecha a cue no MEIO da oração, então 12 de 12 candidatos abriam no
+# meio de uma frase ("total. Eh, é super importante…", "mais qualidade. O teu negócio
+# é um", "gente faz aqui no G4, né?") e 8 de 12 fechavam com fala ainda no ar. O ponto
+# final que o detector antigo procurava mora DENTRO do texto da cue e não no fim dele —
+# por isso recuar de cue em cue nunca chegava ao começo da oração, e por isso o `$` do
+# SENTENCE_END_RE contra o texto da cue era pergunta feita à grade errada.
+FRASE_PAUSA_SEC = 0.45
+# Fala sem pontuação nenhuma existe (legenda automática antiga, inglês). Ela fecha por
+# tamanho para não virar uma "frase" de três minutos que engole a janela inteira.
+FRASE_MAX_SEC = 22.0
+# Silêncio que, sozinho, ENCERRA a ideia mesmo sem ponto final. Bem maior que o
+# CLOSE_PAUSE_SEC de propósito: 0,6 s é respiração, 1,1 s é fim de assunto. É o que dá
+# saída honesta para faixa sem pontuação — sem ele, track sem ponto nunca fecharia e a
+# análise devolveria lista vazia num vídeo que tem, sim, momentos bons.
+FECHO_PAUSA_SEC = 1.1
+# Respiro nas pontas: o corte não começa no ataque exato da consoante nem termina no
+# último milissegundo da sílaba. Teto curto — abertura morta é defeito, não elegância.
+# O respiro só ocupa silêncio que JÁ existe (metade da folga), então nunca invade a fala
+# vizinha: é o que impede "cortar a primeira consoante" sem inventar tempo.
+RESPIRO_ANTES_SEC = 0.12
+RESPIRO_DEPOIS_SEC = 0.30
+# Quanto o detector pode andar em volta do sinal procurando um momento COMPLETO. O pedido
+# é explícito: "A high replay peak may justify searching nearby for a complete moment; it
+# does not justify a fixed window centered on the peak."
+BUSCA_FRASES = 3
 
-    Cortar no meio da palavra é o defeito mais visível de recorte automático, e começar no
-    meio do raciocínio é o mais caro: o corte roda inteiro e não se entende. Por isso o
-    início recua até uma fala que NÃO abre em conector solto.
+# Marcadores de NÃO-FALA da legenda automática: `[risadas]`, `[música]`, `[aplausos]` e o
+# `[ __ ]` da censura. Medida SÓ da análise — o dono da limpeza para EXIBIÇÃO continua
+# sendo `captions.strip_artifacts`, que não é tocado aqui: "Preserve the original timed
+# transcript. Maintain a separate normalized representation for analysis and display."
+NAO_FALA_RE = re.compile(r"\[[^\]]{0,40}\]")
+FALANTE_RE = re.compile(r">>+")
+# Densidade acima da qual o trecho é ruído, não fala aproveitável. Ambas medidas POR
+# MINUTO para não punir clipe curto. Calibradas contra o caso real: a abertura 0:00-0:40
+# do vídeo do print tem 4 `[ __ ]` e 2 trocas de falante em 40 s (6,0/min e 3,0/min).
+NAO_FALA_POR_MIN = 3.0
+TROCA_POR_MIN = 2.6
+# Piso de fala de verdade dentro do trecho. Abaixo disso é música, vinheta ou silêncio.
+FALA_MIN_PALAVRAS = 12
+ABERTURA_MIN_PALAVRAS = 4
 
-    O fim não é cronômetro. "A strong 25-second idea can become one clip. A complete
-    70-second story can become another clip. Do not force every moment into the same
-    duration": fecha-se num ponto final seguido de pausa de verdade, ou numa troca de
-    assunto (`stops` = começo dos capítulos), ou — se a fala não dá trégua — no primeiro
-    ponto final depois do teto suave da história.
+# Os cinco fatores editoriais e o teto do sinal de popularidade. Somam 88 + 12 = 100, e
+# essa divisão é a regra do pedido em número: "Do not allow replay popularity to
+# compensate for a missing answer, truncated conclusion, or unusable transcript."
+# Audiência entra como EMPURRÃO (12 pontos no máximo), nunca como resgate — e os três
+# fatores de veto (abertura, independência, fecho) reprovam ANTES de somar nota.
+FATORES = (
+    ("abertura", 20, "Abertura"),
+    ("independencia", 18, "Independência"),
+    ("desenvolvimento", 18, "Desenvolvimento"),
+    ("fecho", 20, "Fecho"),
+    ("confiabilidade", 12, "Confiabilidade"),
+)
+INTERESSE_PESO = 12
+VETO = ("abertura", "independencia", "fecho")
+# Rótulo de qualidade. O card mostra a PALAVRA, nunca o número: "Remove misleading
+# precision from the default card presentation... must not be displayed as a probability
+# of success." O número continua existindo para ORDENAR e vem com `factors` atrás, que é
+# a decomposição rastreável que o pedido exige.
+#
+# O rótulo sai do PERFIL DOS FATORES, não de um corte na soma — e a razão é medida: no
+# vídeo do print os nove aprovados caem entre 82 e 91 pontos, então qualquer corte em cima
+# da soma põe todos na mesma faixa e o rótulo não informa nada. Contar quantos fatores
+# estão fortes distingue "os cinco em pé" de "três em pé e dois raspando", que é a
+# diferença que o operador precisa ver. E não depende de audiência: `interesse` fica fora
+# desta conta de propósito.
+FORTE_PISO = 0.7           # nenhum fator abaixo disto
+FORTE_CHEIOS = 3           # e pelo menos três no máximo
+BOM_PISO = 0.6
+
+
+def _palavras_de(texto):
+    """Quantas palavras FALADAS o texto tem (sem `>>`, sem `[risadas]`). Pura."""
+    limpo = NAO_FALA_RE.sub(" ", FALANTE_RE.sub(" ", str(texto or "")))
+    return len([w for w in limpo.split() if any(ch.isalnum() for ch in w)])
+
+
+def _juntar(pedacos):
+    """Pedaços contíguos -> uma frase. O texto de EXIBIÇÃO passa pelo dono único da
+    limpeza (`captions.strip_artifacts`); nenhum instante é lido ou escrito aqui."""
+    texto = " ".join(str(p["text"]).strip() for p in pedacos if str(p.get("text") or "").strip())
+    inicio = float(pedacos[0]["start"])
+    fim = max(float(p.get("end") or p["start"]) for p in pedacos)
+    return {"start": round(inicio, 3), "end": round(max(fim, inicio), 3),
+            "text": " ".join(texto.split()),
+            "clean": captions.strip_artifacts(texto),
+            "pauseAfter": 0.0, "wordLevel": False}
+
+
+def _fechar_pausas(frases):
+    """Preenche `pauseAfter` e `hardStart` e devolve a grade ordenada.
+
+    `hardStart` é a diferença entre "aqui começa uma oração" e "aqui a pessoa respirou".
+    Sem ela o corte abria em fragmento: `FRASE_PAUSA_SEC` é 0,45 s, e 0,45 s de silêncio
+    dentro de uma frase é comum na fala — foi assim que saíram aberturas como "Você criou
+    uma gordura que te dê um conforto" e "Tomar decisão financeira, mas eu acho". Só conta
+    como início FIRME o que vem depois de ponto final, de silêncio longo ou de troca de
+    falante. Na grade grossa (sem palavra a palavra) toda frase termina em ponto por
+    construção, então todas são firmes e o comportamento antigo é preservado.
     """
-    if not cues:
-        start = max(0.0, anchor)
-        return start, min(total or start + TARGET_CLIP_SEC, start + TARGET_CLIP_SEC), ""
-    index = 0
-    for position, cue in enumerate(cues):
-        if cue["end"] > anchor:
-            index = position
-            break
-    else:
-        index = len(cues) - 1
-    # Recuo: enquanto a fala anterior não terminou frase e ainda cabe no corte.
-    first = index
-    while first > 0:
-        previous = cues[first - 1]
-        if SENTENCE_END_RE.search(previous["text"]):
-            break
-        if cues[index]["start"] - previous["start"] > MAX_CLIP_SEC / 3:
-            break
-        first -= 1
-    # Dentro do MESMO orçamento de recuo: se a abertura ainda começa em conector solto,
-    # tenta a fala anterior. Perder três segundos custa menos que entregar corte que abre
-    # em "mas" e só faz sentido para quem ouviu o podcast inteiro.
-    clean = first
-    while clean > 0 and _dangling_opener(cues[clean]["text"]):
-        if cues[index]["start"] - cues[clean - 1]["start"] > MAX_CLIP_SEC / 3:
-            break
-        clean -= 1
-    if not _dangling_opener(cues[clean]["text"]):
-        first = clean
-    start = cues[first]["start"]
-    # Trocas de assunto que valem como fecho: só as que caem depois do corte já ter tamanho.
-    shifts = [float(s) for s in (stops or ()) if float(s) > start + MIN_CLIP_SEC]
-    last = first
-    strong = None
-    weak = None
-    for position in range(first, len(cues)):
-        cue = cues[position]
-        if cue["end"] - start > MAX_CLIP_SEC:
-            break
-        last = position
-        span = cue["end"] - start
-        if span < MIN_CLIP_SEC or not SENTENCE_END_RE.search(cue["text"]):
+    frases = [f for f in frases if f["end"] > f["start"] and f["text"]]
+    frases.sort(key=lambda f: (f["start"], f["end"]))
+    for pos, frase in enumerate(frases):
+        seguinte = frases[pos + 1] if pos + 1 < len(frases) else None
+        frase["pauseAfter"] = (round(max(0.0, seguinte["start"] - frase["end"]), 3)
+                               if seguinte else 99.0)
+    for pos, frase in enumerate(frases):
+        if pos == 0 or FALANTE_RE.match(frase["text"]):
+            frase["hardStart"] = True
             continue
-        weak = position
-        following = cues[position + 1] if position + 1 < len(cues) else None
-        pause = (following["start"] - cue["end"]) if following else CLOSE_PAUSE_SEC
-        shift = following is not None and any(
-            cue["start"] < point <= following["start"] for point in shifts)
-        if pause >= CLOSE_PAUSE_SEC or shift or span >= STORY_CLIP_SEC:
-            strong = position
+        anterior = frases[pos - 1]
+        frase["hardStart"] = bool(SENTENCE_END_RE.search(anterior["text"].rstrip())
+                                  or anterior["pauseAfter"] >= FECHO_PAUSA_SEC)
+    return frases
+
+
+def _sentences_from_words(words):
+    """Palavras com instante absoluto -> frases. A borda cai no instante da PALAVRA."""
+    frases, buffer_, limpos = [], [], []
+    for p in words or []:
+        if not isinstance(p, dict):
+            continue
+        texto = " ".join(str(p.get("text") or "").split())
+        if not texto:
+            continue
+        try:
+            inicio = float(p["start"])
+            fim = float(p.get("end") or inicio)
+        except (KeyError, TypeError, ValueError):
+            continue
+        limpos.append({"start": inicio, "end": max(fim, inicio), "text": texto})
+    limpos.sort(key=lambda p: p["start"])
+    for pos, palavra in enumerate(limpos):
+        # `>>` é TROCA DE FALANTE, e troca de falante nunca cai no meio de uma oração:
+        # ela abre frase nova. É a única pista de "speaker turn" que o json3 publica.
+        if buffer_ and FALANTE_RE.match(palavra["text"]):
+            frases.append(_juntar(buffer_))
+            buffer_ = []
+        buffer_.append(palavra)
+        seguinte = limpos[pos + 1] if pos + 1 < len(limpos) else None
+        pausa = (seguinte["start"] - palavra["end"]) if seguinte else 99.0
+        pontuou = bool(SENTENCE_END_RE.search(palavra["text"].rstrip()))
+        estourou = (palavra["end"] - buffer_[0]["start"]) >= FRASE_MAX_SEC
+        if pontuou or pausa >= FRASE_PAUSA_SEC or estourou or seguinte is None:
+            frases.append(_juntar(buffer_))
+            buffer_ = []
+    if buffer_:
+        frases.append(_juntar(buffer_))
+    for frase in frases:
+        frase["wordLevel"] = True
+    return _fechar_pausas(frases)
+
+
+def _sentences_from_cues(cues):
+    """Sem palavra a palavra: agrupa CUE até o ponto final. Borda ESTIMADA, e o
+    `wordLevel=False` diz isso a quem consome — o pedido manda distinguir borda estimada
+    por texto de borda conferida na mídia, e este é o primeiro degrau dessa distinção."""
+    frases, buffer_ = [], []
+    for cue in cues or []:
+        texto = " ".join(str(cue.get("text") or "").split())
+        if not texto:
+            continue
+        buffer_.append({"start": float(cue["start"]), "end": float(cue["end"]), "text": texto})
+        if SENTENCE_END_RE.search(texto.rstrip()):
+            frases.append(_juntar(buffer_))
+            buffer_ = []
+    if buffer_:
+        frases.append(_juntar(buffer_))
+    return _fechar_pausas(frases)
+
+
+def _silencios_das_cues(cues):
+    """[(instante, duração)] dos silêncios MEDIDOS na grade grossa. Pura.
+
+    Existe porque a grade por PALAVRA não tem pausa nenhuma, por construção: o
+    `parse_json3_words` põe o `end` de cada palavra no `start` da seguinte (a `dDurationMs`
+    do evento é a janela rolante, que mente). MEDIDO no vídeo do print: 0 de 496 pausas na
+    grade por palavra, contra 9 de 146 acima de CLOSE_PAUSE_SEC na grade de cue, a maior de
+    12,8 s. Sem cruzar as duas, `FECHO_PAUSA_SEC`, `CLOSE_PAUSE_SEC` e o respiro do fim
+    ficavam INERTES justo no caminho bom — código vivo que nunca roda é pior que código
+    removido, porque parece cobertura.
+
+    A cue rolante do YouTube se sobrepõe à seguinte, então lacuna aqui é rara e é justamente
+    o silêncio de verdade. Nada daqui muda instante nenhum: só ANOTA quanto durou a pausa.
+    """
+    lacunas = []
+    limite = 0.0
+    for cue in cues or []:
+        try:
+            inicio, fim = float(cue["start"]), float(cue["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if limite and inicio - limite > 0.05:
+            lacunas.append((limite, round(inicio - limite, 3)))
+        limite = max(limite, fim)
+    return lacunas
+
+
+# Quanto as duas grades podem discordar sobre ONDE a pausa começa. Elas medem a mesma fala
+# por caminhos diferentes (palavra a palavra × janela rolante), então casar no instante
+# exato não acontece — e um casamento largo demais colaria a pausa na frase errada.
+PAUSA_TOLERANCIA_SEC = 0.4
+
+
+def sentences_from(cues, words=None):
+    """Legenda -> FRASES com instante ABSOLUTO. Grade ÚNICA das bordas do corte.
+
+    Com `words` (o `parse_json3_words`) a borda cai no instante da PALAVRA, que é a
+    evidência de tempo mais fina que a fonte publica. Sem ela — legenda manual, sidecar
+    antigo, faixa sem `tOffsetMs` — degrada para a cue grossa e `wordLevel` sai False.
+
+    A DURAÇÃO da pausa vem sempre da grade de cue (ver `_silencios_das_cues`): é a única
+    das duas que a mede. Borda pela palavra, pausa pela cue — cada grandeza com a grade que
+    tem a evidência dela.
+
+    `parse_json3` NÃO é tocado: esta é uma SEGUNDA leitura da mesma legenda, do lado da
+    análise, exatamente como o `parse_json3_words` já era do lado da exibição. A grade
+    grossa continua intacta e continua sendo a que a legenda queimada usa.
+    """
+    if words:
+        grade = _sentences_from_words(words)
+        if grade:
+            return _anotar_pausas(grade, _silencios_das_cues(cues))
+    return _sentences_from_cues(cues)
+
+
+def _anotar_pausas(frases, lacunas):
+    """Empresta à grade fina a duração das pausas medidas na grossa — e devolve o fim da
+    frase para onde a FALA parou.
+
+    O casamento é pelo FIM da lacuna, não pelo começo, e a razão é a construção da grade
+    fina: o `end` de uma palavra é o `start` da SEGUINTE, então o fim de uma frase seguida
+    de silêncio cai depois do silêncio inteiro, não antes. MEDIDO no vídeo do print: há uma
+    lacuna de 12,76 s, e sem esta correção um corte que fechasse ali levaria 12,76 s de
+    silêncio no rabo — que é exatamente o "excessive trailing silence" que o pedido proíbe.
+    O respiro do fim (`RESPIRO_DEPOIS_SEC`) volta a ter de onde sair.
+    """
+    if not lacunas:
+        return frases
+    for frase in frases[:-1]:
+        for instante, duracao in lacunas:
+            if abs((instante + duracao) - frase["end"]) > PAUSA_TOLERANCIA_SEC:
+                continue
+            # A fala parou em `instante`; dali até `end` era silêncio.
+            if instante > frase["start"]:
+                frase["end"] = round(instante, 3)
+            frase["pauseAfter"] = max(frase["pauseAfter"], duracao)
             break
-    close = strong if strong is not None else weak
-    end = cues[close if close is not None else last]["end"]
+    # `hardStart` lê `pauseAfter`, então tem de ser recalculado depois de anotar: uma frase
+    # que agora sabe que veio depois de 12 s de silêncio é início firme, e antes não era.
+    for pos, frase in enumerate(frases):
+        if pos == 0 or FALANTE_RE.match(frase["text"]):
+            frase["hardStart"] = True
+            continue
+        anterior = frases[pos - 1]
+        frase["hardStart"] = bool(SENTENCE_END_RE.search(anterior["text"].rstrip())
+                                  or anterior["pauseAfter"] >= FECHO_PAUSA_SEC)
+    return frases
+
+
+def _indice_em(frases, instante):
+    """Primeira frase que ainda não terminou em `instante`. -1 se a grade é vazia."""
+    for pos, frase in enumerate(frases):
+        if frase["end"] > instante:
+            return pos
+    return len(frases) - 1 if frases else -1
+
+
+def _fecha_ideia(frase, shifts):
+    """A ideia acaba NESTA frase? Ponto final, ou silêncio longo, ou troca de capítulo."""
+    if frase["pauseAfter"] >= FECHO_PAUSA_SEC:
+        return True
+    if any(frase["start"] < ponto <= frase["end"] + frase["pauseAfter"] for ponto in shifts):
+        return True
+    return bool(SENTENCE_END_RE.search(frase["text"].rstrip()))
+
+
+def _window(cues, anchor, total, stops=(), words=None):
+    """Trecho que começa numa FRASE inteira e fecha ONDE A IDEIA ACABA.
+
+    Devolve dicionário — e não a tripla de antes — porque quem avalia precisa das frases
+    escolhidas, não só das pontas: a nota editorial se mede no texto de cada frase, e
+    recalcular a fatia do lado de fora criaria uma segunda conta da mesma grandeza.
+
+    `fecho` sai False quando NÃO existe fim de ideia dentro do teto. Antes, esse caso caía
+    no `last` — a última cue que ainda cabia — e era daí que vinham os 8 de 12 cortes que
+    terminavam com a fala no ar. Agora o caso é REPROVADO pelo `avaliar`, não remendado.
+    """
+    frases = sentences_from(cues, words)
+    if not frases:
+        # Sem transcrição não há borda para achar. Quem chama decide o que fazer com isso
+        # (o `candidates` usa a REGIÃO MEDIDA do pico e marca a borda como estimada) —
+        # inventar aqui uma janela de tamanho fixo é o defeito, não a saída.
+        inicio = max(0.0, float(anchor))
+        fim = min(float(total) if total else inicio + TARGET_CLIP_SEC, inicio + TARGET_CLIP_SEC)
+        return {"inSec": inicio, "outSec": max(fim, inicio), "text": "", "clean": "",
+                "frases": [], "fecho": False, "wordLevel": False, "abriuNaFrase": False}
+
+    indice = max(0, _indice_em(frases, float(anchor)))
+    # Recuo, em dois passos e no MESMO orçamento. Primeiro até um início FIRME: abrir onde
+    # a pessoa só respirou entrega meia oração. Depois, enquanto a abertura pendurar o
+    # sentido numa frase anterior ("Mas isso mudou tudo"). Perder três segundos custa menos
+    # que entregar corte que só faz sentido para quem ouviu o episódio inteiro.
+    primeira = indice
+    orcamento = MAX_CLIP_SEC / 3
+    while primeira > 0 and not frases[primeira].get("hardStart"):
+        if frases[indice]["start"] - frases[primeira - 1]["start"] > orcamento:
+            break
+        primeira -= 1
+    while primeira > 0 and _dangling_opener(frases[primeira]["clean"] or frases[primeira]["text"]):
+        if frases[indice]["start"] - frases[primeira - 1]["start"] > orcamento:
+            break
+        primeira -= 1
+        # O recuo por conector pode cair num "só respirou": volta a firmar.
+        while primeira > 0 and not frases[primeira].get("hardStart"):
+            if frases[indice]["start"] - frases[primeira - 1]["start"] > orcamento:
+                break
+            primeira -= 1
+
+    inicio_fala = frases[primeira]["start"]
+    shifts = [float(s) for s in (stops or ()) if float(s) > inicio_fala + MIN_CLIP_SEC]
+    ultima = primeira
+    fechou = False
+    for pos in range(primeira, len(frases)):
+        frase = frases[pos]
+        if frase["end"] - inicio_fala > MAX_CLIP_SEC:
+            break
+        ultima = pos
+        span = frase["end"] - inicio_fala
+        if span < MIN_CLIP_SEC:
+            continue
+        if _fecha_ideia(frase, shifts):
+            fechou = True
+            # Fim de frase COM trégua de verdade (ou troca de capítulo) fecha na hora; fim
+            # de frase sem pausa é respiração no meio do raciocínio, e aí a janela continua
+            # até o teto suave da história.
+            if (frase["pauseAfter"] >= CLOSE_PAUSE_SEC
+                    or any(frase["start"] < p <= frase["end"] + frase["pauseAfter"] for p in shifts)
+                    or span >= STORY_CLIP_SEC):
+                break
+    # A janela só vale até a última frase que FECHA. Parar na `ultima` crua era o que
+    # deixava meia frase pendurada no fim quando o laço saía pelo teto.
+    if fechou:
+        while ultima > primeira and not _fecha_ideia(frases[ultima], shifts):
+            ultima -= 1
+    fatia = frases[primeira:ultima + 1]
+    fim = frases[ultima]["end"]
+    # Respiro nas pontas, dentro do silêncio que JÁ existe: metade da folga, no máximo o
+    # teto. Nunca invade a fala vizinha, então não corta consoante nem come sílaba.
+    folga_antes = frases[primeira - 1]["pauseAfter"] if primeira > 0 else inicio_fala
+    inicio = max(0.0, inicio_fala - min(RESPIRO_ANTES_SEC, max(0.0, folga_antes) / 2.0))
+    fim = fim + min(RESPIRO_DEPOIS_SEC, max(0.0, frases[ultima]["pauseAfter"]) / 2.0)
     if total:
-        end = min(end, float(total))
-    if end - start < MIN_CLIP_SEC:
-        end = min(start + MIN_CLIP_SEC, float(total) if total else start + MIN_CLIP_SEC)
-    text = " ".join(cues[position]["text"]
-                    for position in range(first, (close if close is not None else last) + 1)).strip()
-    return start, end, text
+        fim = min(fim, float(total))
+    if fim - inicio < MIN_CLIP_SEC:
+        fechou = False
+    texto = " ".join(f["text"] for f in fatia).strip()
+    return {"inSec": round(inicio, 3), "outSec": round(fim, 3), "text": texto,
+            "clean": " ".join(" ".join(f["clean"] for f in fatia).split()),
+            "frases": fatia, "fecho": fechou,
+            "wordLevel": bool(fatia and fatia[0].get("wordLevel")),
+            "abriuNaFrase": True}
+
+
+def avaliar(janela, interesse=0.0):
+    """Janela -> {'score','quality','factors','reject'}. Pura, interpretável, sem rede.
+
+    Os cinco fatores são os do pedido, na ordem dele: abertura, independência,
+    desenvolvimento, fecho e confiabilidade. `interesse` (audiência/capítulo, 0 a 1) entra
+    por último e vale no MÁXIMO INTERESSE_PESO pontos — e os três vetos rodam ANTES de
+    somar, então pico de audiência não resgata trecho incoerente. Cada fator sai com a
+    frase que o explica: nota sem decomposição é precisão inventada.
+    """
+    fatia = janela.get("frases") or []
+    texto = janela.get("clean") or ""
+    cru = janela.get("text") or ""
+    span = max(0.001, float(janela.get("outSec", 0)) - float(janela.get("inSec", 0)))
+    minutos = max(span / 60.0, 0.01)
+    palavras = _palavras_de(texto)
+    abertura = fatia[0] if fatia else None
+    palavras_abertura = _palavras_de(abertura["clean"]) if abertura else 0
+    pendurada = _dangling_opener(abertura["clean"]) if abertura else ""
+    nao_fala = len(NAO_FALA_RE.findall(cru)) / minutos
+    trocas = len(FALANTE_RE.findall(cru)) / minutos
+
+    valores, notas = {}, []
+    # 1. Abertura: a primeira frase orienta quem chega agora?
+    if not abertura or palavras_abertura < ABERTURA_MIN_PALAVRAS:
+        valores["abertura"] = 0.0
+        notas.append(("abertura", "A primeira fala é curta demais para orientar quem chega."))
+    elif pendurada:
+        valores["abertura"] = 0.0
+        notas.append(("abertura", "Abre em “%s” — o sentido ficou na frase anterior." % pendurada))
+    elif not abertura.get("hardStart", True):
+        # O recuo tentou e não alcançou um início firme dentro do orçamento. Entregar meia
+        # oração é o defeito relatado ("começa abruptamente"); reprovar é a saída honesta.
+        valores["abertura"] = 0.0
+        notas.append(("abertura", "Abre no meio da oração — não há começo de frase "
+                                  "alcançável antes deste ponto."))
+    elif NAO_FALA_RE.search(abertura["text"]):
+        # A PRIMEIRA frase é onde quem chega decide continuar; se ela mesma vem censurada
+        # ou é `[risadas]`, não há o que orientar. Medido: era isto que ainda deixava
+        # entrar a briga de buzina do começo do vídeo do print ("Para com essa [ __ ] um
+        # pouco.") e o ">> Ah, é. [risadas]" — os dois abrem num marcador, não numa fala.
+        valores["abertura"] = 0.0
+        notas.append(("abertura", "A primeira frase é censurada ou não é fala "
+                                  "(risadas, música, palavra apagada)."))
+    else:
+        pontos, _ = hook_hits(abertura["clean"])
+        if palavras_abertura >= ABERTURA_MIN_PALAVRAS * 2:
+            cheia = 1.0
+        elif palavras_abertura >= ABERTURA_MIN_PALAVRAS + 2:
+            cheia = 0.8
+        else:
+            cheia = 0.55
+        valores["abertura"] = min(1.0, cheia + (0.2 if pontos >= 12 else 0.0))
+        notas.append(("abertura", "Começa numa frase inteira%s." %
+                      (" e com gancho na primeira fala" if pontos >= 12 else "")))
+    # 2. Independência: dá para entender sem os minutos anteriores?
+    if nao_fala > NAO_FALA_POR_MIN:
+        valores["independencia"] = 0.0
+        notas.append(("independencia",
+                      "Fala censurada ou sem áudio aproveitável (%.0f marcas por minuto)." % nao_fala))
+    elif trocas > TROCA_POR_MIN:
+        valores["independencia"] = 0.0
+        notas.append(("independencia", "Conversa picada: %.0f trocas de falante por minuto." % trocas))
+    elif pendurada:
+        valores["independencia"] = 0.0
+        notas.append(("independencia", "Depende do que foi dito antes do corte."))
+    else:
+        valores["independencia"] = 1.0 if nao_fala == 0 and trocas <= 1.0 else 0.75
+        notas.append(("independencia", "Se sustenta sem o resto do episódio."))
+    # 3. Desenvolvimento: entrega alguma coisa depois da abertura?
+    if palavras < FALA_MIN_PALAVRAS or len(fatia) < 2:
+        valores["desenvolvimento"] = 0.25 if palavras else 0.0
+        notas.append(("desenvolvimento", "Pouca fala dentro do trecho (%d palavras)." % palavras))
+    else:
+        densidade = palavras / max(span / 10.0, 0.1)
+        valores["desenvolvimento"] = max(0.4, min(1.0, densidade / 22.0))
+        notas.append(("desenvolvimento", "%d palavras em %d frases." % (palavras, len(fatia))))
+    # 4. Fecho: a última frase termina o raciocínio?
+    if not janela.get("fecho"):
+        valores["fecho"] = 0.0
+        notas.append(("fecho", "Termina no meio da frase — a fala continua depois do corte."))
+    elif not fatia:
+        # Sem transcrição não há frase para conferir. O fecho não é REPROVADO (a região de
+        # audiência é uma borda medida, só não é a da fala), mas também não é afirmado:
+        # meio valor e a frase dizendo que ninguém olhou. Afirmar fecho que não se
+        # conferiu é exatamente a "measurement I did not make" que o pedido proíbe.
+        valores["fecho"] = 0.5
+        notas.append(("fecho", "Fim não conferido: sem legenda, a borda é o fim da região "
+                               "de audiência."))
+    else:
+        respirou = fatia[-1]["pauseAfter"] >= CLOSE_PAUSE_SEC
+        valores["fecho"] = 1.0 if respirou else 0.7
+        notas.append(("fecho", "Fecha a frase%s." % (" e cai numa pausa" if respirou else "")))
+    # 5. Confiabilidade: a evidência de tempo é medida ou estimada?
+    if not fatia:
+        valores["confiabilidade"] = 0.0
+        notas.append(("confiabilidade",
+                      "Sem transcrição: as bordas vêm da região de audiência, não da fala."))
+    elif janela.get("wordLevel"):
+        valores["confiabilidade"] = 1.0
+        notas.append(("confiabilidade", "Bordas no instante da palavra."))
+    else:
+        valores["confiabilidade"] = 0.6
+        notas.append(("confiabilidade", "Bordas na fala inteira (legenda sem tempo por palavra)."))
+
+    reprovas = [nome for nome in VETO if valores.get(nome, 0.0) <= 0.0]
+    bruto = sum(valores[nome] * peso for nome, peso, _ in FATORES)
+    bruto += min(1.0, max(0.0, float(interesse))) * INTERESSE_PESO
+    score = int(round(max(0.0, min(100.0, bruto))))
+    # Rótulo pelo PERFIL dos cinco fatores editoriais — `interesse` fica fora, então
+    # audiência não promove ninguém de faixa. Reprovado já saiu antes daqui.
+    editoriais = [valores.get(nome, 0.0) for nome, _, _ in FATORES]
+    piso_real = min(editoriais) if editoriais else 0.0
+    cheios = sum(1 for v in editoriais if v >= 0.999)
+    if reprovas:
+        slug, rotulo = "fraco", "Vale conferir"
+    elif piso_real >= FORTE_PISO and cheios >= FORTE_CHEIOS:
+        slug, rotulo = "forte", "Recomendado"
+    elif piso_real >= BOM_PISO:
+        slug, rotulo = "bom", "Bom candidato"
+    else:
+        slug, rotulo = "fraco", "Vale conferir"
+    explica = dict(notas)
+    fatores = [{"id": nome, "label": rot, "weight": peso,
+                "value": round(valores.get(nome, 0.0), 2), "note": explica.get(nome, "")}
+               for nome, peso, rot in FATORES]
+    fatores.append({"id": "interesse", "label": "Interesse do público",
+                    "weight": INTERESSE_PESO,
+                    "value": round(min(1.0, max(0.0, float(interesse))), 2),
+                    "note": "Audiência e capítulos somam no máximo %d pontos "
+                            "— nunca resgatam um trecho reprovado." % INTERESSE_PESO})
+    return {"score": score, "quality": slug, "qualityLabel": rotulo, "factors": fatores,
+            "reject": explica.get(reprovas[0], "") if reprovas else "",
+            "rejectId": reprovas[0] if reprovas else ""}
 
 
 def cues_for_range(cues, start, end, words=None):
@@ -622,42 +1061,158 @@ def _first_sentence(text, limit=280):
     return hook[:limit].strip()
 
 
+# Muleta de fala que abre frase sem dizer nada ("Eh, estamos ali mais ou menos..."). Sai
+# só do TÍTULO — o corte continua começando onde a fala começa, porque tirar o "Eh" do
+# vídeo seria remover palavra do meio da frase, que o pedido proíbe.
+#
+# A muleta só conta quando vem SEGUIDA DE VÍRGULA, que é como a transcrição a marca. Sem
+# essa exigência, "Assim que eu entendi" perdia o "Assim" e "Olha o seguinte" perdia o
+# artigo — e pior, `_norm("ó")` é "o", então a entrada acentuada comia o artigo "o" de
+# qualquer frase. Título aparado errado é pior que título com muleta.
+MULETAS = frozenset(flat for _, flat in _terms(
+    "eh", "ah", "uh", "ó", "olha", "tipo", "então", "assim", "né", "pois é", "sabe",
+    "bom", "cara", "well", "so", "like"))
+MULETA_RE = re.compile(r"^\s*([^\s,;:]+(?:\s+[^\s,;:]+)?)\s*,\s*")
+
+
+def _titulo_de(fatia, limite=72):
+    """Fatia de frases -> título do CORTE, tirado da fala escolhida. Puro.
+
+    Nunca o título do vídeo e nunca fragmento: o defeito relatado era exatamente este —
+    títulos como "total.", "mais qualidade." e ">> Ah, é." saíam de `_first_sentence` do
+    texto cru, que começava onde a CUE começava (no meio da oração) e ainda carregava o
+    `>>` e o `[ __ ]`.
+
+    A escolha é a frase de ABERTURA, não a mais chamativa do trecho: é ela que o
+    espectador ouve primeiro, então título tirado do meio promete uma coisa e entrega
+    outra. Só se a abertura for magra demais para nomear o corte é que se olha as
+    seguintes. O texto vem limpo do dono único (`captions.strip_artifacts`) e é aparado no
+    limite da PALAVRA.
+    """
+    frases = [f.get("clean") or "" for f in fatia or []]
+    frases = [" ".join(f.split()) for f in frases if _palavras_de(f) >= 3]
+    if not frases:
+        return ""
+    escolhida = ""
+    for frase in frases[:4]:
+        if _palavras_de(_sem_muleta(frase)) >= 6:
+            escolhida = frase
+            break
+    if not escolhida:
+        escolhida = max(frases[:6], key=lambda f: (hook_hits(f)[0], _palavras_de(f)))
+    limpo = _sem_muleta(escolhida)
+    if len(limpo) > limite:
+        aparado = limpo[:limite].rsplit(" ", 1)[0]
+        limpo = (aparado or limpo[:limite]).rstrip(" ,;:-–—") + "…"
+    return (limpo[:1].upper() + limpo[1:]) if limpo else ""
+
+
+def _sem_muleta(frase):
+    """Apara muleta e pontuação solta do COMEÇO de um título. Pura e idempotente.
+
+    Só apara o que sobra: se depois da poda ficariam menos de três palavras, devolve o
+    texto original — título vazio é pior que título com muleta.
+    """
+    texto = " ".join(str(frase or "").split()).lstrip(" ,;:-–—…")
+    while texto:
+        achado = MULETA_RE.match(texto)
+        if not achado:
+            break
+        if _norm(achado.group(1)).strip() not in MULETAS:
+            break
+        resto = texto[achado.end():].lstrip(" ,;:-–—…")
+        if _palavras_de(resto) < 3:
+            break
+        texto = resto
+    return texto
+
+
+def _interesse_de(item, total):
+    """Sinal de POPULARIDADE do item, de 0 a 1. Nunca é nota: é empurrão com teto.
+
+    O primeiro balde do gráfico do YouTube é alto em TODO vídeo — quem abre o vídeo assiste
+    os primeiros segundos, então o pico do começo mede carregamento de página, não interesse
+    editorial. MEDIDO no vídeo do print: o balde de 0 s a 22 s marca 65% do maior do vídeo,
+    e era a única razão pela qual a abertura entrava com nota 72. O desconto não REPROVA
+    (o veto editorial faz isso, com evidência do texto) — só tira do sinal a parte que é
+    artefato de medição.
+    """
+    bruto = min(1.0, max(0.0, float(item.get("interesse") or 0.0)))
+    if float(item.get("anchor") or 0.0) <= ABERTURA_VIDEO_SEC:
+        return bruto * 0.35
+    return bruto
+
+
+REPROVA_LABEL = {
+    "abertura": "começavam no meio da ideia",
+    "independencia": "não se entendiam sozinhos",
+    "fecho": "terminavam no meio da frase",
+}
+
+
 def candidates(info, limit=MAX_CANDIDATES):
+    """Atalho para quem só quer a lista. O relatório fica em `candidates_report`."""
+    return candidates_report(info, limit)[0]
+
+
+def candidates_report(info, limit=MAX_CANDIDATES):
+    """(lista, resumo). Mesma conta do `candidates`, com o que foi DESCARTADO à vista.
+
+    Existe porque "não sugeri nada" e "descartei sete porque terminavam no meio da frase"
+    são coisas diferentes para quem olha a tela, e recurso automático que reprova calado é
+    indistinguível de recurso quebrado (BP-008). O resumo é a única saída de texto desta
+    camada e vai junto da `note` da análise.
+    """
+    return _candidates(info, limit)
+
+
+def _candidates(info, limit=MAX_CANDIDATES):
     """Metadados + legenda -> trechos sugeridos. Função pura: nada de rede aqui.
 
-    Cada item sai no MESMO formato que o `clip` já guardado em pp_video_ops_v1
-    (video-ops.js:603-605), então entra no site sem migração de schema, com
-    `state='candidate'` — nada é aprovado nem baixado por esta função.
+    Cada item sai no MESMO formato que o `clip` já guardado em pp_video_ops_v1, então
+    entra no site sem migração de schema, com `state='candidate'` — nada é aprovado nem
+    baixado por esta função.
+
+    Ordem do trabalho, que é a ordem do pedido: (1) sinais viram ÂNCORAS, não janelas;
+    (2) em volta de cada âncora procura-se um momento COMPLETO (`BUSCA_FRASES` frases para
+    cada lado); (3) a janela é REPROVADA ou aprovada pelo `avaliar`, com o veto editorial
+    rodando antes de somar audiência; (4) sobreposição funde; (5) ordena. Preferir poucas
+    sugestões boas a preencher cota é regra explícita, então a lista pode sair menor que o
+    `limit` — inclusive vazia, e aí a tela diz por quê.
     """
     cues = list(info.get("cues") or [])
+    words = list(info.get("words") or [])
     chapters = list(info.get("chapters") or [])
     total = float(info.get("durationSec") or 0.0)
     peaks = heatmap_peaks(info.get("heatmap"))
+    frases = sentences_from(cues, words)
+    stops = tuple(float(c["start_time"]) for c in chapters if c.get("start_time") is not None)
+
     raw = []
-
-    for peak in peaks[:limit]:
-        share = int(round(peak.get("ratio", 0) * 100))
+    for peak in peaks[: limit * 2]:
+        ratio = float(peak.get("ratio", 0) or 0.0)
+        share = int(round(ratio * 100))
         raw.append({
-            "anchor": float(peak["start"]),
-            "score": 45 + min(35, int(peak.get("ratio", 0) * 35)),
-            "signals": ["heatmap"],
-            "reasons": ["pico de \u201cMais reproduzidos\u201d (%d%% do maior do v\u00eddeo)" % share],
-            "topic": "",
+            "anchor": float(peak["start"]), "regiao": (float(peak["start"]), float(peak["end"])),
+            "interesse": ratio, "signals": ["heatmap"],
+            "reasons": ["pico de “Mais reproduzidos” (%d%% do maior do vídeo)" % share],
+            "topic": "", "topicAt": None,
         })
-
     for chapter in chapters:
         start = chapter.get("start_time")
         if start is None:
             continue
         title = re.sub(r"\s+", " ", str(chapter.get("title") or "")).strip()
         raw.append({
-            "anchor": float(start),
-            "score": 30,
+            "anchor": float(start), "regiao": None, "interesse": 0.25,
             "signals": ["chapter"],
-            "reasons": ["in\u00edcio do cap\u00edtulo \u201c%s\u201d" % title if title else "in\u00edcio de cap\u00edtulo"],
-            "topic": title[:140],
+            "reasons": ["início do capítulo “%s”" % title if title else "início de capítulo"],
+            # O título do capítulo é o nome que QUEM PUBLICOU deu àquele momento — é
+            # evidência, não invenção, e é melhor manchete que uma frase de legenda
+            # automática. Só vale se o corte ABRIR no capítulo (`topicAt`): capítulo que
+            # entrou por fusão a oito segundos de distância nomearia outro trecho.
+            "topic": title[:140], "topicAt": float(start),
         })
-
     for position, cue in enumerate(cues):
         points, labels = hook_hits(cue["text"])
         if not points:
@@ -669,87 +1224,174 @@ def candidates(info, limit=MAX_CANDIDATES):
         if points < 16:
             continue
         raw.append({
-            "anchor": float(cue["start"]),
-            "score": min(70, 18 + points),
-            "signals": ["transcript"],
-            "reasons": labels,
-            "topic": "",
+            "anchor": float(cue["start"]), "regiao": None, "interesse": 0.0,
+            "signals": ["transcript"], "reasons": labels, "topic": "", "topicAt": None,
         })
 
-    raw.sort(key=lambda item: item["score"], reverse=True)
-    # Começo de capítulo = troca de assunto declarada por quem publicou. Serve de fecho para
-    # a janela: a ideia acabou ali, mesmo que a pessoa continue falando sem pausa.
-    stops = tuple(float(c["start_time"]) for c in chapters if c.get("start_time") is not None)
-    picked = []
+    # Âncora mais promissora primeiro, só para escolher quem tenta antes; a NOTA quem dá é
+    # o `avaliar`, depois de resolver a janela. O instante desempata — ordem estável.
+    raw.sort(key=lambda item: (-float(item["interesse"]), float(item["anchor"])))
+
+    picked, reprovados = [], {}
     for item in raw:
-        start, end, text = _window(cues, item["anchor"], total, stops)
+        interesse = _interesse_de(item, total)
+        melhor = None
+        if frases:
+            # Busca em volta do sinal por um momento COMPLETO. Pico alto autoriza PROCURAR
+            # perto; não autoriza janela de tamanho fixo centrada nele.
+            base = max(0, _indice_em(frases, item["anchor"]))
+            vistos = set()
+            for salto in range(-BUSCA_FRASES, BUSCA_FRASES + 1):
+                pos = base + salto
+                if pos < 0 or pos >= len(frases) or pos in vistos:
+                    continue
+                vistos.add(pos)
+                # Tentar por um "só respirou" é gastar busca: o recuo do `_window` vai
+                # firmar o início e cair na mesma janela de um vizinho já tentado.
+                if not frases[pos].get("hardStart"):
+                    continue
+                janela = _window(cues, frases[pos]["start"], total, stops, words)
+                if janela["outSec"] - janela["inSec"] < MIN_CLIP_SEC:
+                    continue
+                nota = avaliar(janela, interesse)
+                if nota["reject"]:
+                    chave = nota["rejectId"]
+                    reprovados[chave] = reprovados.get(chave, 0) + 1
+                    continue
+                if melhor is None or nota["score"] > melhor[1]["score"]:
+                    melhor = (janela, nota)
+            if melhor is None:
+                continue
+        else:
+            # Sem legenda: a única borda MEDIDA que existe é a região do próprio pico.
+            # Ela vale como sugestão, mas sai marcada — `confiabilidade` = 0 e a frase do
+            # fator diz que a borda não veio da fala. Capítulo sozinho não vira sugestão:
+            # não há nem borda nem texto para conferir, e cartão sem evidência é cota.
+            if not item["regiao"]:
+                continue
+            inicio, fim = item["regiao"]
+            fim = max(fim, inicio + MIN_CLIP_SEC)
+            if total:
+                fim = min(fim, total)
+            if fim - inicio < MIN_CLIP_SEC:
+                continue
+            janela = {"inSec": round(inicio, 3),
+                      "outSec": round(min(fim, inicio + MAX_CLIP_SEC), 3),
+                      "text": "", "clean": "", "frases": [], "fecho": True,
+                      "wordLevel": False, "abriuNaFrase": False}
+            melhor = (janela, avaliar(janela, interesse))
+
+        janela, nota = melhor
+        # O intervalo resolvido sai em SEGUNDO INTEIRO, e e o unico numero que o sistema
+        # inteiro usa: o nome do arquivo baixado e `%d-%d` (`_canonical_clip_filename`), o
+        # `/api/yt-fetch` recebe `num(inSec)` (que arredonda), o `?start=` do player e
+        # inteiro e o `/api/clip-status` acha o arquivo pelo mesmo par. Deixar fracao aqui
+        # fazia o detector prometer 2071,35 e o export entregar 2071 -- borda diferente da
+        # calculada, calada, que e exatamente o "correct requested timestamp can still
+        # produce an incorrect exported boundary" do pedido. Piso no comeco e teto no fim:
+        # os dois lados ALARGAM para dentro do silencio, nunca comem fala.
+        start = float(math.floor(janela["inSec"]))
+        end = float(math.ceil(janela["outSec"]))
+        if total:
+            end = min(end, float(math.ceil(total)))
         if end - start < MIN_CLIP_SEC:
             continue
         merged = None
         for chosen in picked:
             overlap = min(chosen["outSec"], end) - max(chosen["inSec"], start)
             span = min(chosen["outSec"] - chosen["inSec"], end - start)
-            if abs(chosen["inSec"] - start) <= MERGE_GAP_SEC or (span > 0 and overlap > span * 0.5):
+            if abs(chosen["inSec"] - start) <= MERGE_GAP_SEC or (span > 0 and overlap > span * MERGE_OVERLAP):
                 merged = chosen
                 break
         if merged:
-            # Mesmo trecho achado por outro sinal: soma confiança em vez de duplicar a
-            # sugestão. Dois sinais concordando vale mais que um, e o operador vê os dois.
+            # Mesmo trecho achado por outro sinal: registra o sinal e recalcula a nota pelo
+            # `avaliar` com o maior interesse dos dois — nunca por soma solta. Dois sinais
+            # concordando não podem furar o teto de popularidade.
+            novo = False
             for signal in item["signals"]:
                 if signal not in merged["signals"]:
                     merged["signals"].append(signal)
-                    merged["score"] = min(100, merged["score"] + 12)
+                    novo = True
             for reason in item["reasons"]:
                 if reason not in merged["reasons"]:
                     merged["reasons"].append(reason)
             if item["topic"] and not merged["topic"]:
                 merged["topic"] = item["topic"]
+                merged["topicAt"] = item.get("topicAt")
+            if novo or interesse > merged["interesse"]:
+                merged["interesse"] = max(merged["interesse"], interesse)
+                merged["nota"] = avaliar(merged["janela"], merged["interesse"])
             continue
-        # A nota tem que refletir MOMENTO FORTE, não só presença de sinal: uma janela que
-        # fala de fracasso, dinheiro ou conselho vale mais que uma que só coincidiu com um
-        # pico. E abertura pendurada desconta, porque o corte pode não se sustentar sozinho.
-        guess = classify_segment(text)
-        warning = _dangling_opener(text)
-        bonus = guess["confidence"] // 10
-        if guess["category"] in STRONG_CATEGORIES:
-            bonus += 10
-        if warning:
-            bonus -= 8
+
+        guess = classify_segment(janela["clean"] or janela["text"])
         picked.append({
-            "inSec": round(start, 2), "outSec": round(end, 2),
-            "score": max(0, item["score"] + bonus), "signals": list(item["signals"]),
+            "inSec": round(start, 2), "outSec": round(end, 2), "janela": janela,
+            "nota": nota, "interesse": interesse, "signals": list(item["signals"]),
             "reasons": list(item["reasons"]), "topic": item["topic"],
-            "hook": _first_sentence(text), "guess": guess, "warning": warning,
+            "topicAt": item.get("topicAt"), "guess": guess,
         })
         if len(picked) >= limit:
             break
 
-    picked.sort(key=lambda c: c["score"], reverse=True)
+    # Nota primeiro, começo do vídeo como desempate: ordenação ESTÁVEL e reproduzível, que
+    # é o que permite comparar duas análises do mesmo vídeo.
+    picked.sort(key=lambda c: (-c["nota"]["score"], c["inSec"]))
     out = []
-    for position, clip in enumerate(picked):
+    for clip in picked:
+        janela, nota = clip["janela"], clip["nota"]
         duration = clip["outSec"] - clip["inSec"]
         motives = list(clip["reasons"])
         category = clip["guess"]["category"]
         if category:
-            # "pela legenda" n\u00e3o \u00e9 enfeite: separa palpite de texto do dado observado do
-            # heatmap, que \u00e9 a \u00fanica coisa aqui que mede audi\u00eancia de verdade.
-            motives.append("assunto prov\u00e1vel pela legenda: %s" % CATEGORY_LABELS[category])
-        reasons = "; ".join(motives) or "trecho com fala cont\u00ednua"
+            # "pela legenda" não é enfeite: separa palpite de texto do dado observado do
+            # heatmap, que é a única coisa aqui que mede audiência de verdade.
+            motives.append("assunto provável pela legenda: %s" % CATEGORY_LABELS[category])
+        # A frase do card é UMA, e é a do fator que mais pesou — evidência, não resumo de
+        # tudo. Os motivos completos continuam no `reason`, que a tela de detalhe mostra.
+        forte = max(nota["factors"][:len(FATORES)], key=lambda f: f["value"] * f["weight"])
+        do_capitulo = (clip["topic"] if clip.get("topicAt") is not None
+                       and abs(float(clip["topicAt"]) - clip["inSec"]) <= MERGE_GAP_SEC else "")
+        titulo = (do_capitulo or _titulo_de(janela["frases"]) or clip["topic"]
+                  or ("Trecho em %d:%02d" % (int(clip["inSec"]) // 60, int(clip["inSec"]) % 60)))
         out.append({
             "inSec": clip["inSec"], "outSec": clip["outSec"],
             "durationSec": round(duration, 2),
-            "score": min(100, int(clip["score"])),
+            "score": nota["score"], "quality": nota["quality"],
+            "qualityLabel": nota["qualityLabel"], "factors": nota["factors"],
             "signals": clip["signals"],
-            "topic": (clip["topic"] or _first_sentence(clip["hook"], 60) or
-                      "Corte %02d" % (position + 1))[:140],
-            "hook": clip["hook"][:300],
-            "reason": ("%s (%.0fs)" % (reasons, duration))[:1000],
+            "topic": titulo[:140],
+            "hook": (janela["clean"] or janela["text"])[:600],
+            "evidence": forte["note"][:300],
+            "reason": ("; ".join(motives) or "trecho com fala contínua")[:1000],
             "category": category,
-            "contextWarning": ("Come\u00e7a com \u201c%s\u201d \u2014 pode n\u00e3o fazer "
-                               "sentido sozinho." % clip["warning"]) if clip["warning"] else "",
+            # Borda MEDIDA na palavra, ESTIMADA na fala inteira, ou vinda só da audiência.
+            # O pedido manda distinguir isso na tela e não afirmar conferência que não houve.
+            "boundary": ("palavra" if janela.get("wordLevel")
+                         else ("fala" if janela.get("frases") else "audiencia")),
+            "contextWarning": ("Bordas estimadas pela região de audiência — este vídeo não "
+                               "entregou legenda. Confira o começo e o fim antes de baixar."
+                               if not janela.get("frases") else ""),
             "state": "candidate",
         })
-    return out
+    return out, _resumo_reprovas(reprovados, len(out))
+
+
+def _resumo_reprovas(reprovados, aprovados):
+    """Contagem de descartes -> frase em português. Vazia quando não houve descarte.
+
+    Conta JANELAS avaliadas e reprovadas, não âncoras: a mesma âncora tenta várias janelas
+    em volta, então o número é "quantas tentativas caíram", que é o que explica por que a
+    lista saiu curta.
+    """
+    if not reprovados:
+        return ""
+    partes = ["%d %s" % (n, REPROVA_LABEL[k]) for k, n in
+              sorted(reprovados.items(), key=lambda kv: -kv[1]) if k in REPROVA_LABEL]
+    if not partes:
+        return ""
+    cabeca = ("Nenhum trecho passou nos critérios editoriais"
+              if not aprovados else "Descartei trechos")
+    return "%s: %s." % (cabeca, "; ".join(partes))
 
 
 # ------------------------------------------------------------------------ rede
@@ -785,6 +1427,40 @@ def _run(args, timeout):
             "ffmpeg_failed",
             "O yt-dlp recusou o v\u00eddeo: %s" % (tail[-1][:400] if tail else "sem detalhe"))
     return proc.stdout
+
+
+# Storyboard: a folha de miniaturas com TEMPO que o YouTube já publica. Cada `sb*` é uma
+# grade `rows x columns` de quadros; `fps` diz quantos quadros por segundo de vídeo, então
+# o quadro do instante t é `floor(t * fps)`. É o único jeito de dar miniatura DO TRECHO
+# antes de existir mídia baixada — e não custa byte de vídeo nenhum: o navegador carrega a
+# folha e recorta com `background-position`. Medido no vídeo do print: `sb0` tem 320x180,
+# grade 3x3, 25 folhas, fps 0,1007 (um quadro a cada ~9,9 s).
+STORYBOARD_MIN_W = 120
+
+
+def _storyboard(info):
+    """Dump do yt-dlp -> a MELHOR folha de storyboard, ou {} se o vídeo não publica.
+
+    Escolhe pela largura: miniatura de card fica em ~380 px, então 320 px é o teto útil e
+    48 px (o `sb3`) não serve para nada. Só o que a tela precisa viaja — a URL de cada
+    folha, a grade e o fps.
+    """
+    melhor = None
+    for fmt in info.get("formats") or []:
+        if not str(fmt.get("format_id") or "").startswith("sb"):
+            continue
+        largura = int(fmt.get("width") or 0)
+        fps = float(fmt.get("fps") or 0.0)
+        folhas = [f.get("url") for f in (fmt.get("fragments") or []) if f.get("url")]
+        if largura < STORYBOARD_MIN_W or fps <= 0 or not folhas:
+            continue
+        if melhor is None or largura > melhor["width"]:
+            melhor = {"width": largura, "height": int(fmt.get("height") or 0),
+                      "rows": int(fmt.get("rows") or 0), "columns": int(fmt.get("columns") or 0),
+                      "fps": fps, "sheets": folhas[:80]}
+    if not melhor or melhor["rows"] < 1 or melhor["columns"] < 1:
+        return {}
+    return melhor
 
 
 def probe(url, timeout=PROBE_TIMEOUT):
@@ -825,7 +1501,24 @@ def probe(url, timeout=PROBE_TIMEOUT):
         "cues": cues, "words": legenda["words"],
         "captionLang": lang, "captionKind": kind,
         "note": caption_note,
+        # Capa do vídeo (a maior publicada) e a folha de storyboard. A capa nomeia o
+        # projeto; o storyboard é o que dá miniatura DO TRECHO sem baixar vídeo.
+        "thumbnail": _melhor_capa(info),
+        "storyboard": _storyboard(info),
     }
+
+
+def _melhor_capa(info):
+    """A maior capa publicada. Fallback para o endereço estável do YouTube."""
+    melhor, area = "", -1
+    for t in info.get("thumbnails") or []:
+        u = str(t.get("url") or "")
+        if not u.startswith("https://"):
+            continue
+        a = int(t.get("width") or 0) * int(t.get("height") or 0)
+        if a > area:
+            melhor, area = u, a
+    return melhor[:400]
 
 
 def fetch_section(url, start, end, outdir, timeout=FETCH_TIMEOUT):
