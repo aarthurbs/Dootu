@@ -629,7 +629,7 @@ def main():
     # evidence." Aqui morava o inverso -- `candidates(info) == candidates(info + words)`, que
     # prendia o detector na grade GROSSA. Essa amarra ERA a causa medida do defeito relatado:
     # a legenda rolante do YouTube fecha a cue no MEIO da oracao, entao 12 de 12 candidatos do
-    # video do print abriam em fragmento ("total. Eh, e super importante...") e 8 de 12
+    # video do print abriam em fragmento ("total. Eh, e super importante...") e 10 de 12
     # fechavam com a fala no ar. O `parse_json3` continua intocado (19k/19l provam); o que
     # mudou e o detector ganhar a evidencia de tempo mais fina que a fonte publica.
     #

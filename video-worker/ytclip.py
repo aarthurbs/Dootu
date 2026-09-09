@@ -488,7 +488,8 @@ def _dangling_opener(text):
 # entrega. MEDIDO no vídeo do print (bNkQaTQ4SE0, 988 cues / 6408 palavras): a legenda
 # rolante do YouTube fecha a cue no MEIO da oração, então 12 de 12 candidatos abriam no
 # meio de uma frase ("total. Eh, é super importante…", "mais qualidade. O teu negócio
-# é um", "gente faz aqui no G4, né?") e 8 de 12 fechavam com fala ainda no ar. O ponto
+# é um", "gente faz aqui no G4, né?") e 10 de 12 fechavam mal — 4 no meio da oração e
+# 7 com a fala ainda no ar na hora do corte (um deles nos dois). O ponto
 # final que o detector antigo procurava mora DENTRO do texto da cue e não no fim dele —
 # por isso recuar de cue em cue nunca chegava ao começo da oração, e por isso o `$` do
 # SENTENCE_END_RE contra o texto da cue era pergunta feita à grade errada.
@@ -771,8 +772,8 @@ def _window(cues, anchor, total, stops=(), words=None):
     recalcular a fatia do lado de fora criaria uma segunda conta da mesma grandeza.
 
     `fecho` sai False quando NÃO existe fim de ideia dentro do teto. Antes, esse caso caía
-    no `last` — a última cue que ainda cabia — e era daí que vinham os 8 de 12 cortes que
-    terminavam com a fala no ar. Agora o caso é REPROVADO pelo `avaliar`, não remendado.
+    no `last` — a última cue que ainda cabia — e era daí que vinham os 10 de 12 cortes que
+    terminavam mal. Agora o caso é REPROVADO pelo `avaliar`, não remendado.
     """
     frases = sentences_from(cues, words)
     if not frases:
