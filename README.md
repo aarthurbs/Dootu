@@ -1,14 +1,18 @@
-# Plataforma de Prompts
+# Dootu
 
 Aplicativo web Vanilla JS 100% client-side. Todos os dados são salvos offline no `localStorage`.
 
 ## Ferramentas
 
-- **Prompts** — criação, organização (projetos, categorias, tags) e cópia de prompts.
-- **Planilha da Amazon** — preenche automaticamente a coluna C ("Referência da oferta / SKU") da Planilha de Faturador com uma lista de SKUs, preservando a estrutura original do arquivo.
-- **Precificação (Multi-plataforma)** — única ferramenta de precificação. Calcula a Margem de Contribuição por marketplace (Mercado Livre Clássico/Premium, TikTok Shop, Amazon, Shopee) a partir de custo/venda/rebate/peso, com tabela de frete do ML, simulador de PDV (direto e reverso), simulador de acréscimo e comparativo entre plataformas. Isolada em `window.Calc5` (IIFE), CSS escopado em `#prc-pane-calc5` no tema Wizards. A barra de opções é centralizada e tem um botão **Ocultar/Mostrar opções** (`#prc-options-toggle`) que recolhe a faixa de abas. _O modelo antigo (Calculadora margem-alvo, "Bater concorrente", Ajuste %, Configuração comissão/imposto, histórico em `pricing_v1`) foi totalmente removido em 2026-06-26 — código, DOM e CSS — por decisão do usuário._
-- **Painel do Empreendedor** — painel de controle dos processos do negócio: 6 "trilhos" (Identidade da marca, Radar de mercado, Laboratório de conteúdo, Rede de perfis, Funil de clientes, Lucro real), cada um com etapas (checklist) das quais o `status` (a fazer/fazendo/feito) e o `progresso %` são derivados; cabeçalho "Meta 90 dias" (dias decorridos/restantes + contador Clientes 0/10) e histórico por trilho. Vanilla JS estático (`empreendedor.js`), dados em `localStorage` (`pp_empreendedor_v1`), sem IA/backend. Vive no mundo **Empreender** ao lado de Fluxos e Radar.
-- _**Removidos em 2026-06-29** (decisão do usuário): o módulo **Central Amazon FBA** (gerador de prompt de anúncio buybox/do-zero, `amz_products_v1`) e a **Central de Inventário** (`inventory.js`/`inventory-import.js`) — itens do menu, seções, CSS, JS e arquivos. Mantidos: Prompts, Planilha de Faturador e Precificação._
+- **Central** — a home do site: cards que abrem cada ferramenta, com a barra segmentada do header (`Central` / `Empreender`) filtrando a sidebar e os blocos de cards.
+- **Painel do Empreendedor** — painel de controle dos processos do negócio: 6 "trilhos" (Identidade da marca, Radar de mercado, Laboratório de conteúdo, Rede de perfis, Funil de clientes, Lucro real), cada um com etapas (checklist) das quais o `status` (a fazer/fazendo/feito) e o `progresso %` são derivados; cabeçalho "Meta 90 dias" (dias decorridos/restantes + contador Clientes 0/10) e histórico por trilho. Vanilla JS estático (`empreendedor.js`), dados em `localStorage` (`pp_empreendedor_v1`), sem IA/backend.
+- **Estúdio de Vídeos** — do vídeo longo ao MP4 pronto para postar (`video-ops.js`, worker local em `video-worker/`). Precisa de `http://127.0.0.1:8765` — rode `estudio.ps1`.
+- _**Removidos em 2026-06-29** (decisão do usuário): **Central Amazon FBA** (`amz_products_v1`) e **Central de Inventário** (`inventory.js`/`inventory-import.js`)._
+- _**Removidos em 2026-08-17**: **Precificação** (`window.Calc5`, `pricing_v1`), **Inventário Amazon** (`amazon-inventory.js`) e **Shooting Range** (`SRCore`)._
+- _**Removidos em 2026-09-08** (simplificação antes da migração para o Obsidian): **Prompts salvos** (`pp_prompts_v1`/`pp_projects_v1`, a área de trabalho que era a home, a sidebar de Projects/Categories/Tags, o `#search` e os modais), **Planilha de Faturador** (`fat*`, `xlsx-populate.min.js`), **Radar** (3 feeds — `ecommerce-news*`, `ai-news*`, `claude-radar*` e os agentes `radar-*.ps1`) e **Fluxos** (`fluxos.js`, `pp_fluxos_v1`, `.fx-*`). O histórico de bugs mais abaixo é registro do que existiu e fica como está._
+
+As seções de histórico abaixo são **registro do que já aconteceu** e citam módulos que não existem
+mais. Elas ficam como estão de propósito — não são descrição do site atual.
 
 ## Esportes ao vivo & NBA
 

@@ -1,5 +1,5 @@
 # Contexto do Projeto
-Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localStorage`): Prompts, Planilha de Faturador (SKU), Radar, Painel do Empreendedor, Fluxos e Estúdio de Vídeos, mais widgets pessoais (placar NBA/Copa ao vivo). Módulos REMOVIDOS: **Amazon FBA** (2026-06-29), e **Precificação**, **Inventário Amazon** e **Shooting Range** (2026-08-17) - ver Domínio do Negócio. O backend full-stack (Supabase/SP-API) está planejado, mas PAUSADO.
+Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localStorage`): Painel do Empreendedor e Estúdio de Vídeos, mais widgets pessoais (placar NBA/Copa ao vivo). Módulos REMOVIDOS: **Amazon FBA** (2026-06-29), **Precificação**, **Inventário Amazon** e **Shooting Range** (2026-08-17), e **Prompts salvos**, **Planilha de Faturador**, **Radar** e **Fluxos** (2026-09-08) - ver Domínio do Negócio. O backend full-stack (Supabase/SP-API) está planejado, mas PAUSADO.
 
 ## Arquitetura alvo (ver ARQUITETURA.md)
 - Frontend: site Vanilla JS atual (`index.html`) — NÃO reescrever; evoluir incrementalmente.
@@ -11,7 +11,7 @@ Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localSto
 - Toda tabela com RLS escopada por `user_id = auth.uid()`. `amazon_credentials` não tem policy de cliente (só service_role).
 
 ## Transição (importante)
-- O módulo legado ainda usa `localStorage` (`pp_prompts_v1`, `pp_projects_v1`). Migração para Postgres é incremental e não pode quebrar o que já funciona.
+- Os módulos vivos ainda usam `localStorage` (`pp_empreendedor_v1`, `pp_video_projects_v1`). Migração para Postgres é incremental e não pode quebrar o que já funciona.
 - Não criar servidores Node próprios nem dependências npm no frontend; o backend é o Supabase.
 
 # Onde estão as regras (leia antes de procurar)
@@ -30,15 +30,28 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
 | `video-ops.js` / `.css` (tela do Estúdio) | `.claude/rules/estudio-ui.md` | `HISTORICO-estudio-video.md` |
 | `baixador/**` (extensão + helper) | `.claude/rules/baixador.md` | `HISTORICO-estudio-video.md` |
 | `cloud/**`, `web/**` (lançamento Fase 1) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
-| `index.html`, `fluxos.js`, `empreendedor.js`, radares | `.claude/rules/modulos-index-html.md` | — |
+| `index.html`, `empreendedor.js` | `.claude/rules/modulos-index-html.md` | — |
 
-# Domínio do Negócio (Multi-marketplace + Engenharia de Prompts)
-- Prompts estruturados seguem os 5 pilares: 1. Papel, 2. Contexto, 3. Tarefa, 4. Formato, 5. Restrição.
-- **Módulos ATIVOS** (nenhum é código morto — BP-007): Prompts · Planilha de Faturador (SKU) ·
-  Radar (3 feeds: E-commerce, IA, Claude & Loops) · Painel do Empreendedor · Fluxos ·
+# Domínio do Negócio (Multi-marketplace)
+- **Módulos ATIVOS** (nenhum é código morto — BP-007): Central (home) · Painel do Empreendedor ·
   Estúdio de Vídeos · widgets pessoais (placar NBA/Copa). Detalhes de cada um nas regras por caminho.
 - **Módulos REMOVIDOS — não recriar nem referenciar** (inventário completo em
   `docs/archive/HISTORICO-modulos-removidos.md`):
+  - **Prompts salvos, Planilha de Faturador, Radar e Fluxos** (2026-09-08, decisão do usuário —
+    simplificação do site antes da migração para o Obsidian). Não voltam. Tokens que saíram:
+    - Prompts: `pp_prompts_v1` · `pp_projects_v1` · `#cards-grid` · `#toolbar` · `#empty-state` ·
+      `#modal-overlay` · `#confirm-overlay` · `#prompt-form` · `#search` · `#btn-new` ·
+      `.card*` · `.field` · `.tag-chip` · `.project-*` · `.s-item`/`.s-label`/`.s-section` ·
+      `#projects-list` · `#categories-list` · `#tags-list`. Os 5 pilares do prompt saíram com ele.
+    - Faturador: `#view-faturador` · `fat*` · `#fat-*` · `.fat-*` · `.fg-*` · `ensureXlsx` ·
+      `xlsx-populate.min.js` · `fatAddGroupWithSkus` (o último chamador saiu junto).
+    - Radar: `#view-radar` · `.radar-*` · `.ecom-*` · `.amz-inv-*` · `#count-radar` ·
+      `ecommerce-news*.js` · `ai-news*.js` · `claude-radar*.js` · `radar-ecommerce.ps1` · `radar-ia.ps1`.
+    - Fluxos: `#view-fluxos` · `#fluxos-root` · `.fx-*` · `pp_fluxos_v1` · `fluxos.js` ·
+      `test-fluxos*.js` · `night-agent-prompt.md` · `plans/fluxos-n8n-backlog.md`.
+    - **Sobrou de propósito:** `#toast` (usado por `supabase-client.js`) · `.world-seg*` e `.hub-*`
+      (Central) · `scanner.py`/`sacanner-0.1.py` (independentes do fluxo-exemplo) ·
+      `night-agent.ps1`/`register-night-agent.ps1` (runner genérico, hoje sem payload).
   - **Precificação** (2026-08-17): `Calc5` · `RATES` · `prc*` · `#prc-*` · `.plat-*` · `.pdv-*` ·
     `#view-precificacao` · `pricing_v1`. O modelo anterior (margem-alvo / "Bater concorrente")
     também não volta.

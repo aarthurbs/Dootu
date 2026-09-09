@@ -228,27 +228,11 @@
       .logo { min-width: 44px; padding-right: 4px; }
       .logo-name { display: none; }
     }
-    .search-wrap { flex: 1; max-width: 480px; position: relative; }
-    #search {
-      width: 100%;
-      background: rgba(255,255,255,.04);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      padding: 10px 18px 10px 42px;
-      color: var(--text); font-size: 14px; outline: none;
-      transition: border-color var(--ease), background-color var(--ease), box-shadow var(--ease);
-    }
-    #search:focus {
-      border-color: var(--accent);
-      background: rgba(227,24,55,.07);
-      box-shadow: 0 0 0 3px rgba(227,24,55,.12);
-    }
-    #search::placeholder { color: var(--text-muted); }
-    .search-wrap::before {
-      content: '🔍';
-      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
-      font-size: 14px; opacity: .45; pointer-events: none;
-    }
+
+
+
+
+
 
     /* ── PLACAR ÚNICO (header) — mostra só o jogo ativo; alterna NBA ↔ Copa ── */
     #match-score {
@@ -268,10 +252,10 @@
     }
     #match-score.swapping .ms-in { opacity: 0; filter: blur(4px); transform: translateY(-3px); }  /* Emil: blur mascara a troca */
     #match-score .ms-crest { width: 18px; height: 18px; object-fit: contain; border-radius: 4px; background: rgba(255,255,255,.92); flex-shrink: 0; }
-    #match-score .ms-tm  { color: var(--text); }
-    #match-score .ms-sc  { color: #fff; font-variant-numeric: tabular-nums; }
+    #match-score .ms-tm { color: var(--text); }
+    #match-score .ms-sc { color: #fff; font-variant-numeric: tabular-nums; }
     #match-score .ms-x,
-    #match-score .ms-vs  { color: var(--text-muted); font-weight: 600; }
+#match-score .ms-vs { color: var(--text-muted); font-weight: 600; }
     #match-score .ms-clk { color: var(--accent-2); font-weight: 600; letter-spacing: .02em; }
     #match-score.is-live .ms-clk { color: var(--accent); }
     #match-score .ms-fin { color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 11px; }
@@ -406,12 +390,7 @@
     }
     .nav-item.active .nav-count { background: rgba(227,24,55,.18); color: var(--accent); }
     /* Pulso quando a contagem muda (classe adicionada via JS) */
-    .nav-count.bump { animation: countBump var(--dur-3) var(--spring-fast); }
-    @keyframes countBump {
-      0% { transform: scale(1); }
-      40% { transform: scale(1.35); }
-      100% { transform: scale(1); }
-    }
+
     /* Entrada escalonada dos itens da nav */
     .nav-section .nav-item { animation: fadeInUp var(--dur-3) var(--spring-soft) both; }
     .nav-section .nav-item:nth-child(1) { animation-delay: .02s; }
@@ -421,98 +400,40 @@
     .nav-section .nav-item:nth-child(5) { animation-delay: .18s; }
     .nav-section .nav-item:nth-child(6) { animation-delay: .22s; }
 
-    .s-divider { height: 1px; background: var(--border); margin: 10px 14px; }
 
-    .s-section { padding: 0 10px; }
-    .s-label {
-      font-size: 10px; font-weight: 700; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--text-muted);
-      padding: 10px 12px 6px; display: block;
-    }
-    .s-label-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding-right: 12px;
-    }
-    .s-item {
-      display: flex; align-items: center; gap: 8px;
-      width: 100%; padding: 8px 12px; border-radius: var(--radius);
-      border: none; background: transparent; color: var(--text-dim);
-      font-size: 13px; cursor: pointer; text-align: left;
-      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease);
-      font-family: inherit;
-    }
-    .s-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
-    .s-item.active { background: var(--accent-dim); color: var(--accent); }
-    .cat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 6px currentColor; }
-    .s-count { margin-left: auto; font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
-    .s-empty { display: block; font-size: 12px; color: var(--text-muted); padding: 4px 12px; font-style: italic; }
 
-    .tags-wrap { padding: 4px 8px 6px; display: flex; flex-wrap: wrap; gap: 6px; }
-    .tag-chip {
-      padding: 4px 12px; border-radius: 20px;
-      background: rgba(255,255,255,.04); border: 1px solid var(--border);
-      color: var(--text-dim); font-size: 12px; cursor: pointer; line-height: 1.5;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease); font-family: inherit;
-    }
-    .tag-chip:hover { background: rgba(227,24,55,.08); border-color: rgba(227,24,55,.2); color: var(--accent); }
-    .tag-chip.active {
-      background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
-      box-shadow: 0 0 8px rgba(227,24,55,.1);
-    }
+
+
+
+
+
+
+
+
+
+
+
 
     /* ── PROJECTS ── */
-    .btn-new-project {
-      background: none; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      color: var(--text-muted); font-size: 16px; width: 24px; height: 24px;
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
-      line-height: 1; transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease);
-      flex-shrink: 0;
-    }
-    .btn-new-project:hover { background: rgba(255,255,255,.06); color: var(--accent); border-color: rgba(227,24,55,.3); }
 
-    .project-item {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 12px; border-radius: var(--radius);
-      color: var(--text-dim); font-size: 13px; cursor: pointer;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease);
-    }
-    .project-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
-    .project-item.active { background: var(--accent-dim); color: var(--accent); }
-    .project-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .btn-del-project {
-      background: none; border: none; cursor: pointer; opacity: 0;
-      color: var(--text-muted); font-size: 14px; padding: 0 2px; line-height: 1;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease); flex-shrink: 0;
-    }
-    .project-item:hover .btn-del-project { opacity: 1; }
-    .btn-del-project:hover { color: var(--danger); }
 
-    .btn-rename-project {
-      background: none; border: none; cursor: pointer; opacity: 0;
-      color: var(--text-muted); font-size: 13px; padding: 0 2px; line-height: 1;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease); flex-shrink: 0;
-    }
-    .project-item:hover .btn-rename-project { opacity: 1; }
-    .btn-rename-project:hover { color: var(--accent); }
 
-    .project-input-wrap { display: flex; align-items: center; gap: 4px; padding: 4px 10px; }
-    .project-input {
-      flex: 1; background: rgba(255,255,255,.04); border: 1px solid var(--accent);
-      border-radius: var(--radius-sm); padding: 6px 10px;
-      color: var(--text); font-size: 13px; outline: none; font-family: inherit;
-      box-shadow: 0 0 0 3px rgba(227,24,55,.08);
-    }
-    .project-input-ok, .project-input-cancel {
-      background: none; border: none; cursor: pointer;
-      font-size: 14px; padding: 2px 4px; border-radius: var(--radius-sm);
-      transition: background var(--ease);
-    }
-    .project-input-ok  { color: var(--success); }
-    .project-input-ok:hover  { background: var(--success-dim); }
-    .project-input-cancel { color: var(--danger); }
-    .project-input-cancel:hover { background: var(--danger-dim); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     /* ── MAIN ── */
     #main {
@@ -525,253 +446,81 @@
         var(--img-bg) center center / cover no-repeat;
     }
 
-    #toolbar {
-      display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
-      margin-bottom: 24px; min-height: 30px;
-    }
-    .f-chip {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 12px 4px 14px; border-radius: 20px;
-      background: var(--accent-dim); border: 1px solid rgba(227,24,55,.2);
-      color: var(--accent); font-size: 12px; font-weight: 500;
-      animation: fadeInUp .2s ease;
-    }
-    .f-chip-x {
-      background: none; border: none; cursor: pointer; color: var(--accent);
-      font-size: 15px; line-height: 1; display: flex; align-items: center; padding: 0 0 1px;
-      transition: opacity var(--ease);
-    }
-    .f-chip-x:hover { opacity: .6; }
-    #result-count { margin-left: auto; font-size: 13px; color: var(--text-muted); }
+
+
+
+
 
     /* ── CARDS ── */
-    #cards-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
-      gap: 18px;
-    }
-    .card {
-      background: rgba(26,26,35,.7);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg); padding: 20px;
-      display: flex; flex-direction: column; gap: 14px;
-      transition: transform var(--dur-2) var(--spring-fast),
-                  border-color var(--dur-2) ease,
-                  box-shadow var(--dur-2) ease;
-      animation: fadeInUp var(--dur-3) var(--spring-soft) both;
-      position: relative; overflow: hidden;
-    }
+
     /* Entrada escalonada — cards "sobem" em sequência */
-    #cards-grid .card:nth-child(1){animation-delay:.02s}
-    #cards-grid .card:nth-child(2){animation-delay:.05s}
-    #cards-grid .card:nth-child(3){animation-delay:.08s}
-    #cards-grid .card:nth-child(4){animation-delay:.11s}
-    #cards-grid .card:nth-child(5){animation-delay:.14s}
-    #cards-grid .card:nth-child(6){animation-delay:.17s}
-    #cards-grid .card:nth-child(7){animation-delay:.20s}
-    #cards-grid .card:nth-child(8){animation-delay:.23s}
-    #cards-grid .card:nth-child(n+9){animation-delay:.26s}
-    .card::before {
-      content: '';
-      position: absolute; top: 0; left: 0; right: 0; height: 2px;
-      background: var(--gradient);
-      opacity: 0; transition: opacity var(--ease);
-    }
-    .card:hover {
-      border-color: var(--border-hover);
-      transform: translateY(-3px);
-      box-shadow: 0 12px 40px rgba(0,0,0,.35), var(--glow-accent);
-    }
-    .card:hover::before { opacity: 1; }
 
-    .card-header { display: flex; align-items: flex-start; gap: 10px; }
-    .card-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text); flex: 1; line-height: 1.2; letter-spacing: .01em; }
 
-    .btn-fav {
-      background: none; border: none; cursor: pointer;
-      font-size: 20px; color: var(--text-muted); line-height: 1; padding: 0; flex-shrink: 0;
-      transition: background-color var(--ease-spring), border-color var(--ease-spring), color var(--ease-spring), box-shadow var(--ease-spring), transform var(--ease-spring), opacity var(--ease-spring);
-    }
-    .btn-fav:hover { color: var(--star); transform: scale(1.25) rotate(15deg); }
-    .btn-fav.active { color: var(--star); filter: drop-shadow(0 0 6px rgba(253,214,99,.3)); }
-    .btn-fav.pop { animation: favPop var(--dur-3) var(--spring-fast); }
-    @keyframes favPop {
-      0% { transform: scale(1); }
-      35% { transform: scale(1.5) rotate(-12deg); }
-      70% { transform: scale(.9) rotate(6deg); }
-      100% { transform: scale(1) rotate(0); }
-    }
 
-    .card-content { font-size: 13px; color: var(--text-dim); line-height: 1.7; flex: 1; }
 
-    .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-    .cat-badge {
-      font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
-      letter-spacing: .02em;
-    }
-    .proj-badge {
-      font-size: 11px; color: var(--text-muted);
-      padding: 2px 8px; border-radius: 20px;
-      background: rgba(255,255,255,.04); border: 1px solid var(--border);
-    }
-    .card-tag {
-      font-size: 12px; color: var(--text-muted); cursor: pointer;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease); padding: 1px 2px; border-radius: 4px;
-    }
-    .card-tag:hover { color: var(--accent); background: var(--accent-dim); }
 
-    .card-actions {
-      display: flex; gap: 6px; padding-top: 12px;
-      border-top: 1px solid var(--border);
-    }
-    .btn-ic {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 6px 12px; border-radius: var(--radius-sm);
-      border: 1px solid var(--border); background: transparent;
-      color: var(--text-dim); font-size: 12px; cursor: pointer;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease); font-family: inherit;
-    }
-    .btn-ic:hover { background: rgba(255,255,255,.06); color: var(--text); border-color: var(--border-hover); }
-    .btn-ic.copied { background: var(--success-dim); color: var(--success); border-color: rgba(129,201,149,.3); }
-    .btn-ic.del:hover { background: var(--danger-dim); color: var(--danger); border-color: rgba(242,139,130,.3); }
-    .btn-ic:active { transform: scale(.95); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     /* ── ANGLE SELECTOR ── */
-    .angle-selector {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-      padding-top: 12px; border-top: 1px solid var(--border);
-    }
-    .angle-label {
-      font-size: 10px; font-weight: 700; letter-spacing: .08em;
-      text-transform: uppercase; color: var(--text-muted); margin-right: 2px;
-      white-space: nowrap;
-    }
-    .angle-btn {
-      padding: 4px 10px; border-radius: 20px;
-      border: 1px solid var(--border); background: transparent;
-      color: var(--text-dim); font-size: 12px; cursor: pointer;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease); font-family: inherit;
-    }
-    .angle-btn:hover { background: rgba(255,255,255,.05); color: var(--text); }
-    .angle-btn.active {
-      background: var(--accent-dim); border-color: rgba(227,24,55,.35); color: var(--accent); font-weight: 600;
-    }
-    .angle-btn:active { transform: scale(.95); }
+
+
+
+
+
+
 
     /* ── PLACEHOLDER WARNINGS ── */
-    .placeholder-warning {
-      font-size: 12px; color: var(--star);
-      padding: 6px 0 0; line-height: 1.4;
-    }
+
 
     /* ── EMPTY STATE ── */
-    #empty-state {
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; padding: 100px 20px; gap: 18px; text-align: center;
-      animation: fadeInUp .4s ease;
-    }
-    .empty-icon {
-      font-size: 64px;
-      background: var(--gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      filter: drop-shadow(0 3px 10px rgba(0,0,0,.45));
-    }
-    .empty-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
-    .empty-sub { font-size: 14px; color: var(--text-muted); max-width: 320px; line-height: 1.6; }
+
+
+
+
 
     /* ── MODAL ── */
-    #modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,.7); backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 200; padding: 20px;
-    }
-    #modal-overlay[hidden] { display: none; }
-    #modal {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-xl); width: 100%; max-width: 580px;
-      max-height: 90vh; overflow-y: auto;
-      box-shadow: 0 24px 80px rgba(0,0,0,.5), var(--glow-blue);
-      animation: modalIn var(--dur-3) var(--spring-fast);
-    }
-    @keyframes modalIn {
-      from { opacity: 0; transform: translateY(16px) scale(.96); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .modal-head {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 24px 28px 0;
-    }
-    .modal-head h2 {
-      font-size: 20px; font-weight: 700; letter-spacing: -.02em;
-      background: var(--gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .modal-close {
-      background: none; border: none; cursor: pointer;
-      color: var(--text-muted); font-size: 20px;
-      width: 34px; height: 34px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease);
-    }
-    .modal-close:hover { background: rgba(255,255,255,.06); color: var(--text); }
 
-    #prompt-form { padding: 22px 28px 28px; display: flex; flex-direction: column; gap: 18px; }
-    .field { display: flex; flex-direction: column; gap: 7px; }
-    .field label { font-size: 13px; font-weight: 600; color: var(--text-dim); }
-    .field label small { font-weight: 400; color: var(--text-muted); }
-    .field input[type=text], .field textarea, .field select {
-      background: rgba(255,255,255,.04); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 10px 14px;
-      color: var(--text); font-size: 14px; font-family: inherit; outline: none;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease);
-    }
-    .field textarea { resize: vertical; }
-    .field select {
-      cursor: pointer; appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235f6368' stroke-width='2'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 12px center;
-      padding-right: 32px;
-    }
-    .field select option { background: var(--surface); color: var(--text); }
-    .field input[type=text]:focus, .field textarea:focus, .field select:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(227,24,55,.12);
-      background: rgba(227,24,55,.05);
-    }
-    .field input::placeholder, .field textarea::placeholder { color: var(--text-muted); }
-    .field.inline { flex-direction: row; align-items: center; gap: 10px; }
-    .field.inline input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; border-radius: 4px; }
-    .field.inline label { font-weight: 500; cursor: pointer; }
-    .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     /* ── CONFIRM ── */
-    #confirm-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,.65); backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 300; padding: 20px;
-    }
-    #confirm-overlay[hidden] { display: none; }
-    #confirm-box {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-xl); padding: 34px 30px;
-      max-width: 400px; width: 100%; text-align: center;
-      display: flex; flex-direction: column; gap: 20px;
-      box-shadow: 0 24px 80px rgba(0,0,0,.5);
-      animation: fadeInUp .25s ease;
-    }
-    #confirm-box h3 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
-    #confirm-box p { font-size: 14px; color: var(--text-dim); line-height: 1.65; }
-    .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+
+
+
+
+
+
 
     /* ── TOAST ── */
     #toast {
@@ -813,15 +562,10 @@
     </button>
     <div class="world-seg" role="tablist" aria-label="Categorias">
       <button type="button" class="world-seg-btn active" data-world="central" role="tab" aria-selected="true">Central</button>
-      <button type="button" class="world-seg-btn" data-world="amazon" role="tab" aria-selected="false">Amazon &amp; Planilhas</button>
       <button type="button" class="world-seg-btn" data-world="prog" role="tab" aria-selected="false">Empreender</button>
-    </div>
-    <div class="search-wrap">
-      <input type="search" id="search" placeholder="Search prompts, tags…" autocomplete="off" />
     </div>
     <div id="match-score" data-state="idle" title="Placar ao vivo · NBA + Copa · dados ESPN"><span class="ms-tm">JOGOS</span></div>
     <button id="nba-fav" type="button" title="Escolher 2 times pra torcer (NBA)"><span aria-hidden="true">🏀</span></button>
-    <button class="btn-primary" id="btn-new">+ New Prompt</button>
   </header>
 
   <div class="layout">
@@ -831,20 +575,6 @@
         <span class="sidebar-brand-text"></span>
       </div>
       <div class="nav-section">
-        <button class="nav-item active" data-filter="all">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          All Prompts
-          <span class="nav-count" id="count-all">0</span>
-        </button>
-        <button class="nav-item" data-filter="favorites">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
-          Favorites
-          <span class="nav-count" id="count-favs">0</span>
-        </button>
-        <button class="nav-item" data-view="faturador" data-group="amazon">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-          Planilha de Faturador
-        </button>
         <button class="nav-item" data-view="empreendedor" data-group="prog">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
           Empreendedor
@@ -854,207 +584,10 @@
           Estúdio de Vídeos
           <span class="nav-count" id="count-video-ops">0</span>
         </button>
-        <button class="nav-item" data-view="radar" data-group="prog">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><line x1="12" y1="12" x2="18.5" y2="7"/></svg>
-          Radar
-          <span class="nav-count" id="count-radar">0</span>
-        </button>
-        <button class="nav-item" data-view="fluxos" data-group="prog">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v6"/></svg>
-          Fluxos
-        </button>
-      </div>
-
-      <div class="s-divider"></div>
-
-      <div class="s-section">
-        <div class="s-label-row">
-          <span class="s-label">Projects</span>
-          <button class="btn-new-project" id="btn-new-project" title="New project">+</button>
-        </div>
-        <div id="projects-list"></div>
-      </div>
-
-      <div class="s-divider"></div>
-
-      <div class="s-section">
-        <span class="s-label">Categories</span>
-        <div id="categories-list"></div>
-      </div>
-
-      <div class="s-divider"></div>
-
-      <div class="s-section">
-        <span class="s-label">Tags</span>
-        <div class="tags-wrap" id="tags-list"></div>
       </div>
     </aside>
 
     <main id="main">
-      <div id="toolbar">
-        <div id="active-filters"></div>
-        <span id="result-count"></span>
-      </div>
-
-      <div id="cards-grid"></div>
-
-      <div id="empty-state" hidden>
-        <div class="empty-icon">✦</div>
-        <div class="empty-title">No prompts here</div>
-        <div class="empty-sub">Create your first prompt to get started.</div>
-        <button class="btn-primary" id="btn-empty-new">+ New Prompt</button>
-      </div>
-
-      <!-- ── PLANILHA DE FATURADOR ── -->
-      <section id="view-faturador" hidden>
-        <div class="fat-head">
-          <div class="fat-title">Planilha de Faturador</div>
-          <div class="fat-sub">Preenche somente a aba <b>"Dados fiscais dos produtos"</b>. Células que já têm valor nunca são sobrescritas; formatação, validações e fórmulas são preservadas.</div>
-        </div>
-
-
-        <div class="fat-field">
-          <label>1 · Planilha XLSX do faturador <span class="hint">— fica salva no navegador; só selecione para substituir</span></label>
-          <input type="file" id="fat-file" accept=".xlsx" />
-          <div class="fat-status" id="fat-file-status"></div>
-          <div id="fat-active" class="fat-active" hidden></div>
-        </div>
-
-        <div id="fat-gate" class="fat-notice" hidden>📄 <b>Primeiro passo obrigatório:</b> carregue a planilha XLSX do faturador acima. A análise dela (SKUs existentes e padrões fiscais por NCM) é o que libera a montagem dos grupos.</div>
-
-        <div id="fat-mode-groups" hidden>
-          <div class="fat-section-title">Preenchimento por grupos de SKUs</div>
-          <div class="fat-field">
-            <label>Colar lista de SKUs <span class="hint">— separa em grupos por produto (código antes do 1º hífen) automaticamente. Também aceita o texto copiado do Seller Central: pega só os SKUs de "Código SKU"</span></label>
-            <textarea id="fat-bulk" placeholder="Cole os SKUs (um por linha) OU o texto/TXT copiado do Seller Central inteiro — o resto é ignorado"></textarea>
-            <div class="fat-group-actions">
-              <button type="button" class="btn-ghost" id="fat-bulk-split">Separar em grupos</button>
-              <span class="fat-status" id="fat-bulk-status"></span>
-            </div>
-          </div>
-          <div id="fat-groups"></div>
-          <button type="button" class="btn-ghost fat-add-group-btn" id="fat-add-group">+ Adicionar grupo</button>
-          <div class="fat-group-actions">
-            <button type="button" class="btn-ghost" id="fat-remove-group">− Remover grupo</button>
-            <button type="button" class="btn-ghost" id="fat-preview-groups">Pré-visualizar</button>
-            <button type="button" class="btn-primary" id="fat-generate-groups">Gerar planilha</button>
-          </div>
-          <div id="fat-groups-preview-wrap" hidden>
-            <div class="fat-preview-head">
-              <span class="s-label">Prévia</span>
-              <span class="fat-status" id="fat-groups-preview-count"></span>
-            </div>
-            <div class="fat-preview-scroll">
-              <table class="fat-preview">
-                <thead><tr>
-                  <th>SKU</th><th>Grupo</th><th>Regra tributária</th><th>NCM</th><th>Origem da mercadoria</th><th>CEST</th><th>Custo do produto (R$)</th>
-                </tr></thead>
-                <tbody id="fat-groups-preview-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div><!-- /fat-mode-groups -->
-
-        <div class="fat-summary" id="fat-summary"></div>
-      </section>
-
-      <!-- ── PRECIFICAÇÃO ── -->
-
-
-      <!-- ── RADAR (feeds separados: E-commerce, IA e Claude & Loops) ────────────────
-           Dados/renderers: ecommerce-news-*, ai-news-* e claude-radar-*. -->
-      <section id="view-radar" hidden>
-        <div class="amz-inv-head">
-          <div>
-            <div class="amz-inv-kicker">Inteligência</div>
-            <h1>Radar</h1>
-            <p>Notícias, skills, loops e oportunidades pesquisadas no automático. Escolha o feed:</p>
-          </div>
-        </div>
-
-        <div class="radar-seg" role="tablist" aria-label="Feed do radar">
-          <button type="button" class="radar-seg-btn active" data-radar="ecom" role="tab" aria-selected="true">E-commerce</button>
-          <button type="button" class="radar-seg-btn" data-radar="ia" role="tab" aria-selected="false">IA</button>
-          <button type="button" class="radar-seg-btn" data-radar="claude" role="tab" aria-selected="false">Claude &amp; Loops</button>
-        </div>
-
-        <div id="radar-panel-ecom" class="radar-panel">
-          <div class="radar-cadence">Atualiza sozinho todo sábado de manhã.</div>
-          <div class="ecom-updated" id="ecom-updated"></div>
-          <div class="ecom-events" id="ecom-events"></div>
-          <div id="ecom-list"></div>
-        </div>
-
-        <div id="radar-panel-ia" class="radar-panel" hidden>
-          <div class="radar-cadence">Atualiza sozinho todo dia à meia-noite.</div>
-          <div class="ecom-updated" id="ia-updated"></div>
-          <div class="ecom-events" id="ia-events"></div>
-          <div id="ia-list"></div>
-        </div>
-
-        <div id="radar-panel-claude" class="radar-panel" hidden>
-          <div class="radar-cadence">Claude e skills: 00:00 e 18:00 · estratégia de mercado: 04:00.</div>
-          <div class="ecom-updated" id="claude-updated"></div>
-          <div class="ecom-events" id="claude-events"></div>
-          <div class="amz-inv-kicker">Novidades da Claude</div>
-          <div id="claude-news-list"></div>
-          <div class="amz-inv-kicker">Skills e loops</div>
-          <div id="claude-skills-list"></div>
-          <div class="amz-inv-kicker">Mercado e estratégia</div>
-          <div id="claude-market"></div>
-        </div>
-      </section>
-      <style>
-        #view-radar { max-width: 860px; }
-        #view-radar[hidden] { display: none !important; }
-        .radar-cadence { font-size: 12px; color: var(--text-muted); margin: 0 0 10px; }
-        .radar-seg {
-          display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 20px;
-          border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.03);
-        }
-        .radar-seg-btn {
-          appearance: none; border: 0; cursor: pointer; font-family: inherit;
-          padding: 7px 20px; border-radius: 999px; font-size: 13px; font-weight: 600;
-          color: var(--text-dim); background: transparent;
-          transition: background-color var(--ease), color var(--ease), transform var(--dur-1) var(--spring-soft);
-        }
-        @media (hover: hover) and (pointer: fine) { .radar-seg-btn:hover { color: var(--text); } }
-        .radar-seg-btn:active { transform: scale(.97); }
-        .radar-seg-btn.active { background: var(--accent); color: #fff; }
-        .radar-panel[hidden] { display: none !important; }
-        .ecom-updated { font-size: 12px; color: var(--text-muted); margin-top: 0; margin-bottom: 12px; }
-        .ecom-events { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
-        .ecom-chip {
-          padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px;
-          font-size: 12px; color: var(--text-dim); background: rgba(255,255,255,.03);
-        }
-        .ecom-chip a { color: inherit; text-decoration: none; }
-        .ecom-chip a:hover { color: var(--text); }
-        .ecom-chip b { color: var(--text); font-weight: 600; }
-        .ecom-card {
-          border: 1px solid var(--border); border-radius: var(--radius);
-          background: rgba(255,255,255,.03); padding: 14px 16px; margin-bottom: 10px;
-          transition: background-color var(--ease), border-color var(--ease);
-        }
-        @media (hover: hover) and (pointer: fine) {
-          .ecom-card:hover { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.16); }
-        }
-        .ecom-tag {
-          display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .4px;
-          text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
-        }
-        .ecom-card h3 { font-size: 15px; margin: 0 0 6px; line-height: 1.35; }
-        .ecom-card h3 a { color: var(--text); text-decoration: none; }
-        .ecom-card h3 a:hover { text-decoration: underline; }
-        .ecom-summary { font-size: 13.5px; color: var(--text-dim); margin: 0; line-height: 1.5; }
-        .ecom-impact {
-          font-size: 13px; color: var(--text-dim); margin: 8px 0 0;
-          border-left: 2px solid var(--accent); padding-left: 9px;
-        }
-        .ecom-src { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
-      </style>
-
-
       <section id="view-central" hidden>
         <article class="wizards-feature" aria-labelledby="wizards-feature-title">
           <div class="wizards-feature-copy">
@@ -1092,16 +625,6 @@
           <p class="hub-sub">Suas ferramentas separadas por mundo. Escolha por onde começar.</p>
         </div>
 
-        <div class="hub-block" data-group="amazon">
-          <div class="hub-block-head"><span class="hub-dot" style="--d:#ff9f45"></span><h2>Amazon &amp; Planilhas</h2></div>
-          <div class="hub-grid">
-            <button class="hub-card" data-view="faturador">
-              <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></span>
-              <span class="hub-card-txt"><span class="hub-card-name">Planilha de Faturador</span><span class="hub-card-desc">Preenche NCM, CEST e custo na planilha da Amazon.</span></span>
-            </button>
-          </div>
-        </div>
-
         <div class="hub-block" data-group="prog">
           <div class="hub-block-head"><span class="hub-dot" style="--d:#6ea8fe"></span><h2>Empreender</h2></div>
           <div class="hub-grid">
@@ -1113,20 +636,9 @@
               <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2z"/><path d="m8 9 4 3-4 3z"/></svg></span>
               <span class="hub-card-txt"><span class="hub-card-name">Estúdio de Vídeos</span><span class="hub-card-desc">Corte o vídeo longo e baixe os clips prontos.</span></span>
             </button>
-            <button class="hub-card" data-view="fluxos">
-              <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v6"/></svg></span>
-              <span class="hub-card-txt"><span class="hub-card-name">Fluxos</span><span class="hub-card-desc">Monte mapas de processo estilo n8n.</span></span>
-            </button>
-            <button class="hub-card" data-view="radar">
-              <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><line x1="12" y1="12" x2="18.5" y2="7"/></svg></span>
-              <span class="hub-card-txt"><span class="hub-card-name">Radar</span><span class="hub-card-desc">E-commerce, IA e Claude num lugar só.</span></span>
-            </button>
           </div>
         </div>
 
-      </section>
-      <section id="view-fluxos" hidden>
-        <div id="fluxos-root"></div>
       </section>
       <!-- ── PAINEL DO EMPREENDEDOR (empreendedor.js) ── -->
       <section id="view-empreendedor" hidden>
@@ -1139,7 +651,7 @@
 
       <style>
         /* ── Central (hub) ── */
-        #view-central[hidden], #view-fluxos[hidden] { display: none !important; }
+        #view-central[hidden] { display: none !important; }
         #view-central { max-width: 1000px; }
         .hub-head { margin: 4px 0 24px; }
         .hub-kicker { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 0; }
@@ -1159,7 +671,7 @@
           transition: transform var(--dur-1) var(--spring-soft), border-color var(--ease), box-shadow var(--dur-2) var(--ease);
           opacity: 0; animation: fadeInUp var(--dur-3) var(--spring-soft) forwards;
         }
-        .hub-card:nth-child(1){animation-delay:.03s} .hub-card:nth-child(2){animation-delay:.07s} .hub-card:nth-child(3){animation-delay:.11s} .hub-card:nth-child(4){animation-delay:.15s} .hub-card:nth-child(5){animation-delay:.19s}
+        .hub-card:nth-child(1) {animation-delay:.03s} .hub-card:nth-child(2) {animation-delay:.07s} .hub-card:nth-child(3) {animation-delay:.11s} .hub-card:nth-child(4) {animation-delay:.15s} .hub-card:nth-child(5) {animation-delay:.19s}
         @media (hover: hover) and (pointer: fine) { .hub-card:hover { transform: translateY(-2px); border-color: var(--border-hover); box-shadow: 0 8px 22px rgba(0,0,0,.35); } }
         .hub-card:active { transform: scale(.98); }
         .hub-card-ico { flex-shrink: 0; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--accent-dim); color: var(--accent); }
@@ -1180,166 +692,155 @@
         .world-seg-btn.active { background: var(--accent); color: #fff; }
 
         /* ── Fluxos (canvas estilo n8n) ── */
-        #view-fluxos { max-width: none; }
-        .fx-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 0 12px; }
-        .fx-board-sel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; font-family: inherit; font-size: 13px; }
-        .fx-btn { appearance: none; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); border-radius: var(--radius-sm); padding: 7px 12px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color var(--ease), color var(--ease), border-color var(--ease), transform var(--dur-1) var(--spring-soft); }
-        .fx-btn:hover { color: var(--text); border-color: var(--border-hover); }
-        .fx-btn:active { transform: scale(.97); }
-        .fx-btn:disabled { opacity: .4; cursor: default; }
-        .fx-hist-btn { min-width: 34px; text-align: center; font-size: 15px; line-height: 1; }
-        .fx-btn-danger:hover { color: var(--danger); border-color: rgba(242,139,130,.4); }
-        .fx-add { border-left: 3px solid var(--_c, var(--border)); }
-        .fx-add--inicio{--_c:#81c995} .fx-add--processo{--_c:#6ea8fe} .fx-add--decisao{--_c:#fdd663} .fx-add--codigo{--_c:#c9a3ff}
-        .fx-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
-        .fx-add-label { font-size: 12px; color: var(--text-muted); }
-        .fx-hint { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 
-        .fx-canvas-wrap { height: 72vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-lg);
-          background: radial-gradient(circle at 1px 1px, rgba(255,255,255,.05) 1px, transparent 0) 0 0 / 22px 22px, var(--bg-subtle); }
-        .fx-canvas-wrap.fx-panning { cursor: grabbing; }
-        .fx-sizer { position: relative; width: 2600px; height: 1700px; }
-        .fx-canvas { position: relative; width: 2600px; height: 1700px; transform-origin: 0 0; }
-        .fx-zoom-btn { min-width: 30px; text-align: center; font-weight: 700; }
-        .fx-zoom-lvl { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
-        .fx-mini { position: absolute; right: 12px; bottom: 12px; z-index: 3; overflow: hidden; cursor: pointer; opacity: .82;
-          background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 4px 14px rgba(0,0,0,.35); transition: opacity var(--ease); }
-        .fx-mini:hover { opacity: 1; }
-        .fx-mini-node { position: absolute; border-radius: 1px; min-width: 2px; min-height: 2px; }
-        .fx-mini-view { position: absolute; border: 1px solid var(--accent); background: rgba(138,180,248,.14); pointer-events: none; }
-        .fx-edges { position: absolute; top: 0; left: 0; width: 2600px; height: 1700px; pointer-events: none; overflow: visible; }
-        .fx-edge-line { fill: none; stroke: var(--text-muted); stroke-width: 2; }
-        .fx-edge-temp { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
-        .fx-edge-del { position: absolute; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-3); color: var(--text-dim); font-size: 10px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background-color var(--ease), color var(--ease), transform var(--dur-1) var(--spring-soft); }
-        .fx-edge-del:hover { background: var(--danger); color: #fff; }
-        .fx-edge-del:active { transform: scale(.9); }
 
-        .fx-node { position: absolute; width: 240px; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--nc, #6ea8fe); border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,.30); transition: border-color var(--ease), box-shadow var(--ease), opacity var(--ease); }
-        .fx-node:focus-within { border-color: var(--nc, #6ea8fe); box-shadow: 0 8px 24px rgba(0,0,0,.42); z-index: 4; }
-        .fx-node.fx-dragging { box-shadow: 0 10px 28px rgba(0,0,0,.45); z-index: 5; }
-        .fx-node.fx-selected { outline: 2px solid var(--accent); outline-offset: 1px; }
-        .fx-selbox { position: absolute; z-index: 4; pointer-events: none; border: 1px solid var(--accent); background: rgba(138,180,248,.14); border-radius: 4px; }
-        .fx-node-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 6px; cursor: grab; }
-        .fx-node-head:active { cursor: grabbing; }
-        .fx-node-type { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--nc, #6ea8fe); margin-right: auto; }
-        .fx-node-del { appearance: none; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; border-radius: 6px; transition: background-color var(--ease), color var(--ease); }
-        .fx-node-del:hover { background: var(--danger-dim); color: var(--danger); }
-        .fx-node-dup { appearance: none; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; border-radius: 6px; transition: background-color var(--ease), color var(--ease); }
-        .fx-node-dup:hover { background: var(--surface-2); color: var(--text); }
-        .fx-node-title { width: 100%; box-sizing: border-box; border: 0; background: transparent; color: var(--text); font-family: inherit; font-size: 13.5px; font-weight: 700; padding: 0 10px 6px; outline: none; }
-        .fx-node-body { width: 100%; box-sizing: border-box; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text-dim); font-family: inherit; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; resize: vertical; min-height: 44px; outline: none; }
-        .fx-node-body.fx-mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; color: var(--text); white-space: pre; }
-        .fx-node-code-wrap { position: relative; min-height: 44px; border-top: 1px solid var(--border); }
-        .fx-node-code-wrap .fx-node-body { position: relative; z-index: 1; border-top: 0; color: transparent; caret-color: var(--text); background: transparent; }
-        .fx-node-code-wrap .fx-node-body::placeholder { color: var(--text-muted); opacity: 1; }
-        .fx-node-highlight {
-          position: absolute; inset: 0; z-index: 0; box-sizing: border-box;
-          margin: 0; padding: 8px 10px; overflow: hidden; pointer-events: none;
-          font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-          font-size: 12px; line-height: 1.5; color: var(--text); white-space: pre;
-        }
-        .fx-syn-comment { color: #6a9955; font-style: italic; }
-        .fx-syn-keyword { color: #c586c0; font-weight: 600; }
-        .fx-syn-builtin { color: #dcdcaa; }
-        .fx-syn-key { color: #9cdcfe; }
-        .fx-syn-string, .fx-syn-tag { color: #ce9178; }
-        .fx-syn-number { color: #b5cea8; }
-        .fx-syn-variable { color: #9cdcfe; }
-        .fx-node-title:focus, .fx-node-body:focus { background: rgba(255,255,255,.045); }
-        .fx-run-btn { color: #fff; background: var(--accent); border-color: transparent; font-weight: 700; transition: transform var(--dur-1) var(--spring-soft), background-color var(--ease), opacity var(--ease); }
-        .fx-run-btn:active:not(:disabled) { transform: scale(.97); }
-        .fx-run-btn:disabled { opacity: .6; cursor: default; }
-        .fx-node.fx-run-running { border-color: var(--accent); }
-        .fx-node.fx-run-error { border-color: var(--danger); }
-        .fx-node.fx-run-skip { opacity: .5; }
-        .fx-node-result--skip { color: var(--text-muted); }
-        .fx-node-result { border-top: 1px dashed var(--border); padding: 6px 10px; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
-        .fx-node-result--ok { color: var(--text-dim); }
-        .fx-node-result--err { color: var(--danger); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         /* Notas/sticky = frames de agrupamento (atrás dos nós). Cor via --nc; fallback p/ --surface se color-mix não existir. */
-        .fx-note { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; width: 220px; height: 140px; min-width: 140px; min-height: 74px; overflow: hidden; resize: both; background: var(--surface); background: color-mix(in srgb, var(--nc, #fdd663) 15%, var(--surface)); border: 1px solid var(--border); border-color: color-mix(in srgb, var(--nc, #fdd663) 45%, var(--border)); border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,.22); transition: box-shadow var(--ease); }
-        .fx-note:focus-within { box-shadow: 0 8px 24px rgba(0,0,0,.36); }
-        .fx-note-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: grab; }
-        .fx-note-head:active { cursor: grabbing; }
-        .fx-note-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--nc, #fdd663); margin-right: auto; }
-        .fx-note-color { width: 18px; height: 18px; flex: 0 0 auto; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: none; cursor: pointer; -webkit-appearance: none; appearance: none; transition: transform var(--dur-1) var(--spring-soft); }
-        .fx-note-color::-webkit-color-swatch-wrapper { padding: 0; }
-        .fx-note-color::-webkit-color-swatch { border: 0; border-radius: 4px; }
-        .fx-note-color:active { transform: scale(.9); }
-        .fx-note-del { appearance: none; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; border-radius: 6px; transition: background-color var(--ease), color var(--ease), transform var(--dur-1) var(--spring-soft); }
-        .fx-note-del:hover { background: var(--danger-dim); color: var(--danger); }
-        .fx-note-del:active { transform: scale(.9); }
-        .fx-note-body { flex: 1 1 auto; width: 100%; box-sizing: border-box; border: 0; background: transparent; color: var(--text); font-family: inherit; font-size: 12.5px; line-height: 1.5; padding: 0 10px 10px; resize: none; outline: none; }
-        .fx-note-body::placeholder { color: var(--text-muted); opacity: 1; }
-        .fx-port { position: absolute; top: 14px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface-3); border: 2px solid var(--nc, #6ea8fe); box-sizing: border-box; }
-        .fx-port-in { left: -7px; }
-        .fx-port-out { right: -7px; cursor: crosshair; }
-        .fx-port-out:hover { background: var(--nc, #6ea8fe); }
-        .fx-port-false { top: 40px; right: -7px; cursor: crosshair; border-color: var(--danger); }
-        .fx-port-false:hover { background: var(--danger); }
-        .fx-node--decisao .fx-port-out { border-color: var(--success); }
-        .fx-node--decisao .fx-port-out:hover { background: var(--success); }
-        .fx-node-edit { appearance: none; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; border-radius: 6px; transition: background-color var(--ease), color var(--ease); }
-        .fx-node-edit:hover { background: var(--surface-2); color: var(--text); }
-        .fx-stage { position: relative; overflow: hidden; border-radius: var(--radius-lg); }
-        .fx-panel-backdrop { position: absolute; inset: 0; z-index: 7; background: rgba(8,10,14,.5); opacity: 0; pointer-events: none; transition: opacity var(--dur-1) var(--ease); }
-        .fx-panel-backdrop--open { opacity: 1; pointer-events: auto; }
-        .fx-panel { position: absolute; top: 50%; left: 50%; width: 94%; max-width: 1160px; height: 90%; max-height: 900px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 18px 50px rgba(0,0,0,.5); z-index: 8; transform: translate(-50%, -50%) scale(.96); opacity: 0; pointer-events: none; transition: transform var(--dur-2) var(--spring-soft), opacity var(--dur-1) var(--ease); }
-        .fx-panel--open { transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto; }
-        .fx-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-        .fx-panel-type { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--nc, #6ea8fe); margin-right: auto; }
-        .fx-panel-close { padding: 4px 9px; }
-        .fx-panel-label { font-size: 11px; font-weight: 600; color: var(--text-muted); margin-top: 4px; }
-        .fx-panel-title, .fx-panel-body, .fx-panel-note, .fx-panel-act { width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 13.5px; padding: 8px 10px; outline: none; transition: border-color var(--ease); }
-        .fx-panel-title:focus, .fx-panel-note:focus, .fx-panel-act:focus { border-color: var(--nc, #6ea8fe); }
-        .fx-panel-hint { font-weight: 400; font-size: 10.5px; color: var(--text-muted); }
-        .fx-panel-hint code { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
-        .fx-panel-langtag { font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--nc, #6ea8fe); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; margin-right: 8px; }
-        .fx-panel-split { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; }
-        .fx-panel-col { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
-        .fx-panel-note { flex: 1 1 auto; min-height: 0; resize: none; line-height: 1.55; }
-        .fx-panel-code-wrap { position: relative; flex: 1 1 auto; min-height: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-        .fx-panel-code-wrap .fx-panel-body { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; color: transparent; caret-color: var(--text); resize: none; white-space: pre; overflow: auto; z-index: 1; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; line-height: 1.55; padding: 8px 10px; }
-        .fx-panel-code-wrap .fx-panel-body:focus { border: 0; }
-        .fx-panel-code-wrap .fx-panel-body::placeholder { color: var(--text-muted); opacity: 1; }
-        .fx-panel-highlight { position: absolute; inset: 0; z-index: 0; box-sizing: border-box; margin: 0; padding: 8px 10px; overflow: hidden; pointer-events: none; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; line-height: 1.55; color: var(--text); white-space: pre; }
-        .fx-panel:not(.fx-panel-codigo) .fx-panel-act-wrap { display: none; }
-        .fx-panel-act-wrap { display: flex; flex-direction: column; gap: 4px; }
-        @media (max-width: 680px) { .fx-panel-split { flex-direction: column; } .fx-panel { height: 94%; } }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         /* ── Código final (painel lateral direito — overlay, não empurra o canvas) ── */
-        .fx-code-toggle.is-open { color: var(--text); border-color: var(--accent); }
-        .fx-node-act { display: inline-block; margin: 0 10px 6px; padding: 1px 8px; font-size: 10.5px; font-weight: 600; color: var(--text-dim); background: var(--surface-3); border: 1px solid var(--border); border-radius: 9px; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
-        .fx-code { position: absolute; top: 0; right: 0; bottom: 0; width: 380px; max-width: 92%; box-sizing: border-box; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--border); border-radius: 0 var(--radius-lg) var(--radius-lg) 0; box-shadow: -10px 0 30px rgba(0,0,0,.38); z-index: 5; transform: translateX(100%); opacity: 0; pointer-events: none; transition: transform var(--dur-2) var(--spring-soft), opacity var(--dur-1) var(--ease); }
-        .fx-code--open { transform: translateX(0); opacity: 1; pointer-events: auto; }
-        .fx-code-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-        .fx-code-title { font-size: 13px; font-weight: 700; letter-spacing: .02em; color: var(--text); margin-right: auto; }
-        .fx-code-add { padding: 5px 10px; font-size: 12px; }
-        .fx-code-x { padding: 4px 9px; }
-        .fx-code-list { flex: 1 1 auto; overflow: auto; padding: 10px 12px 16px; display: flex; flex-direction: column; gap: 10px; }
-        .fx-code-empty { font-size: 12.5px; color: var(--text-muted); line-height: 1.5; padding: 8px 2px; }
-        .fx-act { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
-        .fx-act-head { display: flex; align-items: center; gap: 7px; padding: 8px 10px; cursor: pointer; user-select: none; transition: background-color var(--ease); }
-        .fx-act-head:hover { background: var(--surface-3); }
-        .fx-act-caret { flex: 0 0 auto; font-size: 10px; color: var(--text-muted); transition: transform var(--dur-1) var(--spring-soft); }
-        .fx-act:not(.fx-act--collapsed) .fx-act-caret { transform: rotate(90deg); }
-        .fx-act-name { font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .fx-act-count { flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px; margin-left: auto; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-dim); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; }
-        .fx-act-btn { appearance: none; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; line-height: 1; cursor: pointer; padding: 3px 5px; border-radius: 6px; transition: background-color var(--ease), color var(--ease), transform var(--dur-1) var(--spring-soft); }
-        .fx-act-btn:hover { background: var(--surface); color: var(--text); }
-        .fx-act-btn:active { transform: scale(.9); }
-        .fx-act--collapsed .fx-act-body { display: none; }
-        .fx-act-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
-        .fx-code-block { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
-        .fx-code-block-head { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--border); }
-        .fx-code-lang { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-right: auto; }
-        .fx-code-copy { appearance: none; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 9px; border-radius: 6px; transition: background-color var(--ease), color var(--ease), border-color var(--ease), transform var(--dur-1) var(--spring-soft); }
-        .fx-code-copy:hover { color: var(--text); border-color: var(--border-hover); }
-        .fx-code-copy:active { transform: scale(.95); }
-        .fx-code-pre { margin: 0; padding: 9px 10px; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; color: var(--text); white-space: pre; overflow: auto; max-height: 340px; }
-        .fx-code-warn { font-size: 12px; line-height: 1.5; color: var(--text-dim); background: var(--surface); border-left: 3px solid #d9a441; border-radius: 4px; padding: 8px 10px; }
-        .fx-code-mixed { font-size: 11.5px; line-height: 1.45; color: var(--text-muted); }
-        @media (prefers-reduced-motion: reduce) { .fx-panel, .fx-code { transition: opacity var(--dur-1) var(--ease); } .fx-act-caret { transition: none; } }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       </style>
 
     </main>
@@ -1370,931 +871,52 @@
   })();
 </script>
 
-<div id="modal-overlay" hidden>
-  <div id="modal">
-    <div class="modal-head">
-      <h2 id="modal-title">New Prompt</h2>
-      <button class="modal-close" id="modal-close">✕</button>
-    </div>
-    <form id="prompt-form" novalidate>
-      <div class="field">
-        <label for="f-title">Title <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="f-title" placeholder="e.g. Blog post outline" maxlength="120" />
-      </div>
-      <div class="field">
-        <label for="f-content">Prompt <span style="color:var(--danger)">*</span></label>
-        <textarea id="f-content" rows="8" placeholder="Write your prompt here…"></textarea>
-      </div>
-      <div class="field">
-        <label for="f-project">Project</label>
-        <select id="f-project"></select>
-      </div>
-      <div class="field">
-        <label for="f-category">Category</label>
-        <input type="text" id="f-category" list="cat-datalist" placeholder="e.g. Writing" maxlength="60" />
-        <datalist id="cat-datalist"></datalist>
-      </div>
-      <div class="field">
-        <label for="f-tags">Tags <small>(comma separated)</small></label>
-        <input type="text" id="f-tags" placeholder="e.g. blog, seo, marketing" />
-      </div>
-      <div class="field inline">
-        <input type="checkbox" id="f-fav" />
-        <label for="f-fav">Mark as favorite</label>
-      </div>
-      <div class="modal-foot">
-        <button type="button" class="btn-ghost" id="btn-cancel">Cancel</button>
-        <button type="submit" class="btn-primary">Save Prompt</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- ── CONFIRM ── -->
-<div id="confirm-overlay" hidden>
-  <div id="confirm-box">
-    <h3>Delete Prompt</h3>
-    <p>This cannot be undone. Are you sure you want to delete this prompt?</p>
-    <div class="confirm-actions">
-      <button class="btn-ghost" id="confirm-cancel">Cancel</button>
-      <button class="btn-danger" id="confirm-ok">Delete</button>
-    </div>
-  </div>
-</div>
-
 <!-- ── TOAST ── -->
 <div id="toast"></div>
 <div id="theme-veil" aria-hidden="true"></div>
 
 
-<!-- ── PLANILHA DE FATURADOR · biblioteca vendorizada localmente (offline, sem CDN/npm) ──
-     Carregada SOB DEMANDA via ensureXlsx() só quando o usuário processa a planilha
-     (642KB fora do caminho crítico de carregamento inicial). -->
-<style>
-  #view-faturador { max-width: 740px; }
-  #view-faturador[hidden] { display: none !important; }
-  .fat-head { margin-bottom: 24px; }
-  .fat-title {
-    font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -.02em;
-    background: var(--gradient);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .fat-sub { color: var(--text-dim); font-size: 13px; margin-top: 8px; line-height: 1.6; }
-  .fat-field { margin-bottom: 18px; }
-  .fat-field > label { display: block; font-size: 12px; font-weight: 600; color: var(--text-dim); margin-bottom: 7px; }
-  .fat-field .hint { font-weight: 400; color: var(--text-muted); }
-  #view-faturador input[type="text"],
-  #view-faturador input[type="file"],
-  #view-faturador textarea,
-  #view-faturador select {
-    width: 100%; background: rgba(255,255,255,.04); color: var(--text);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 10px 14px; font-size: 14px; font-family: inherit;
-    transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), transform var(--ease), opacity var(--ease);
-  }
-  #view-faturador input[type="file"] { padding: 8px 12px; cursor: pointer; }
-  #view-faturador input[type="file"]::file-selector-button {
-    margin: -2px 12px -2px 0; padding: 7px 14px;
-    border: 1px solid var(--border-hover); border-radius: var(--radius);
-    background: rgba(255,255,255,.06); color: var(--text);
-    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-    transition: background-color var(--ease), border-color var(--ease), color var(--ease), transform var(--ease);
-  }
-  #view-faturador input[type="file"]::file-selector-button:hover { background: rgba(227,24,55,.10); border-color: var(--accent); }
-  #view-faturador input[type="file"]::file-selector-button:active { transform: scale(.97); }
-  #view-faturador input:focus, #view-faturador textarea:focus, #view-faturador select:focus {
-    outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(227,24,55,.08);
-    background: rgba(227,24,55,.04);
-  }
-  #view-faturador textarea { resize: vertical; min-height: 120px; line-height: 1.55; }
-  .fat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .fat-status { font-size: 13px; margin-top: 8px; min-height: 1em; }
-  .fat-status.ok  { color: var(--success); }
-  .fat-status.err { color: var(--danger); }
-  .fat-summary {
-    margin-top: 22px; padding: 16px 18px; border-radius: var(--radius-lg);
-    font-size: 13px; display: none;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  }
-  .fat-summary.show { display: block; animation: fadeInUp .3s ease; }
-  .fat-summary.ok  { background: rgba(129,201,149,.08); border: 1px solid rgba(129,201,149,.25); }
-  .fat-summary.err { background: var(--danger-dim); border: 1px solid rgba(242,139,130,.25); color: var(--text); }
-  .fat-summary .big { font-size: 15px; font-weight: 700; color: var(--text); }
-  .fat-summary table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  .fat-summary th, .fat-summary td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-  .fat-summary th { color: var(--text-dim); font-weight: 600; }
-  .fat-summary td:nth-child(2), .fat-summary td:nth-child(3) { color: var(--text); font-variant-numeric: tabular-nums; }
-  #view-faturador [hidden] { display: none !important; }
-  .fat-preview-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 10px; }
-  .fat-preview-scroll {
-    max-height: 340px; overflow: auto;
-    border: 1px solid var(--border); border-radius: var(--radius);
-  }
-  table.fat-preview { width: 100%; border-collapse: collapse; font-size: 12px; }
-  table.fat-preview th, table.fat-preview td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  table.fat-preview th {
-    position: sticky; top: 0;
-    background: var(--surface-2); color: var(--text-dim); font-weight: 600; z-index: 1;
-  }
-  table.fat-preview tbody tr:last-child td { border-bottom: none; }
-  table.fat-preview tr.fat-row-bad { background: var(--danger-dim); }
-  .fat-ok  { color: var(--success); font-weight: 600; }
-  .fat-bad { color: var(--danger); font-weight: 600; }
-  .fat-section-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 6px 0 16px; letter-spacing: -.01em; }
-  .fat-group-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
-  .fat-group {
-    border: 1px solid var(--border); border-radius: var(--radius-lg);
-    padding: 16px 18px; margin-bottom: 16px;
-    background: rgba(26,26,35,.5);
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    transition: border-color var(--ease);
-  }
-  .fat-group:hover { border-color: var(--border-hover); }
-  .fat-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
-  .fg-del {
-    flex: none; display: inline-flex; align-items: center; justify-content: center;
-    width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: 6px;
-    background: transparent; color: var(--text-dim); font-size: 13px; line-height: 1; cursor: pointer;
-    transition: background-color var(--ease), border-color var(--ease), color var(--ease), transform var(--ease);
-  }
-  .fg-del:not(:disabled):hover { background: var(--danger-dim); color: var(--danger); border-color: rgba(242,139,130,.3); }
-  .fg-del:not(:disabled):active { transform: scale(.9); }
-  .fg-del:disabled { opacity: .3; cursor: not-allowed; }
-  .fat-group-actions button:disabled { opacity: .45; cursor: not-allowed; }
-  .fat-add-group-btn {
-    display: block; width: 100%; margin: 4px 0 18px;
-    padding: 12px; border: 1px dashed var(--border-hover); border-radius: var(--radius-lg);
-    background: transparent; color: var(--text-dim); font-family: inherit; font-weight: 600; font-size: 13px;
-    cursor: pointer;
-    transition: background-color var(--ease), border-color var(--ease), color var(--ease), transform var(--ease);
-  }
-  .fat-add-group-btn:hover { color: var(--text); border-color: var(--text-dim); background: rgba(255,255,255,.03); }
-  .fat-add-group-btn:active { transform: scale(.98); }
-  @keyframes fatGroupIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-  .fat-group-new { animation: fatGroupIn .22s var(--ease-spring, cubic-bezier(.23,1,.32,1)); }
-  .fg-autofilled { outline: 2px solid rgba(129,201,149,.55); outline-offset: 1px; animation: fgAutofill 1.2s ease forwards; }
-  @keyframes fgAutofill { to { outline-color: rgba(129,201,149,0); } }
-  .fg-cest-hint { margin-top: 7px; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
-  .fg-chip {
-    display: inline-block; margin: 2px 2px 0 0; padding: 3px 10px;
-    background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: 999px;
-    font-size: 12px; font-family: inherit; color: var(--text); cursor: pointer;
-    transition: background-color var(--ease), border-color var(--ease), transform var(--dur-1) var(--spring-soft);
-  }
-  .fg-chip:hover { background: rgba(255,255,255,.09); border-color: var(--border-hover); }
-  .fg-chip:active { transform: scale(.94); }
-  @media (prefers-reduced-motion: reduce) { .fat-group-new { animation: none; } }
-  .fat-notice {
-    margin: 0 0 16px; padding: 12px 14px; border-radius: var(--radius-lg);
-    background: rgba(240,200,80,.10); border: 1px solid rgba(240,200,80,.30);
-    color: var(--text); font-size: 13px; line-height: 1.55;
-    animation: fatGroupIn .22s var(--ease-spring, cubic-bezier(.23,1,.32,1));
-  }
-  .fat-notice button { margin-left: 6px; }
-  .fat-notice .fat-link { background: none; border: none; color: var(--text-dim); cursor: pointer; text-decoration: underline; font: inherit; padding: 0; }
-  .fat-notice .fat-link:hover { color: var(--text); }
-  .fat-active { margin-top: 8px; font-size: 13px; color: var(--success); }
-  .fat-active button { margin-left: 8px; }
-</style>
-
-
-<style>
-  /* Classes .amz-inv-head / .amz-inv-kicker: reaproveitadas pelo Radar.
-     O resto do CSS do Inventario Amazon saiu com o modulo (2026-08-17). */
-  .amz-inv-head {
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 24px; margin-bottom: 22px;
-  }
-  .amz-inv-kicker {
-    font-size: 11px; font-weight: 800; letter-spacing: .11em;
-    text-transform: uppercase; color: var(--accent);
-    margin-bottom: 7px;
-  }
-  .amz-inv-head h1 {
-    font-size: 28px; line-height: 1.08; letter-spacing: -.03em;
-    font-weight: 800;
-  }
-  .amz-inv-head p,
-  .amz-inv-section-head p {
-    color: var(--text-muted); font-size: 13px; line-height: 1.55;
-    margin-top: 7px; max-width: 720px;
-  }
-</style>
-
 <script>
   // ═══════════════════════════════
-  //  LIB SOB DEMANDA — xlsx-populate (642KB) só carrega ao usar o Faturador
+  //  NAVEGAÇÃO — Central (home) + ferramentas
   // ═══════════════════════════════
-  let _xlsxPromise = null;
-  function ensureXlsx() {
-    if (window.XlsxPopulate) return Promise.resolve(window.XlsxPopulate);
-    if (_xlsxPromise) return _xlsxPromise;
-    _xlsxPromise = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'xlsx-populate.min.js';
-      s.onload = () => resolve(window.XlsxPopulate);
-      s.onerror = () => { _xlsxPromise = null; reject(new Error('Falha ao carregar a biblioteca da planilha.')); };
-      document.head.appendChild(s);
+
+  // Categoria ("mundo") de cada ferramenta — usado pela barra do header e pelo filtro da sidebar
+  const VIEW_GROUP = { empreendedor: 'prog', 'video-ops': 'prog' };
+  const VIEWS = ['central', 'empreendedor', 'video-ops'];
+  let currentView = null;
+
+  // Ajusta o segmento ativo no header, filtra os itens da sidebar e os blocos da Central por mundo
+  function setWorld(world) {   // 'central' | 'prog'
+    document.querySelectorAll('.world-seg-btn').forEach(b => {
+      const on = b.dataset.world === world;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
     });
-    return _xlsxPromise;
-  }
-
-  // ═══════════════════════════════
-  //  STORAGE
-  // ═══════════════════════════════
-  const KEY          = 'pp_prompts_v1';
-  const PROJECTS_KEY = 'pp_projects_v1';
-
-  function load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); }
-    catch { return []; }
-  }
-  function save(prompts) { localStorage.setItem(KEY, JSON.stringify(prompts)); }
-
-  function loadProjects() {
-    try { return JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]'); }
-    catch { return []; }
-  }
-  function saveProjects(projects) { localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects)); }
-
-  // ═══════════════════════════════
-  //  MIGRATION
-  // ═══════════════════════════════
-  function migrateData() {
-    // Ensure General project exists
-    let projects = loadProjects();
-    if (!projects.find(p => p.id === 'general')) {
-      projects = [{ id: 'general', name: 'General', createdAt: Date.now() }, ...projects];
-      saveProjects(projects);
-    }
-
-    // Assign projectId: 'general' to any prompt that lacks it
-    const prompts = load();
-    let changed = false;
-    prompts.forEach(p => {
-      if (!p.projectId) { p.projectId = 'general'; changed = true; }
+    document.querySelectorAll('.nav-item[data-group]').forEach(el => {
+      el.style.display = (world === 'central' || el.dataset.group === world) ? '' : 'none';
     });
-    if (changed) save(prompts);
+    document.querySelectorAll('#view-central .hub-block').forEach(bl => {
+      bl.hidden = !(world === 'central' || bl.dataset.group === world);
+    });
   }
 
-  // ═══════════════════════════════
-  //  STATE
-  // ═══════════════════════════════
-  const state = {
-    filter: 'all',     // 'all' | 'favorites' | 'cat:Name' | 'project:ID'
-    tagFilter: '',
-    search: '',
-    editingId: null,
-    selectedAngles: {}  // promptId -> selected angle string
-  };
-
-  // ═══════════════════════════════
-  //  UTILS
-  // ═══════════════════════════════
-  function uid() {
-    return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  }
-
-  function esc(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function parseTags(s) {
-    return s.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-  }
-
-  function truncate(s, n = 140) {
-    return s.length > n ? s.slice(0, n) + '…' : s;
-  }
-
-  function getCategories(prompts) {
-    return [...new Set(prompts.map(p => p.category).filter(Boolean))].sort();
-  }
-
-  function getTags(prompts) {
-    return [...new Set(prompts.flatMap(p => p.tags))].sort();
-  }
-
-  // Variation system
-  const PLACEHOLDER = '[ESSA PARTE AQUI]';
-  const ANGLES = ['3/4', '4/4', '2/4', 'horizontal', 'side view', 'front view'];
-
-  // Deterministic color per category name
-  const COLORS = ['#8ab4f8','#a78bfa','#f472b6','#fdd663','#81c995','#7dd3fc','#f28b82','#5eead4','#fb923c','#a3e635'];
-  const colorCache = {};
-  function catColor(name) {
-    if (!colorCache[name]) {
-      let h = 0;
-      for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-      colorCache[name] = COLORS[Math.abs(h) % COLORS.length];
-    }
-    return colorCache[name];
-  }
-
-  // ═══════════════════════════════
-  //  FILTER
-  // ═══════════════════════════════
-  function applyFilters(prompts) {
-    let r = prompts.slice();
-
-    if (state.filter === 'favorites') {
-      r = r.filter(p => p.favorite);
-    } else if (state.filter.startsWith('cat:')) {
-      const cat = state.filter.slice(4);
-      r = r.filter(p => p.category === cat);
-    } else if (state.filter.startsWith('project:')) {
-      const pid = state.filter.slice(8);
-      if (pid === 'general') {
-        r = r.filter(p => !p.projectId || p.projectId === 'general');
-      } else {
-        r = r.filter(p => p.projectId === pid);
-      }
-    }
-
-    if (state.tagFilter) {
-      r = r.filter(p => p.tags.includes(state.tagFilter));
-    }
-
-    if (state.search) {
-      const q = state.search.toLowerCase();
-      r = r.filter(p =>
-        p.title.toLowerCase().includes(q) ||
-        p.content.toLowerCase().includes(q) ||
-        p.tags.some(t => t.includes(q))
-      );
-    }
-
-    return r;
-  }
-
-  // ═══════════════════════════════
-  //  RENDER
-  // ═══════════════════════════════
-  function render() {
-    const all = load();
-    const filtered = applyFilters(all);
-    renderSidebar(all);
-    renderToolbar(all, filtered);
-    renderCards(filtered);
-  }
-
-  // Anima a contagem de um badge do valor atual até o novo (percepção de vida).
-  // Respeita prefers-reduced-motion: aplica o valor direto.
-  function animateCount(id, to) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const from = parseInt(el.textContent, 10) || 0;
-    to = to || 0;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || from === to) { el.textContent = to; return; }
-    el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
-    const steps = Math.min(Math.abs(to - from), 18);
-    const stepT = 220 / Math.max(steps, 1);
-    let i = 0;
-    clearInterval(el._countTimer);
-    el._countTimer = setInterval(() => {
-      i++;
-      el.textContent = Math.round(from + (to - from) * (i / steps));
-      if (i >= steps) { el.textContent = to; clearInterval(el._countTimer); }
-    }, stepT);
-  }
-
-  function renderSidebar(prompts) {
-    // Nav counts
-    animateCount('count-all', prompts.length);
-    animateCount('count-favs', prompts.filter(p => p.favorite).length);
-
-    // Active nav
+  // Troca a tela visível (só existem telas de ferramenta)
+  function activateView(view) {
+    if (currentView === view || !VIEWS.includes(view)) return;
+    currentView = view;
+    VIEWS.forEach(v => { document.getElementById('view-' + v).hidden = v !== view; });
     document.querySelectorAll('.nav-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.filter === state.filter);
+      el.classList.toggle('active', el.dataset.view === view);
     });
-
-    // Projects
-    renderProjects(prompts);
-
-    // Categories
-    const cats = getCategories(prompts);
-    const catEl = document.getElementById('categories-list');
-    if (cats.length) {
-      catEl.innerHTML = cats.map(cat => {
-        const color = catColor(cat);
-        const active = state.filter === 'cat:' + cat;
-        const count = prompts.filter(p => p.category === cat).length;
-        return `<button class="s-item${active ? ' active' : ''}" data-cat="${esc(cat)}">
-          <span class="cat-dot" style="background:${color}"></span>
-          <span style="overflow:hidden;text-overflow:ellipsis">${esc(cat)}</span>
-          <span class="s-count">${count}</span>
-        </button>`;
-      }).join('');
-    } else {
-      catEl.innerHTML = '<span class="s-empty">No categories yet</span>';
-    }
-
-    // Tags
-    const tags = getTags(prompts);
-    const tagEl = document.getElementById('tags-list');
-    if (tags.length) {
-      tagEl.innerHTML = tags.map(tag =>
-        `<button class="tag-chip${state.tagFilter === tag ? ' active' : ''}" data-tag="${esc(tag)}">#${esc(tag)}</button>`
-      ).join('');
-    } else {
-      tagEl.innerHTML = '<span class="s-empty">No tags yet</span>';
-    }
+    if (VIEW_GROUP[view]) setWorld(VIEW_GROUP[view]);   // ao abrir uma ferramenta, o header/sidebar seguem o mundo dela
+    if (view === 'video-ops' && window.videoOpsRefresh) window.videoOpsRefresh();
   }
 
-  function renderProjects(prompts) {
-    const projects = loadProjects();
-    const listEl = document.getElementById('projects-list');
-
-    if (!projects.length) {
-      listEl.innerHTML = '<span class="s-empty">No projects yet</span>';
-      return;
-    }
-
-    listEl.innerHTML = projects.map(proj => {
-      const active = state.filter === 'project:' + proj.id;
-      const count = proj.id === 'general'
-        ? prompts.filter(p => !p.projectId || p.projectId === 'general').length
-        : prompts.filter(p => p.projectId === proj.id).length;
-      const canDelete = proj.id !== 'general';
-
-      return `<div class="project-item${active ? ' active' : ''}" data-project="${esc(proj.id)}">
-        <span class="project-item-name">${esc(proj.name)}</span>
-        <span class="s-count">${count}</span>
-        ${canDelete ? `<button class="btn-rename-project" data-rename-project="${esc(proj.id)}" title="Rename">✎</button>` : ''}
-        ${canDelete ? `<button class="btn-del-project" data-del-project="${esc(proj.id)}" title="Delete">×</button>` : ''}
-      </div>`;
-    }).join('');
-  }
-
-  function renderToolbar(all, filtered) {
-    const filtersEl = document.getElementById('active-filters');
-    const chips = [];
-
-    if (state.filter.startsWith('cat:')) {
-      const cat = state.filter.slice(4);
-      chips.push(`<span class="f-chip">
-        <span class="cat-dot" style="background:${catColor(cat)}"></span>
-        ${esc(cat)}
-        <button class="f-chip-x" data-clear="cat">×</button>
-      </span>`);
-    }
-
-    if (state.tagFilter) {
-      chips.push(`<span class="f-chip">#${esc(state.tagFilter)}<button class="f-chip-x" data-clear="tag">×</button></span>`);
-    }
-
-    if (state.search) {
-      chips.push(`<span class="f-chip">"${esc(state.search)}"<button class="f-chip-x" data-clear="search">×</button></span>`);
-    }
-
-    filtersEl.innerHTML = chips.join('');
-
-    const countEl = document.getElementById('result-count');
-    countEl.textContent = chips.length || state.filter !== 'all'
-      ? `${filtered.length} prompt${filtered.length !== 1 ? 's' : ''}`
-      : `${all.length} prompt${all.length !== 1 ? 's' : ''}`;
-  }
-
-  function renderCards(prompts) {
-    const grid  = document.getElementById('cards-grid');
-    const empty = document.getElementById('empty-state');
-
-    if (!prompts.length) {
-      grid.innerHTML = '';
-      empty.hidden = false;
-      return;
-    }
-
-    empty.hidden = true;
-    const projects = loadProjects();
-    grid.innerHTML = prompts.map(p => cardHtml(p, projects)).join('');
-  }
-
-  function cardHtml(p, projects) {
-    const proj = projects && projects.find(x => x.id === (p.projectId || 'general'));
-    const projBadge = proj ? `<span class="proj-badge">${esc(proj.name)}</span>` : '';
-
-    const cat = p.category
-      ? `<span class="cat-badge" style="background:${catColor(p.category)}22;color:${catColor(p.category)}">${esc(p.category)}</span>`
-      : '';
-
-    const tags = p.tags.map(t =>
-      `<span class="card-tag" data-tag="${esc(t)}">#${esc(t)}</span>`
-    ).join('');
-
-    const activeAngle = state.selectedAngles[p.id] || ANGLES[0];
-    const angleSelector = p.content.includes(PLACEHOLDER)
-      ? `<div class="angle-selector">
-          <span class="angle-label">Angle:</span>
-          ${ANGLES.map(a =>
-            `<button class="angle-btn${a === activeAngle ? ' active' : ''}" data-action="angle" data-angle="${esc(a)}">${esc(a)}</button>`
-          ).join('')}
-        </div>`
-      : '';
-
-    return `
-      <div class="card" data-id="${esc(p.id)}">
-        <div class="card-header">
-          <h3 class="card-title">${esc(p.title)}</h3>
-          <button class="btn-fav${p.favorite ? ' active' : ''}" data-action="fav" title="${p.favorite ? 'Remove from favorites' : 'Add to favorites'}">${p.favorite ? '★' : '☆'}</button>
-        </div>
-        <p class="card-content">${esc(truncate(p.content))}</p>
-        <div class="card-meta">${projBadge}${cat}${tags}</div>
-        ${angleSelector}
-        <div class="card-actions">
-          <button class="btn-ic" data-action="copy" id="copy-${esc(p.id)}">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            Copy
-          </button>
-          <button class="btn-ic" data-action="edit">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            Edit
-          </button>
-          <button class="btn-ic del" data-action="delete">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a1,1,0,0,1,1-1h4a1,1,0,0,1,1,1v2"/></svg>
-            Delete
-          </button>
-        </div>
-      </div>`;
-  }
-
-  // ═══════════════════════════════
-  //  ACTIONS
-  // ═══════════════════════════════
-  function setFilter(f) {
-    state.filter = f;
-    state.tagFilter = '';
-    render();
-  }
-
-  function setTagFilter(tag) {
-    state.tagFilter = state.tagFilter === tag ? '' : tag;
-    render();
-  }
-
-  function toggleFavorite(id) {
-    const prompts = load();
-    const p = prompts.find(x => x.id === id);
-    if (!p) return;
-    p.favorite = !p.favorite;
-    save(prompts);
-    render();
-    // render() recria os cards; aplica o pop no NOVO botão (BP-001)
-    if (p.favorite) {
-      const btn = document.querySelector(`.card[data-id="${id}"] .btn-fav`);
-      if (btn) { btn.classList.add('pop'); btn.addEventListener('animationend', () => btn.classList.remove('pop'), { once: true }); }
-    }
-  }
-
-  function resolvePlaceholders(text) {
-    const prompts = load();
-    const missing = [];
-
-    const resolved = text.replace(/\[([A-Z_]+)\]/g, (match, name) => {
-      const card = prompts.find(p => p.title.trim().toUpperCase() === name);
-      if (card) return card.content;
-      missing.push(match);
-      return match;
-    });
-
-    return { resolved, missing };
-  }
-
-  function showMissingWarnings(id, missing) {
-    const card = document.querySelector(`.card[data-id="${id}"]`);
-    if (!card) return;
-
-    const prev = card.querySelector('.placeholder-warning');
-    if (prev) prev.remove();
-
-    if (!missing.length) return;
-
-    const div = document.createElement('div');
-    div.className = 'placeholder-warning';
-    div.textContent = '⚠ Missing: ' + missing.join(', ');
-    card.appendChild(div);
-  }
-
-  function copyPrompt(id) {
-    const p = load().find(x => x.id === id);
-    if (!p) return;
-
-    const angleText = p.content.includes(PLACEHOLDER)
-      ? p.content.replaceAll(PLACEHOLDER, state.selectedAngles[id] || ANGLES[0])
-      : p.content;
-
-    const { resolved: text, missing } = resolvePlaceholders(angleText);
-    showMissingWarnings(id, missing);
-
-    const btn = document.getElementById('copy-' + id);
-    function markCopied() {
-      if (!btn) return;
-      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg> Copied!';
-      btn.classList.add('copied');
-      setTimeout(() => {
-        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy';
-        btn.classList.remove('copied');
-      }, 1600);
-    }
-
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(() => {
-        markCopied();
-        showToast('Copied to clipboard!');
-      }).catch(() => fallbackCopy(text, markCopied));
-    } else {
-      fallbackCopy(text, markCopied);
-    }
-  }
-
-  function fallbackCopy(text, cb) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); cb(); showToast('Copied to clipboard!'); }
-    catch { showToast('Copy failed — please copy manually.'); }
-    document.body.removeChild(ta);
-  }
-
-  // ═══════════════════════════════
-  //  PROJECTS
-  // ═══════════════════════════════
-  function showNewProjectInput() {
-    if (document.getElementById('new-project-form')) return;
-
-    const wrap = document.createElement('div');
-    wrap.className = 'project-input-wrap';
-    wrap.id = 'new-project-form';
-    wrap.innerHTML = `
-      <input class="project-input" id="new-project-input" placeholder="Project name…" maxlength="40" />
-      <button class="project-input-ok"     id="new-project-ok">✓</button>
-      <button class="project-input-cancel" id="new-project-cancel">✗</button>`;
-
-    document.getElementById('projects-list').appendChild(wrap);
-    const inp = document.getElementById('new-project-input');
-    inp.focus();
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter')  submitNewProject();
-      if (e.key === 'Escape') cancelNewProject();
-    });
-  }
-
-  function submitNewProject() {
-    const inp = document.getElementById('new-project-input');
-    if (!inp) return;
-    const name = inp.value.trim();
-    if (!name) { cancelNewProject(); return; }
-    createProject(name);
-  }
-
-  function cancelNewProject() {
-    const form = document.getElementById('new-project-form');
-    if (form) form.remove();
-  }
-
-  function createProject(name) {
-    const projects = loadProjects();
-    if (projects.find(p => p.name.trim().toLowerCase() === name.toLowerCase())) {
-      showToast('A project with that name already exists.');
-      return;
-    }
-    projects.push({ id: uid(), name, createdAt: Date.now() });
-    saveProjects(projects);
-    cancelNewProject();
-    render();
-    showToast(`Project "${name}" created.`);
-  }
-
-  function deleteProject(projectId) {
-    if (projectId === 'general') return;
-
-    const prompts = load();
-    let moved = 0;
-    prompts.forEach(p => {
-      if (p.projectId === projectId) { p.projectId = 'general'; moved++; }
-    });
-    save(prompts);
-    saveProjects(loadProjects().filter(p => p.id !== projectId));
-
-    if (state.filter === 'project:' + projectId) state.filter = 'project:general';
-
-    render();
-    showToast(moved > 0
-      ? `Project deleted. ${moved} prompt${moved !== 1 ? 's' : ''} moved to General.`
-      : 'Project deleted.');
-  }
-
-  function startRename(projectId, nameEl) {
-    const currentName = nameEl.textContent;
-    const inp = document.createElement('input');
-    inp.className = 'project-input';
-    inp.value = currentName;
-    inp.style.cssText = 'width:100%;margin:0';
-    nameEl.replaceWith(inp);
-    inp.focus();
-    inp.select();
-
-    let committed = false;
-    function commit() {
-      if (committed) return;
-      committed = true;
-      const newName = inp.value.trim();
-      if (newName && newName !== currentName) renameProject(projectId, newName);
-      else render();
-    }
-
-    inp.addEventListener('blur', commit);
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter')  { inp.blur(); }
-      if (e.key === 'Escape') { committed = true; render(); }
-    });
-  }
-
-  function renameProject(projectId, newName) {
-    const projects = loadProjects();
-    const proj = projects.find(p => p.id === projectId);
-    if (!proj) return;
-    proj.name = newName;
-    saveProjects(projects);
-    render();
-    showToast('Project renamed.');
-  }
-
-  // ═══════════════════════════════
-  //  MODAL
-  // ═══════════════════════════════
-  function openModal(id) {
-    state.editingId = id || null;
-    const prompts = load();
-
-    // Populate category datalist
-    document.getElementById('cat-datalist').innerHTML = getCategories(prompts)
-      .map(c => `<option value="${esc(c)}">`)
-      .join('');
-
-    if (id) {
-      const p = prompts.find(x => x.id === id);
-      if (!p) return;
-      document.getElementById('modal-title').textContent = 'Edit Prompt';
-      document.getElementById('f-title').value    = p.title;
-      document.getElementById('f-content').value  = p.content;
-      document.getElementById('f-category').value = p.category || '';
-      document.getElementById('f-tags').value     = p.tags.join(', ');
-      document.getElementById('f-fav').checked    = p.favorite;
-    } else {
-      document.getElementById('modal-title').textContent = 'New Prompt';
-      document.getElementById('prompt-form').reset();
-    }
-
-    // Populate project select after reset so it is not cleared
-    const defaultPid = id
-      ? (prompts.find(x => x.id === id)?.projectId || 'general')
-      : (state.filter.startsWith('project:') ? state.filter.slice(8) : 'general');
-
-    document.getElementById('f-project').innerHTML = loadProjects()
-      .map(proj => `<option value="${esc(proj.id)}"${proj.id === defaultPid ? ' selected' : ''}>${esc(proj.name)}</option>`)
-      .join('');
-
-    document.getElementById('modal-overlay').hidden = false;
-    document.getElementById('f-title').focus();
-  }
-
-  function closeModal() {
-    document.getElementById('modal-overlay').hidden = true;
-    state.editingId = null;
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-
-    const title     = document.getElementById('f-title').value.trim();
-    const content   = document.getElementById('f-content').value.trim();
-    const category  = document.getElementById('f-category').value.trim();
-    const tags      = parseTags(document.getElementById('f-tags').value);
-    const favorite  = document.getElementById('f-fav').checked;
-    const projectId = document.getElementById('f-project').value || 'general';
-
-    if (!title)   { document.getElementById('f-title').focus();   return; }
-    if (!content) { document.getElementById('f-content').focus(); return; }
-
-    const prompts = load();
-    const now = Date.now();
-
-    if (state.editingId) {
-      const idx = prompts.findIndex(p => p.id === state.editingId);
-      if (idx !== -1) {
-        prompts[idx] = { ...prompts[idx], title, content, category, tags, favorite, projectId, updatedAt: now };
-      }
-      showToast('Prompt updated.');
-    } else {
-      prompts.unshift({ id: uid(), title, content, category, tags, favorite, projectId, createdAt: now, updatedAt: now });
-      showToast('Prompt created!');
-    }
-
-    save(prompts);
-    closeModal();
-    render();
-  }
-
-  // ═══════════════════════════════
-  //  DELETE
-  // ═══════════════════════════════
-  let pendingDelete = null;
-
-  function openConfirm(id) {
-    pendingDelete = id;
-    document.getElementById('confirm-overlay').hidden = false;
-  }
-
-  function closeConfirm() {
-    pendingDelete = null;
-    document.getElementById('confirm-overlay').hidden = true;
-  }
-
-  function executeDelete() {
-    if (!pendingDelete) return;
-    save(load().filter(p => p.id !== pendingDelete));
-    closeConfirm();
-    render();
-    showToast('Prompt deleted.');
-  }
-
-  // ═══════════════════════════════
-  //  TOAST
-  // ═══════════════════════════════
-  let toastTimer = null;
-  function showToast(msg) {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
-  }
-
-  // ═══════════════════════════════
-  //  EVENTS
-  // ═══════════════════════════════
-
-  // Header
-  document.getElementById('btn-new').addEventListener('click', () => openModal());
-  document.getElementById('search').addEventListener('input', e => {
-    state.search = e.target.value.trim();
-    render();
-  });
-
-  // Empty state
-  document.getElementById('btn-empty-new').addEventListener('click', () => openModal());
-
-  // Sidebar — event delegation (click)
+  // Sidebar — abre a ferramenta do item clicado
   document.getElementById('sidebar').addEventListener('click', e => {
-    // Planilha de Faturador — view switch must run before the prompt filter handlers
-    const viewItem = e.target.closest('[data-view]');
-    if (viewItem) { activateView(viewItem.dataset.view); return; }
-    // Any other sidebar navigation returns to the prompts workspace
-    if (e.target.closest('.nav-item, [data-project], [data-cat], [data-tag]')) activateView('prompts');
-
-    // New project button
-    if (e.target.closest('#btn-new-project')) { showNewProjectInput(); return; }
-
-    // New project form submit / cancel
-    if (e.target.closest('#new-project-ok'))     { submitNewProject(); return; }
-    if (e.target.closest('#new-project-cancel')) { cancelNewProject(); return; }
-
-    // Delete project (must check before project-item to prevent bubbling)
-    const delBtn = e.target.closest('[data-del-project]');
-    if (delBtn) { deleteProject(delBtn.dataset.delProject); return; }
-
-    // Project item
-    const projectItem = e.target.closest('[data-project]');
-    if (projectItem) { setFilter('project:' + projectItem.dataset.project); return; }
-
-    // Nav item (All, Favorites)
-    const navItem = e.target.closest('.nav-item');
-    if (navItem) { setFilter(navItem.dataset.filter); return; }
-
-    // Category
-    const catItem = e.target.closest('[data-cat]');
-    if (catItem) { setFilter('cat:' + catItem.dataset.cat); return; }
-
-    // Tag
-    const tagChip = e.target.closest('[data-tag]');
-    if (tagChip) { setTagFilter(tagChip.dataset.tag); return; }
-  });
-
-  // Sidebar — double-click for project rename
-  document.getElementById('sidebar').addEventListener('dblclick', e => {
-    const nameEl = e.target.closest('[data-rename]');
-    if (nameEl) startRename(nameEl.dataset.rename, nameEl);
+    const item = e.target.closest('[data-view]');
+    if (item) activateView(item.dataset.view);
   });
 
   // Header — barra de categorias (mundos): filtra a sidebar e abre a Central daquele mundo
@@ -2311,837 +933,14 @@
     if (card) activateView(card.dataset.view);
   });
 
-  // Toolbar — clear chips
-  document.getElementById('active-filters').addEventListener('click', e => {
-    const btn = e.target.closest('[data-clear]');
-    if (!btn) return;
-    const target = btn.dataset.clear;
-    if (target === 'cat')    { state.filter = 'all'; }
-    if (target === 'tag')    { state.tagFilter = ''; }
-    if (target === 'search') {
-      state.search = '';
-      document.getElementById('search').value = '';
-    }
-    render();
-  });
-
-  // Cards — event delegation
-  document.getElementById('cards-grid').addEventListener('click', e => {
-    const card = e.target.closest('.card');
-    if (!card) return;
-    const id = card.dataset.id;
-
-    const action = e.target.closest('[data-action]');
-    if (!action) return;
-
-    switch (action.dataset.action) {
-      case 'fav':    toggleFavorite(id); break;
-      case 'copy':   copyPrompt(id);     break;
-      case 'edit':   openModal(id);      break;
-      case 'delete': openConfirm(id);    break;
-      case 'angle':
-        state.selectedAngles[id] = action.dataset.angle;
-        card.querySelectorAll('.angle-btn').forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.angle === action.dataset.angle);
-        });
-        break;
-    }
-  });
-
-  // Card tags — filter by tag
-  document.getElementById('cards-grid').addEventListener('click', e => {
-    const tag = e.target.closest('.card-tag');
-    if (tag) setTagFilter(tag.dataset.tag);
-  });
-
-  // Modal
-  document.getElementById('modal-close').addEventListener('click', closeModal);
-  document.getElementById('btn-cancel').addEventListener('click', closeModal);
-  document.getElementById('prompt-form').addEventListener('submit', handleSubmit);
-  document.getElementById('modal-overlay').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeModal();
-  });
-
-  // Confirm
-  document.getElementById('confirm-cancel').addEventListener('click', closeConfirm);
-  document.getElementById('confirm-ok').addEventListener('click', executeDelete);
-  document.getElementById('confirm-overlay').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeConfirm();
-  });
-
-  // Escape key
-  document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape') return;
-    closeModal();
-    closeConfirm();
-  });
-
-  // ═══════════════════════════════
-  //  PLANILHA DE FATURADOR
-  // ═══════════════════════════════
-  const FAT = {
-    SHEET: 'Dados fiscais dos produtos',  // edit ONLY this sheet — never fall back to the first sheet
-    DATA_START_ROW: 7,                    // rows 1–6 are headers; SKU data begins at row 7
-    SCAN_CAP: 200000,                     // safety cap (sheet has phantom rows near 1,048,576)
-    COLS: { sku:'C', regra:'D', ncm:'E', origem:'F', cest:'L', custo:'P' },
-    view: 'prompts',
-    fileBuffer: null,
-    fileName: null,
-    ncmMap: {},                           // NCM(díg.) -> {cest,regra,origem} aprendido da planilha carregada
-    skus: null,                           // Set de SKUs já na planilha (col C) — p/ diff com o inventário
-    parsed: false,                        // a planilha ativa já foi lida (ncmMap/skus prontos)?
-    savedAt: '',                          // quando a planilha ativa foi salva no navegador
-  };
-
-  // Categoria ("mundo") de cada ferramenta — usado pela barra do header e pelo filtro da sidebar
-  const VIEW_GROUP = {
-    faturador: 'amazon',
-    radar: 'prog', empreendedor: 'prog', 'video-ops': 'prog', fluxos: 'prog'
-  };
-
-  // Ajusta o segmento ativo no header, filtra os itens da sidebar e os blocos da Central por mundo
-  function setWorld(world) {   // 'central' | 'amazon' | 'prog'
-    document.querySelectorAll('.world-seg-btn').forEach(b => {
-      const on = b.dataset.world === world;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    document.querySelectorAll('.nav-item[data-group]').forEach(el => {
-      el.style.display = (world === 'central' || el.dataset.group === world) ? '' : 'none';
-    });
-    document.querySelectorAll('#view-central .hub-block').forEach(bl => {
-      bl.hidden = !(world === 'central' || bl.dataset.group === world);
-    });
-  }
-
-  // Switch between the prompts workspace and the tool views (faturador / precificação)
-  function activateView(view) {
-    if (FAT.view === view) return;
-    FAT.view = view;
-    const toolViews = ['central', 'empreendedor', 'video-ops', 'fluxos', 'faturador', 'radar'];
-    const tool = toolViews.includes(view);
-    ['toolbar', 'cards-grid', 'empty-state'].forEach(id => {
-      document.getElementById(id).style.display = tool ? 'none' : '';
-    });
-    document.getElementById('view-faturador').hidden = view !== 'faturador';
-    document.getElementById('view-radar').hidden = view !== 'radar';
-    document.getElementById('view-empreendedor').hidden = view !== 'empreendedor';
-    document.getElementById('view-video-ops').hidden = view !== 'video-ops';
-    document.getElementById('view-central').hidden = view !== 'central';
-    document.getElementById('view-fluxos').hidden = view !== 'fluxos';
-    document.querySelectorAll('.nav-item').forEach(el => {
-      el.classList.toggle('active', tool && el.dataset.view === view);
-    });
-    if (VIEW_GROUP[view]) setWorld(VIEW_GROUP[view]);   // ao abrir uma ferramenta, o header/sidebar seguem o mundo dela
-    if (view === 'fluxos' && window.fluxosRefresh) window.fluxosRefresh();
-    if (view === 'video-ops' && window.videoOpsRefresh) window.videoOpsRefresh();
-    if (view === 'faturador') fatOnEnterFaturador();
-    if (!tool) render();   // restores prompt cards + correct sidebar active state
-  }
-
-
-  function fatCellIsEmpty(cell) {
-    const v = cell.value();
-    return v === undefined || v === null || String(v).trim() === '';
-  }
-
-  // "82,90" / "82.9" / "1.234,56" → 1234.56 ; returns null if not a number
-  function fatParseCusto(raw) {
-    let s = raw.replace(/\s/g, '');
-    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
-    const n = Number(s);
-    return isNaN(n) ? null : n;
-  }
-
-  async function fatLoadFile(file) {
-    const status = document.getElementById('fat-file-status');
-    FAT.fileBuffer = null; FAT.fileName = null;
-    if (!file) { status.textContent = ''; status.className = 'fat-status'; return; }
-    try {
-      await ensureXlsx();
-      const buf = await file.arrayBuffer();
-      const wb = await XlsxPopulate.fromDataAsync(buf);
-      const has = wb.sheets().some(s => s.name() === FAT.SHEET);
-      FAT.fileBuffer = buf; FAT.fileName = file.name;
-      if (has) { fatIndexSheet(wb.sheet(FAT.SHEET)); FAT.parsed = true; fatPersist(); }
-      else { FAT.ncmMap = {}; FAT.skus = new Set(); }
-      status.className = 'fat-status ' + (has ? 'ok' : 'err');
-      status.innerHTML = has
-        ? '✓ <b>' + esc(file.name) + '</b> — aba "' + FAT.SHEET + '" encontrada.'
-        : '❌ <b>' + esc(file.name) + '</b> — a aba "' + FAT.SHEET + '" não foi encontrada na planilha.';
-      fatRenderActive();
-    } catch (err) {
-      status.className = 'fat-status err';
-      status.textContent = '❌ Não foi possível ler o arquivo. Selecione um .xlsx válido.';
-    }
-  }
-
-  function fatRenderSummary(box, res, headline, extraHtml) {
-    const LABEL = { C:'C · SKU', D:'D · Regra tributária', E:'E · NCM', F:'F · Origem', L:'L · CEST', P:'P · Custo' };
-    const stats = res.stats;
-    const totalFilled  = Object.values(stats).reduce((a, s) => a + s.f, 0);
-    const totalSkipped = Object.values(stats).reduce((a, s) => a + s.s, 0);
-    const trs = Object.keys(stats).map(k =>
-      `<tr><td>${LABEL[k]}</td><td>${stats[k].f}</td><td>${stats[k].s}</td></tr>`).join('');
-    box.className = 'fat-summary show ok';
-    box.innerHTML =
-      `<div class="big">${headline}</div>` +
-      (extraHtml || '') +
-      `<div style="margin-top:4px;color:var(--text-dim)">Arquivo <b>planilha-faturador-preenchida.xlsx</b> baixado. ` +
-      `Preenchidas: <b>${totalFilled}</b> · Ignoradas (já preenchidas): <b>${totalSkipped}</b>.</div>` +
-      `<table><thead><tr><th>Coluna</th><th>Preenchidas</th><th>Ignoradas</th></tr></thead><tbody>${trs}</tbody></table>`;
-  }
-
-  // ── MODO 3 — preenchimento por grupos de SKUs ────────────────────
-  // Cada grupo carrega seus próprios dados fiscais, válidos para todos os SKUs do grupo.
-  const FAT_ORIGEM = [
-    '0 - Nacional (exceto 3, 4, 5 e 8)',
-    '1 - Estrangeira – Importação direta (exceto 6)',
-    '2 - Estrangeira – Adquirida no mercado interno (exceto 7)',
-    '3 - Nacional - Conteúdo de Importação superior a 40% e igual ou inferior a 70%',
-    '4 - Nacional - Processos Produtivos Básicos',
-    '5 - Nacional - Conteúdo de Importação inferior ou igual a 40%',
-    '6 - Estrangeira – Importação direta, sem similar nacional - Resolução Camex e gás natural',
-    '7 - Estrangeira – Adquirida no mercado interno, sem similar nacional - Resolução Camex e gás natural',
-    '8 - Nacional – Conteúdo de Importação superior a 70%',
-  ];
-
-  // ── Auto-preenchimento por NCM ────────────────────────────────────────────
-  // Aprende os padrões da PRÓPRIA planilha carregada: varre as linhas já
-  // preenchidas e, para cada NCM, guarda CEST/Regra/Origem SÓ quando há um único
-  // valor (sem ambiguidade). Assim, ao digitar um NCM que já existe na planilha,
-  // os campos batem sozinhos — sem tabela fixa que envelhece.
-  // ponytail: só mapeia valor único por NCM — nunca "chuta" dado fiscal; NCM/CEST
-  //           salvos como número na planilha perdem zero à esquerda (limitação do Excel).
-  const fatDigits = v => String(v == null ? '' : v).replace(/\D/g, '');
-  function fatBuildNcmMap(rows) {
-    const acc = {};
-    for (const r of rows) {
-      const ncm = fatDigits(r.ncm); if (!ncm) continue;
-      const e = acc[ncm] || (acc[ncm] = { cest: new Map(), regra: new Set(), origem: new Set() });
-      // CEST compara por dígitos ("28.059.00" ≡ "2805900") mas guarda o texto de origem:
-      // a normalização é só interna — o que aparece e o que é gravado não mudam.
-      const cest = r.cest == null ? '' : String(r.cest).trim(), ck = fatDigits(cest);
-      if (ck && !e.cest.has(ck)) e.cest.set(ck, cest);
-      if (r.regra != null && String(r.regra).trim() !== '')   e.regra.add(String(r.regra).trim());
-      if (r.origem != null && String(r.origem).trim() !== '') e.origem.add(String(r.origem).trim());
-    }
-    const map = {}, one = s => s.size === 1 ? [...s.values()][0] : '';
-    for (const ncm in acc) map[ncm] = {
-      cest: one(acc[ncm].cest), regra: one(acc[ncm].regra), origem: one(acc[ncm].origem),
-      cestOptions: [...acc[ncm].cest.values()].sort(),   // todos os CESTs vistos p/ este NCM (dropdown quando ambíguo)
-    };
-    return map;
-  }
-  function fatIndexSheet(sheet) {
-    const rows = []; const skus = new Set(); let consec = 0;
-    for (let r = FAT.DATA_START_ROW; r <= FAT.SCAN_CAP && consec < 50; r++) {
-      const sku = sheet.cell(FAT.COLS.sku + r).value();
-      if (sku === undefined || sku === null || String(sku).trim() === '') { consec++; continue; }
-      consec = 0; skus.add(String(sku).trim());
-      const ncm = sheet.cell(FAT.COLS.ncm + r).value();
-      if (ncm === undefined || ncm === null || String(ncm).trim() === '') continue;
-      rows.push({
-        ncm,
-        cest:   sheet.cell(FAT.COLS.cest + r).value(),
-        regra:  sheet.cell(FAT.COLS.regra + r).value(),
-        origem: sheet.cell(FAT.COLS.origem + r).value(),
-      });
-    }
-    FAT.ncmMap = fatBuildNcmMap(rows);
-    FAT.skus = skus;
-  }
-  function fatFlash(el) {
-    el.classList.add('fg-autofilled');
-    setTimeout(() => el.classList.remove('fg-autofilled'), 1200);
-  }
-  function fatFillIfEmpty(el, val) {
-    if (!el || !val) return;
-    if (el.value && el.value.trim() !== '') return;              // nunca sobrescreve o que o usuário digitou
-    if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === val)) return;
-    el.value = val;
-    fatFlash(el);
-  }
-  let fatGid = 0;   // id único por card p/ ligar <input list> ao seu <datalist> de CEST
-  function fatSetCestOptions(cestEl, options) {
-    if (!cestEl) return;
-    const dl = document.getElementById(cestEl.getAttribute('list'));
-    if (dl) dl.innerHTML = (options || []).map(o => '<option value="' + esc(o) + '"></option>').join('');
-  }
-  // Fonte 1 do CEST: o faturador que está sendo montado agora. Todo grupo com
-  // NCM+CEST preenchidos (inclusive o que o usuário digitou à mão) vira um par
-  // reutilizável pelos grupos seguintes — a planilha de referência deixa de ser a
-  // única fonte. Só entra o que está completo (NCM 8 díg., CEST 7 díg.) p/ não
-  // propagar valor digitado pela metade. Deriva do próprio DOM: sem estado paralelo.
-  // ponytail: refaz o mapa a cada tecla no NCM — são dezenas de grupos; se um dia
-  //           virarem milhares, cachear invalidando no input do CEST.
-  function fatGroupsNcmMap(skip) {
-    const rows = [];
-    document.querySelectorAll('#fat-groups .fat-group').forEach(g => {
-      if (g === skip) return;                                 // o grupo em edição não é fonte de si mesmo
-      const n = g.querySelector('.fg-ncm'), c = g.querySelector('.fg-cest');
-      if (!n || !c) return;
-      if (fatDigits(n.value).length === 8 && fatDigits(c.value).length === 7)
-        rows.push({ ncm: n.value, cest: c.value.trim() });
-    });
-    return fatBuildNcmMap(rows);
-  }
-  function fatAutofillFromNcm(g) {
-    if (!g) return;
-    const ncmEl = g.querySelector('.fg-ncm'); if (!ncmEl) return;
-    const cestEl = g.querySelector('.fg-cest');
-    const hintEl = g.querySelector('.fg-cest-hint');
-    const setHint = html => { if (hintEl) { hintEl.innerHTML = html || ''; hintEl.hidden = !html; } };
-    const chips = opts => opts.map(o => '<button type="button" class="fg-chip" data-cest="' + esc(o) + '">' + esc(o) + '</button>').join(' ');
-    const dig = fatDigits(ncmEl.value);
-    const cur = fatGroupsNcmMap(g)[dig];   // 1º: grupos já preenchidos nesta montagem
-    const hit = FAT.ncmMap[dig];           // 2º: planilha de referência carregada
-    const opts = m => (m && m.cestOptions) || [];
-    fatSetCestOptions(cestEl, [...new Set([...opts(cur), ...opts(hit)])].sort());
-    // BP-008: todo estado do autofill fala com o usuário — nunca falha em silêncio.
-    if (dig.length < 8) { setHint(''); return; }              // NCM incompleto: quieto
-    if (hit) {                                                // regra/origem seguem vindo só da planilha
-      fatFillIfEmpty(g.querySelector('.fg-regra'), hit.regra);
-      fatFillIfEmpty(g.querySelector('.fg-origem'), hit.origem);
-    }
-    if (opts(cur).length > 1) {                               // conflito nos grupos: nunca escolhe sozinho
-      setHint('⚠️ Este NCM está com ' + opts(cur).length + ' CESTs diferentes nos grupos desta planilha — confira e toque no correto: ' +
-        chips(cur.cestOptions));
-      return;
-    }
-    if (cur && cur.cest) {                                    // único → reaproveita o grupo anterior
-      fatFillIfEmpty(cestEl, cur.cest);
-      setHint(cestEl && cestEl.value === cur.cest
-        ? '✓ CEST reaproveitado de outro grupo com o mesmo NCM.'
-        : 'Outro grupo desta planilha usa o CEST ' + esc(cur.cest) + ' para este NCM.');
-      return;
-    }
-    if (!hit) {
-      setHint(Object.keys(FAT.ncmMap).length
-        ? 'NCM novo — não está na planilha nem em outro grupo; preencha o CEST manualmente.'
-        : 'Carregue a planilha para o CEST ser sugerido a partir dela.');
-      return;
-    }
-    if (hit.cest) {                                           // único → preenche direto
-      fatFillIfEmpty(cestEl, hit.cest);
-      setHint(cestEl && cestEl.value === hit.cest
-        ? '✓ CEST preenchido pela planilha.'
-        : 'Na planilha esse NCM usa o CEST ' + esc(hit.cest) + '.');
-    } else {                                                  // ambíguo → chips clicáveis
-      setHint('Esse NCM tem ' + hit.cestOptions.length + ' CESTs na planilha — toque para usar: ' + chips(hit.cestOptions));
-    }
-  }
-
-  // ── Planilha "sempre ativa" + ponte com o Inventário Amazon ─────────────────
-  // A planilha carregada/gerada fica salva no navegador (base64 no localStorage) e
-  // recarrega sozinha; inventário e planilha se conectam pelo conjunto de SKUs.
-  // ponytail: base64 no localStorage aguenta ~alguns MB; se a planilha crescer muito,
-  //           migrar p/ IndexedDB (blob, sem inflar ~33% do base64).
-  const FAT_XLSX_KEY = 'pp_faturador_xlsx_v1';
-  function fatAbToB64(buf) {
-    const bytes = new Uint8Array(buf); let bin = ''; const CH = 0x8000;
-    for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
-    return btoa(bin);
-  }
-  function fatB64ToAb(b64) {
-    const bin = atob(b64), len = bin.length, bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes.buffer;
-  }
-  function fatFmtDate(iso) {
-    if (!iso) return '';
-    try { return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-    catch (e) { return ''; }
-  }
-  function fatPersist() {
-    if (!FAT.fileBuffer) return;
-    try {
-      FAT.savedAt = new Date().toISOString();
-      // skus persistidos junto: o sinal no menu compara inventário×planilha sem carregar o xlsx (642KB).
-      localStorage.setItem(FAT_XLSX_KEY, JSON.stringify({ name: FAT.fileName || 'planilha.xlsx', savedAt: FAT.savedAt, skus: FAT.skus ? Array.from(FAT.skus) : [], b64: fatAbToB64(FAT.fileBuffer) }));
-    } catch (e) { alert('⚠️ Não foi possível manter a planilha ativa (armazenamento cheio). Ela vale só nesta sessão.'); }
-  }
-  function fatRestoreBytes() {
-    try {
-      const raw = localStorage.getItem(FAT_XLSX_KEY); if (!raw) return;
-      const p = JSON.parse(raw); if (!p || !p.b64) return;
-      FAT.fileBuffer = fatB64ToAb(p.b64); FAT.fileName = p.name || 'planilha.xlsx';
-      FAT.savedAt = p.savedAt || ''; FAT.parsed = false;
-      if (Array.isArray(p.skus)) FAT.skus = new Set(p.skus);
-    } catch (e) { try { localStorage.removeItem(FAT_XLSX_KEY); } catch (e2) {} }
-  }
-  async function fatOnEnterFaturador() {
-    if (FAT.fileBuffer && !FAT.parsed) {
-      try {
-        await ensureXlsx();
-        const wb = await XlsxPopulate.fromDataAsync(FAT.fileBuffer);
-        if (wb.sheets().some(s => s.name() === FAT.SHEET)) { fatIndexSheet(wb.sheet(FAT.SHEET)); FAT.parsed = true; }
-      } catch (e) { /* planilha ativa inválida: segue sem índice */ }
-    }
-    fatRenderActive();
-   
-  }
-  function fatDownloadActive() {
-    if (!FAT.fileBuffer) return;
-    const blob = new Blob([FAT.fileBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = FAT.fileName || 'planilha-faturador.xlsx';
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  }
-  function fatRenderActive() {
-    // Trava: a montagem de grupos só libera com a planilha carregada/analisada.
-    const gate = document.getElementById('fat-gate');
-    const work = document.getElementById('fat-mode-groups');
-    if (gate) gate.hidden = !!FAT.fileBuffer;
-    if (work) work.hidden = !FAT.fileBuffer;
-    const box = document.getElementById('fat-active'); if (!box) return;
-    if (!FAT.fileBuffer) { box.hidden = true; box.innerHTML = ''; return; }
-    const anal = (FAT.parsed && FAT.skus)
-      ? ' · ' + FAT.skus.size.toLocaleString('pt-BR') + ' SKUs · ' + Object.keys(FAT.ncmMap).length + ' NCMs mapeados'
-      : '';
-    box.hidden = false;
-    box.innerHTML = '✓ Planilha ativa: <b>' + esc(FAT.fileName || 'planilha.xlsx') + '</b>' + anal +
-      (FAT.savedAt ? ' · salva em ' + esc(fatFmtDate(FAT.savedAt)) : '') +
-      ' <button type="button" class="btn-ghost" id="fat-download-active">Baixar planilha atual</button>';
-    document.getElementById('fat-download-active').onclick = fatDownloadActive;
-  }
-  function fatAddGroupWithSkus(skus) {
-    // Reaproveita o último grupo se estiver totalmente vazio (ex.: o grupo
-    // semeado no load) — evita um "Grupo 1" órfão que trava a validação do Gerar.
-    const list = document.querySelectorAll('#fat-groups .fat-group');
-    let g = list.length ? list[list.length - 1] : null;
-    const blank = g
-      && ['.fg-skus', '.fg-ncm', '.fg-cest', '.fg-custo'].every(sel => { const el = g.querySelector(sel); return !el || !el.value.trim(); })
-      && !g.querySelector('.fg-regra').value
-      && !g.querySelector('.fg-origem').value;
-    if (!blank) { fatAddGroup(); g = document.getElementById('fat-groups').lastElementChild; }
-    if (!g) return;
-    g.querySelector('.fg-skus').value = skus.join('\n');
-    const ncm = g.querySelector('.fg-ncm'); if (ncm) ncm.focus();
-  }
-  // ── Separador automático: cola a lista e agrupa por produto ────────────────
-  // O grupo fiscal é o produto: mesma base de SKU (tudo antes do 1º hífen)
-  // compartilha NCM/CEST/custo. "C11.03" e "C11.04" são bases distintas.
-  function fatBaseSku(sku) {
-    const i = sku.indexOf('-');
-    return i > 0 ? sku.slice(0, i) : sku;
-  }
-  // Aceita 2 formatos de cola: lista pura (1 SKU por linha) e o texto do Seller
-  // Central (1 campo por linha), onde o SKU é a linha logo após "Código SKU".
-  // O marcador decide o modo — sem ele, o comportamento antigo não muda.
-  const FAT_SKU_MARK = /^c[óo]digo\s*sku$/i;
-  function fatSkusFromPaste(text) {
-    const lines = String(text || '').split('\n').map(s => s.trim());
-    const sc = lines.some(s => FAT_SKU_MARK.test(s));
-    if (!sc) return { skus: lines.filter(s => s && !/^-+$/.test(s)), sc };
-    const skus = [];
-    for (let i = 1; i < lines.length; i++)
-      if (FAT_SKU_MARK.test(lines[i - 1]) && lines[i]) skus.push(lines[i]);
-    return { skus, sc };
-  }
-  // Agrupa a cola por produto deixando FORA o que já está na planilha ativa.
-  // `have` é o MESMO conjunto que alimenta o aviso do inventário: FAT.skus (col. C),
-  // montado por fatIndexSheet — nenhuma segunda leitura de SKU foi criada.
-  // Comparação pelo SKU inteiro (já trimado por fatSkusFromPaste): sem match parcial,
-  // sem tocar em hífen, sem case-folding — igual ao resto do projeto.
-  // Base 100% na planilha simplesmente não entra em `order`: nada de card vazio.
-  function fatGroupNewSkus(skus, have) {
-    const seen = new Set(), already = new Set(), order = [], byBase = new Map();
-    for (const sku of skus) {
-      if (seen.has(sku) || already.has(sku)) continue;
-      if (have && have.has(sku)) { already.add(sku); continue; }   // já está na planilha: fora dos grupos
-      seen.add(sku);
-      const b = fatBaseSku(sku);
-      if (!byBase.has(b)) { byBase.set(b, []); order.push(b); }
-      byBase.get(b).push(sku);
-    }
-    return { order, byBase, already, novos: seen.size };
-  }
-  function fatSplitBulk() {
-    const ta = document.getElementById('fat-bulk'), st = document.getElementById('fat-bulk-status');
-    if (!ta || !st) return;
-    const paste = fatSkusFromPaste(ta.value);
-    const { order, byBase, already, novos } = fatGroupNewSkus(paste.skus, FAT.skus);
-    if (!order.length) {
-      // BP-008: "tudo já está na planilha" é resultado, não erro nem silêncio.
-      st.className = 'fat-status ' + (already.size ? 'ok' : 'err');
-      st.textContent = already.size
-        ? '✓ Nada a fazer: os ' + already.size + ' SKU(s) colados já estão na planilha.'
-        : (paste.sc
-          ? 'Texto do Seller Central reconhecido, mas nenhum SKU depois de "Código SKU".'
-          : 'Nenhum SKU na lista.');
-      return;
-    }
-    order.forEach(b => fatAddGroupWithSkus(byBase.get(b)));
-    st.className = 'fat-status ok';
-    // BP-003: exclusão embutida tem de aparecer — SKU removido calado parece SKU perdido.
-    st.textContent = (paste.sc ? '✓ Texto do Seller Central reconhecido — ' : '✓ ')
-      + novos + ' SKU(s) novos separados em ' + order.length + ' grupo(s) — preencha NCM, CEST e custo de cada um.'
-      + (already.size ? ' ' + already.size + ' já estavam na planilha e ficaram fora dos grupos.' : '');
-    ta.value = '';
-    // foco no NCM do PRIMEIRO grupo criado (preenche de cima pra baixo)
-    const gs = document.querySelectorAll('#fat-groups .fat-group');
-    const first = gs[gs.length - order.length];
-    const ncm = first && first.querySelector('.fg-ncm'); if (ncm) ncm.focus();
-  }
-
-  function fatGroupHtml() {
-    const gid = ++fatGid;
-    const orig = FAT_ORIGEM.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    return `<div class="fat-group">
-      <div class="fat-group-head"><span>Grupo <span class="fat-group-n"></span></span><button type="button" class="fg-del" title="Apagar este grupo" aria-label="Apagar este grupo">✕</button></div>
-      <div class="fat-field">
-        <label>Lista de SKUs <span class="hint">— um por linha</span></label>
-        <textarea class="fg-skus" placeholder="SKU-001&#10;SKU-002&#10;SKU-003"></textarea>
-      </div>
-      <div class="fat-grid">
-        <div class="fat-field"><label>Regra tributária</label>
-          <select class="fg-regra"><option value="">— selecione —</option><option value="RN_USEEBRASIL">RN_USEEBRASIL</option><option value="RN_IMPORTADOS">RN_IMPORTADOS</option></select></div>
-        <div class="fat-field"><label>Origem da mercadoria <span class="hint">(opcional)</span></label>
-          <select class="fg-origem"><option value="">— não preencher —</option>${orig}</select></div>
-        <div class="fat-field"><label>NCM</label><input type="text" class="fg-ncm" inputmode="numeric" placeholder="Ex: 61052000" /></div>
-        <div class="fat-field"><label>CEST</label><input type="text" class="fg-cest" inputmode="numeric" placeholder="Ex: 2805900" list="fg-cest-dl-${gid}" /><datalist id="fg-cest-dl-${gid}"></datalist><div class="fg-cest-hint" hidden></div></div>
-        <div class="fat-field"><label>Custo do produto (R$)</label><input type="text" class="fg-custo" inputmode="decimal" placeholder="Ex: 29,90" /></div>
-      </div>
-    </div>`;
-  }
-
-  function fatRenumberGroups() {
-    const groups = document.querySelectorAll('#fat-groups .fat-group');
-    const only = groups.length <= 1;   // nunca deixa apagar o único grupo restante
-    groups.forEach((g, i) => {
-      g.querySelector('.fat-group-n').textContent = i + 1;
-      const del = g.querySelector('.fg-del'); if (del) del.disabled = only;
-    });
-    document.getElementById('fat-remove-group').disabled = only;
-  }
-  // Apaga QUALQUER grupo pelo ✕ do card (não só o último). Confirma se tiver dados.
-  function fatDeleteGroup(el) {
-    if (document.querySelectorAll('#fat-groups .fat-group').length <= 1) return;
-    const filled = [...el.querySelectorAll('.fg-skus,.fg-regra,.fg-ncm,.fg-origem,.fg-cest,.fg-custo')]
-      .some(f => f.value.trim());
-    const n = el.querySelector('.fat-group-n').textContent;
-    if (filled && !confirm('Apagar o Grupo ' + n + '? Os dados preenchidos serão perdidos.')) return;
-    el.remove();
-    fatRenumberGroups();
-  }
-  function fatAddGroup() {
-    const box = document.getElementById('fat-groups');
-    box.insertAdjacentHTML('beforeend', fatGroupHtml());
-    fatRenumberGroups();
-    const el = box.lastElementChild;
-    if (!el) return;
-    const smooth = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    el.classList.add('fat-group-new');
-    el.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
-    const ta = el.querySelector('.fg-skus'); if (ta) ta.focus({ preventScroll: true });
-  }
-  function fatRemoveGroup() {
-    const groups = document.querySelectorAll('#fat-groups .fat-group');
-    if (groups.length > 1) { groups[groups.length - 1].remove(); fatRenumberGroups(); }
-  }
-
-  function fatReadGroups() {
-    return [...document.querySelectorAll('#fat-groups .fat-group')].map((g, i) => ({
-      index:    i + 1,
-      skus:     g.querySelector('.fg-skus').value.split('\n').map(s => s.trim()).filter(Boolean),
-      regra:    g.querySelector('.fg-regra').value,
-      ncm:      g.querySelector('.fg-ncm').value.trim(),
-      origem:   g.querySelector('.fg-origem').value,
-      cest:     g.querySelector('.fg-cest').value.trim(),
-      custoRaw: g.querySelector('.fg-custo').value.trim(),
-    }));
-  }
-
-  // Validações por grupo + SKUs duplicados entre grupos diferentes
-  function fatValidateGroups(groups) {
-    const errors = [];
-    if (!FAT.fileBuffer) errors.push('Envie uma planilha XLSX.');
-    if (!groups.length)  errors.push('Adicione ao menos um grupo.');
-    groups.forEach(g => {
-      const tag = 'Grupo ' + g.index;
-      if (!g.skus.length) errors.push(tag + ': adicione ao menos um SKU.');
-      if (!g.regra)       errors.push(tag + ': selecione a Regra tributária.');
-      if (!g.ncm)         errors.push(tag + ': preencha o NCM.');
-      if (!g.cest)        errors.push(tag + ': preencha o CEST.');
-      if (!g.custoRaw)    errors.push(tag + ': preencha o Custo do produto.');
-      else if (fatParseCusto(g.custoRaw) === null || fatParseCusto(g.custoRaw) === 0)
-        errors.push(tag + ': Custo do produto inválido (ex: 29,90).');
-    });
-    const groupsOf = new Map();
-    groups.forEach(g => g.skus.forEach(s => {
-      if (!groupsOf.has(s)) groupsOf.set(s, new Set());
-      groupsOf.get(s).add(g.index);
-    }));
-    const duplicates = [...groupsOf.entries()].filter(([, set]) => set.size > 1)
-      .map(([sku, set]) => ({ sku, groups: [...set] }));
-    return { errors, duplicates };
-  }
-
-  function fatGroupsToRecords(groups) {
-    const records = [];
-    groups.forEach(g => {
-      const custo = fatParseCusto(g.custoRaw);
-      g.skus.forEach(sku => records.push({
-        C: sku, D: g.regra, E: g.ncm, F: g.origem, L: g.cest, P: custo, costRaw: g.custoRaw, group: g.index,
-      }));
-    });
-    return records;
-  }
-
-  function renderGroupPreview() {
-    const groups  = fatReadGroups();
-    const records = fatGroupsToRecords(groups);
-    const wrap  = document.getElementById('fat-groups-preview-wrap');
-    const tbody = document.getElementById('fat-groups-preview-body');
-    if (!records.length) { wrap.hidden = true; tbody.innerHTML = ''; return; }
-    const dups = new Set(fatValidateGroups(groups).duplicates.map(d => d.sku));
-    wrap.hidden = false;
-    tbody.innerHTML = records.map(r =>
-      `<tr class="${dups.has(r.C) ? 'fat-row-bad' : ''}">` +
-      `<td>${esc(r.C)}</td><td>${r.group}</td><td>${esc(r.D)}</td><td>${esc(r.E)}</td>` +
-      `<td>${r.F ? esc(r.F) : '<span class="hint">—</span>'}</td><td>${esc(r.L)}</td><td>${esc(r.costRaw)}</td></tr>`
-    ).join('');
-    const count = document.getElementById('fat-groups-preview-count');
-    count.className = 'fat-status' + (dups.size ? ' err' : '');
-    count.textContent = `${records.length} SKU(s) em ${groups.length} grupo(s)` +
-      (dups.size ? ` · ${dups.size} SKU(s) duplicado(s) entre grupos!` : '');
-  }
-
-  // BUG-007: o template da Amazon tem uma regra de formatação condicional MODERNA
-  // (extLst/x14 — invisível à CF clássica) da lista "Atividade" ('Validação de
-  // dados'!G3:G5 = Distribuidor/Importador/Fabricante) cujas faixas foram
-  // espatifadas por inserção de linhas e caíram nas colunas B e L (CEST) das
-  // linhas novas (L2867:L3527...) — todo CEST novo ficava vermelho no Excel.
-  // Remove os fragmentos fora da coluna G (CF inteira; na DV só limpa o sqref).
-  // Idempotente; em estrutura inesperada não mexe em nada.
-  function fatStripBrokenCf(sheet) {
-    let removed = 0;
-    try {
-      const extLst = sheet._node.children.find(c => c && c.name === 'extLst');
-      if (!extLst) return 0;
-      const sqOf = b => (b.children || []).find(c => c && c.name === 'xm:sqref');
-      const isAtividade = b => JSON.stringify(b).indexOf('$G$3:$G$5') >= 0;
-      for (const ext of extLst.children.filter(c => c && c.name === 'ext')) {
-        const cfs = (ext.children || []).find(c => c && c.name === 'x14:conditionalFormattings');
-        if (cfs) cfs.children = cfs.children.filter(b => {
-          if (!b || b.name !== 'x14:conditionalFormatting' || !isAtividade(b)) return true;
-          const sq = sqOf(b), txt = sq && sq.children && sq.children[0] ? String(sq.children[0]) : '';
-          if (txt.split(/\s+/).some(p => /^G\d/.test(p))) return true;
-          removed++; return false;
-        });
-        const dvs = (ext.children || []).find(c => c && c.name === 'x14:dataValidations');
-        if (dvs) {
-          dvs.children = dvs.children.filter(b => {
-            if (!b || b.name !== 'x14:dataValidation' || !isAtividade(b)) return true;
-            const sq = sqOf(b);
-            if (!sq || !sq.children || !sq.children.length) return true;
-            const parts = String(sq.children[0]).split(/\s+/).filter(Boolean);
-            const keep = parts.filter(p => /^G\d/.test(p));
-            if (keep.length === parts.length) return true;
-            removed += parts.length - keep.length;
-            if (!keep.length) return false;
-            sq.children[0] = keep.join(' ');
-            return true;
-          });
-          if (dvs.attributes && dvs.attributes.count != null)
-            dvs.attributes.count = dvs.children.filter(b => b && b.name === 'x14:dataValidation').length;
-        }
-      }
-    } catch (e) { /* estrutura inesperada: não mexe na planilha */ }
-    return removed;
-  }
-
-  // Motor de gravação por grupos: reaproveita a linha se o SKU já existe na coluna C; senão, insere.
-  // records = [{C,D,E,F,L,P}]. Nunca sobrescreve célula preenchida.
-  async function fatWriteGroupedRecords(records) {
-    if (!FAT.fileBuffer) return { error: '⚠️ Envie uma planilha XLSX antes de processar.' };
-    await ensureXlsx();
-    let wb;
-    try { wb = await XlsxPopulate.fromDataAsync(FAT.fileBuffer); }
-    catch (e) { return { error: '❌ Não foi possível ler o arquivo XLSX.' }; }
-    if (!wb.sheets().some(s => s.name() === FAT.SHEET))
-      return { error: "❌ A aba '" + FAT.SHEET + "' não foi encontrada na planilha." };
-    const sheet = wb.sheet(FAT.SHEET);
-    if (!records.length) return { error: '⚠️ Nada para preencher.' };
-    fatStripBrokenCf(sheet);   // BUG-007: sem isso, todo CEST de linha nova fica vermelho no Excel
-
-    // Indexa SKUs existentes (coluna C → linha) e localiza lacunas / última linha de dados
-    const C = FAT.COLS.sku;
-    const skuRow = new Map();
-    let lastDataRow = FAT.DATA_START_ROW - 1;
-    const internalEmpty = [];
-    let consec = 0;
-    for (let r = FAT.DATA_START_ROW; r <= FAT.SCAN_CAP && consec < 50; r++) {
-      const v = sheet.cell(C + r).value();
-      if (v === undefined || v === null || String(v).trim() === '') { consec++; }
-      else {
-        for (let g = lastDataRow + 1; g < r; g++) internalEmpty.push(g);
-        skuRow.set(String(v).trim(), r);
-        lastDataRow = r; consec = 0;
-      }
-    }
-    const emptyQueue = internalEmpty.slice();
-    let appendNext = lastDataRow + 1;
-    const nextEmptyRow = () => {
-      while (emptyQueue.length) { const r = emptyQueue.shift(); if (fatCellIsEmpty(sheet.cell(C + r))) return r; }
-      while (appendNext <= FAT.SCAN_CAP + records.length + 10) { const r = appendNext++; if (fatCellIsEmpty(sheet.cell(C + r))) return r; }
-      return null;
-    };
-
-    const stats = { C:{f:0,s:0}, D:{f:0,s:0}, E:{f:0,s:0}, F:{f:0,s:0}, L:{f:0,s:0}, P:{f:0,s:0} };
-    const put = (col, row, value) => {
-      if (value === '' || value === null || value === undefined) return;
-      const cell = sheet.cell(col + row);
-      // BUG-006: NCM (E) e CEST (L) como texto disparam a "Validação de formato" da
-      // Amazon (vermelho). O template guarda número → grava número quando for só
-      // dígitos. Com zero à esquerda mantém texto (número perderia o zero).
-      if ((col === 'E' || col === 'L') && /^[1-9]\d*$/.test(String(value))) value = Number(value);
-      if (fatCellIsEmpty(cell)) { cell.value(value); stats[col].f++; }
-      else { stats[col].s++; }
-    };
-    // Linha inserida nasce fora da faixa formatada do template: herda o estilo
-    // visual da última linha de dados real e ganha "Ok" na coluna A (estilo
-    // "Bom" do Excel, como as linhas conferidas manualmente).
-    const STYLE_PROPS = ['fontFamily', 'fontSize', 'fontColor', 'bold', 'fill', 'border',
-                         'horizontalAlignment', 'verticalAlignment', 'numberFormat'];
-    const refRow = lastDataRow;
-    const dressNewRow = row => {
-      try {
-        if (refRow >= FAT.DATA_START_ROW) {
-          for (const col of ['C', 'D', 'E', 'F', 'L', 'P'])
-            sheet.cell(col + row).style(sheet.cell(col + refRow).style(STYLE_PROPS));
-        }
-        const a = sheet.cell('A' + row);
-        if (fatCellIsEmpty(a)) a.value('Ok').style({
-          fontFamily: 'Amazon Ember', fontSize: 12, fontColor: '006100', fill: 'C6EFCE',
-          horizontalAlignment: 'center', verticalAlignment: 'center'
-        });
-      } catch (e) { /* estilo é cosmético: nunca derruba a gravação */ }
-    };
-    let inserted = 0, existing = 0;
-    records.forEach(rec => {
-      const key = String(rec.C).trim();
-      let row;
-      if (skuRow.has(key)) { row = skuRow.get(key); existing++; } // reaproveita (não reescreve a coluna C)
-      else {
-        row = nextEmptyRow(); if (row == null) return;
-        dressNewRow(row);
-        put('C', row, rec.C); skuRow.set(key, row); inserted++;
-      }
-      put('D', row, rec.D); put('E', row, rec.E); put('F', row, rec.F); put('L', row, rec.L); put('P', row, rec.P);
-    });
-
-    const totalFilled = Object.values(stats).reduce((a, s) => a + s.f, 0);
-    if (totalFilled === 0) return { error: '⚠️ Nada para preencher — as células-alvo já continham valores.' };
-
-    const blob = await wb.outputAsync();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'planilha-faturador-preenchida.xlsx';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    // master "sempre ativo" acumula: guarda os novos bytes, reindexa e persiste
-    try { FAT.fileBuffer = await blob.arrayBuffer(); fatIndexSheet(sheet); FAT.parsed = true; fatPersist(); } catch (e) {}
-    return { ok: true, stats, targetCount: records.length, inserted, existing };
-  }
-
-  async function processFaturadorGroups() {
-    const box = document.getElementById('fat-summary');
-    const fail = msg => { box.className = 'fat-summary show err'; box.innerHTML = msg; };
-    const groups = fatReadGroups();
-    const { errors, duplicates } = fatValidateGroups(groups);
-    if (errors.length) {
-      fail('⚠️ Corrija antes de gerar:<ul style="margin:6px 0 0;padding-left:18px">' +
-        errors.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul>'); return;
-    }
-    if (duplicates.length) {
-      fail('⛔ O mesmo SKU não pode estar em dois grupos (dados fiscais conflitantes). Corrija:' +
-        '<ul style="margin:6px 0 0;padding-left:18px">' +
-        duplicates.map(d => '<li><b>' + esc(d.sku) + '</b> — grupos ' + d.groups.join(', ') + '</li>').join('') + '</ul>'); return;
-    }
-    const records = fatGroupsToRecords(groups);
-    const res = await fatWriteGroupedRecords(records);
-    if (res.error) { fail(res.error); return; }
-    const extra = `<div style="margin-top:4px;color:var(--text-dim)">` +
-      `Grupos processados: <b>${groups.length}</b> · SKUs lidos: <b>${records.length}</b> · ` +
-      `Inseridos na coluna C: <b>${res.inserted}</b> · Já existentes: <b>${res.existing}</b>.</div>`;
-    fatRenderSummary(box, res, '✓ Planilha processada por grupos.', extra);
-    fatRenderActive();
-  }
-
-  function setupFaturador() {
-    fatRestoreBytes();
-    document.getElementById('fat-file').addEventListener('change', e => fatLoadFile(e.target.files[0]));
-    document.getElementById('fat-add-group').addEventListener('click', fatAddGroup);
-    document.getElementById('fat-bulk-split').addEventListener('click', fatSplitBulk);
-    document.getElementById('fat-remove-group').addEventListener('click', fatRemoveGroup);
-    document.getElementById('fat-preview-groups').addEventListener('click', renderGroupPreview);
-    document.getElementById('fat-generate-groups').addEventListener('click', processFaturadorGroups);
-    document.getElementById('fat-groups').addEventListener('input', e => {
-      if (e.target.classList && e.target.classList.contains('fg-ncm')) fatAutofillFromNcm(e.target.closest('.fat-group'));
-    });
-    document.getElementById('fat-groups').addEventListener('click', e => {
-      const del = e.target.closest('.fg-del');
-      if (del) { fatDeleteGroup(del.closest('.fat-group')); return; }
-      const chip = e.target.closest('.fg-chip'); if (!chip) return;
-      const cestEl = chip.closest('.fat-group').querySelector('.fg-cest');
-      if (!cestEl) return;
-      cestEl.value = chip.dataset.cest;   // escolha explícita do usuário: pode sobrescrever
-      fatFlash(cestEl);
-    });
-    if (!document.querySelector('#fat-groups .fat-group')) fatAddGroup();   // inicia com 1 grupo
-  }
-
-
   // ═══════════════════════════════
   //  INIT
   // ═══════════════════════════════
-  setupFaturador();
-  migrateData();
-  render();
   activateView('central');   // abre na Central (home)
   setWorld('central');       // mostra todos os mundos ao entrar
 </script>
-<script src="fluxos.js"></script>
 <script src="empreendedor.js"></script>
 <script src="video-ops.js"></script>
-<script src="ecommerce-news-data.js"></script>
-<script src="ecommerce-news.js"></script>
-<script src="ai-news-data.js"></script>
-<script src="ai-news.js"></script>
-<script src="claude-radar-data.js"></script>
-<script src="claude-radar.js"></script>
-<script>
-  // Radar — alterna os feeds sem misturar. Roda após os renderers,
-  // então conta os cards já pintados. Nav badge = itens do feed ativo.
-  (function () {
-    var seg = document.querySelector('.radar-seg');
-    var badge = document.getElementById('count-radar');
-    var panels = {
-      ecom: document.getElementById('radar-panel-ecom'),
-      ia: document.getElementById('radar-panel-ia'),
-      claude: document.getElementById('radar-panel-claude')
-    };
-    if (!seg || Object.values(panels).some(function (p) { return !p; })) return;
-    var count = function (p) { return p.querySelectorAll('.ecom-card').length; };
-    var show = function (which) {
-      if (!panels[which]) return;
-      Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== which; });
-      seg.querySelectorAll('.radar-seg-btn').forEach(function (b) {
-        var on = b.dataset.radar === which;
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-      });
-      if (badge) badge.textContent = count(panels[which]);
-    };
-    seg.addEventListener('click', function (e) {
-      var b = e.target.closest('.radar-seg-btn');
-      if (b) show(b.dataset.radar);
-    });
-    if (badge) badge.textContent = count(panels.ecom); // padrão: e-commerce
-  })();
-</script>
 
 <!-- Supabase: somente configuração pública + Auth/RLS + snapshot de metadados do Estúdio. -->
 <script src="supabase-config.js"></script>
@@ -3153,23 +952,23 @@
 <script src="nba-teams.js"></script>
 <script src="score-bar.js"></script>
 <style id="wiz-roundstart-styles">
-#wiz-roundstart.wz-rs{ position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:24px; cursor:pointer; background:rgba(4,9,18,0); -webkit-backdrop-filter:blur(0); backdrop-filter:blur(0); opacity:0; transition: opacity 340ms cubic-bezier(.23,1,.32,1), background-color 340ms ease, backdrop-filter 340ms ease, -webkit-backdrop-filter 340ms ease; }
-#wiz-roundstart.wz-rs.show{ opacity:1; background:rgba(4,9,18,.72); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); transition: opacity 450ms cubic-bezier(.23,1,.32,1), background-color 450ms ease, backdrop-filter 450ms ease, -webkit-backdrop-filter 450ms ease; }
-#wiz-roundstart .wz-rs-card{ position:relative; box-sizing:border-box; min-width:260px; max-width:86vw; padding:30px 46px; text-align:center; background:linear-gradient(155deg, var(--team-navy,#002B5C) 0%, #061523 72%); border:1px solid rgba(196,206,212,.22); border-radius:18px; box-shadow:0 24px 64px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07); transform:scale(.9) translateY(10px); opacity:0; transition: transform 340ms cubic-bezier(.23,1,.32,1), opacity 340ms cubic-bezier(.23,1,.32,1); }
-#wiz-roundstart.wz-rs.show .wz-rs-card{ transform:scale(1) translateY(0); opacity:1; transition: transform 460ms cubic-bezier(.23,1,.32,1), opacity 460ms cubic-bezier(.23,1,.32,1); }
-#wiz-roundstart .wz-rs-card::before{ content:''; position:absolute; left:0; right:0; top:0; height:3px; border-radius:18px 18px 0 0; background:linear-gradient(90deg, var(--team-red,#E31837), var(--team-navy-bright,#2E6FE0)); }
-#wiz-roundstart .wz-rs-kicker{ font-size:11px; font-weight:800; letter-spacing:.34em; text-transform:uppercase; color:var(--team-red,#E31837); margin-bottom:6px; }
-#wiz-roundstart .wz-rs-ball{ font-size:46px; line-height:1; margin:2px 0 6px; }
-#wiz-roundstart.wz-rs.show .wz-rs-ball{ animation:wz-rs-pop 620ms cubic-bezier(.23,1,.32,1) 120ms both; }
-#wiz-roundstart .wz-rs-title{ font-size:26px; font-weight:800; color:#fff; letter-spacing:.01em; }
-#wiz-roundstart .wz-rs-sub{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--team-silver,#C4CED4); opacity:.75; margin-top:3px; }
-#wiz-roundstart .wz-rs-match{ margin-top:16px; display:flex; align-items:center; justify-content:center; gap:12px; font-size:19px; color:var(--team-silver,#C4CED4); }
-#wiz-roundstart .wz-rs-match b{ color:#fff; font-weight:800; }
-#wiz-roundstart .wz-rs-match span{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; opacity:.55; }
+#wiz-roundstart.wz-rs { position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:24px; cursor:pointer; background:rgba(4,9,18,0); -webkit-backdrop-filter:blur(0); backdrop-filter:blur(0); opacity:0; transition: opacity 340ms cubic-bezier(.23,1,.32,1), background-color 340ms ease, backdrop-filter 340ms ease, -webkit-backdrop-filter 340ms ease; }
+#wiz-roundstart.wz-rs.show { opacity:1; background:rgba(4,9,18,.72); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); transition: opacity 450ms cubic-bezier(.23,1,.32,1), background-color 450ms ease, backdrop-filter 450ms ease, -webkit-backdrop-filter 450ms ease; }
+#wiz-roundstart .wz-rs-card { position:relative; box-sizing:border-box; min-width:260px; max-width:86vw; padding:30px 46px; text-align:center; background:linear-gradient(155deg, var(--team-navy,#002B5C) 0%, #061523 72%); border:1px solid rgba(196,206,212,.22); border-radius:18px; box-shadow:0 24px 64px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07); transform:scale(.9) translateY(10px); opacity:0; transition: transform 340ms cubic-bezier(.23,1,.32,1), opacity 340ms cubic-bezier(.23,1,.32,1); }
+#wiz-roundstart.wz-rs.show .wz-rs-card { transform:scale(1) translateY(0); opacity:1; transition: transform 460ms cubic-bezier(.23,1,.32,1), opacity 460ms cubic-bezier(.23,1,.32,1); }
+#wiz-roundstart .wz-rs-card::before { content:''; position:absolute; left:0; right:0; top:0; height:3px; border-radius:18px 18px 0 0; background:linear-gradient(90deg, var(--team-red,#E31837), var(--team-navy-bright,#2E6FE0)); }
+#wiz-roundstart .wz-rs-kicker { font-size:11px; font-weight:800; letter-spacing:.34em; text-transform:uppercase; color:var(--team-red,#E31837); margin-bottom:6px; }
+#wiz-roundstart .wz-rs-ball { font-size:46px; line-height:1; margin:2px 0 6px; }
+#wiz-roundstart.wz-rs.show .wz-rs-ball { animation:wz-rs-pop 620ms cubic-bezier(.23,1,.32,1) 120ms both; }
+#wiz-roundstart .wz-rs-title { font-size:26px; font-weight:800; color:#fff; letter-spacing:.01em; }
+#wiz-roundstart .wz-rs-sub { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--team-silver,#C4CED4); opacity:.75; margin-top:3px; }
+#wiz-roundstart .wz-rs-match { margin-top:16px; display:flex; align-items:center; justify-content:center; gap:12px; font-size:19px; color:var(--team-silver,#C4CED4); }
+#wiz-roundstart .wz-rs-match b { color:#fff; font-weight:800; }
+#wiz-roundstart .wz-rs-match span { font-size:11px; letter-spacing:.1em; text-transform:uppercase; opacity:.55; }
 @keyframes wz-rs-pop{ 0%{ transform:scale(.4); opacity:0; } 60%{ transform:scale(1.12); opacity:1; } 100%{ transform:scale(1); } }
 @media (prefers-reduced-motion: reduce){
-  #wiz-roundstart .wz-rs-card, #wiz-roundstart.wz-rs.show .wz-rs-card{ transition:opacity 220ms ease !important; transform:none !important; }
-  #wiz-roundstart.wz-rs.show .wz-rs-ball{ animation:none !important; }
+  #wiz-roundstart .wz-rs-card, #wiz-roundstart.wz-rs.show .wz-rs-card { transition:opacity 220ms ease !important; transform:none !important; }
+  #wiz-roundstart.wz-rs.show .wz-rs-ball { animation:none !important; }
 }
 </style>
 

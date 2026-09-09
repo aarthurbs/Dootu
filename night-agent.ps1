@@ -14,6 +14,17 @@ $perRunCapSec = 1500   # 25 min por execucao (backstop)
 $tools = 'Read,Glob,Grep,Edit,Write,Skill,Bash(node:*),Bash(node --check:*),Bash(git add:*),Bash(git commit:*),Bash(git status:*),Bash(git log:*),Bash(git diff:*),Bash(git checkout:*),Bash(git rev-parse:*),Bash(date:*),Bash(ls:*),Bash(cat:*)'
 
 Set-Location $proj
+
+# O payload desta janela noturna era o backlog do modulo Fluxos, removido em 2026-09-08 junto com
+# o 'night-agent-prompt.md'. Sem prompt nao ha o que fazer: para com mensagem clara em vez de
+# rodar o claude.exe sem instrucao. Para desligar de vez:
+#   Disable-ScheduledTask -TaskName "Night Agent (Seller-Arthur)"
+if (-not (Test-Path $prompt)) {
+  Write-Host "night-agent: '$prompt' nao existe (saiu com o modulo Fluxos em 2026-09-08)." -ForegroundColor Yellow
+  Write-Host "Escreva um novo prompt nesse caminho ou desative a Tarefa Agendada." -ForegroundColor Yellow
+  exit 0
+}
+
 $today = Get-Date -Format 'yyyy-MM-dd'
 $log = Join-Path $env:TEMP "night-agent-$today.log"
 $reportDir = Join-Path $proj 'docs\night-reports'
