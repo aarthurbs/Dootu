@@ -796,4 +796,151 @@ ok('o fieldset do enquadramento e posicionado e o radio ancora nele', () => {
   assert.doesNotMatch(mask[1], /transition/);
 });
 
+/* ===== Hub de recomendacoes: bordas, miniatura e ordem ================================ */
+function trechoSalvo(extra) {
+  return Object.assign({
+    id: 'cand_1', topic: 'A licao dos quarenta mil', inSec: 600, outSec: 640,
+    durationSec: 40, score: 84, quality: 'forte', boundary: 'palavra', rev: 1,
+    clipToken: '', clipFilename: '', clipBytes: 0, clipCues: []
+  }, extra || {});
+}
+
+/* `ytApplyTrim` mexe em dado PERSISTIDO (o candidato do projeto salvo em
+   pp_video_projects_v1), e o ramo que interessa e o do operador que JA tinha baixado o
+   trecho: se a midia antiga sobrevivesse a uma borda nova, "Baixar video editado"
+   entregaria um arquivo de OUTRO intervalo sob esse rotulo. BP-014 manda exportar e chamar
+   com o dado construido, nos DOIS ramos -- com arquivo e sem. */
+ok('trim aplica os tempos novos e sobe a revisao, sem trocar a identidade', () => {
+  const c = trechoSalvo();
+  assert.strictEqual(ops.ytApplyTrim(c, 604, 642, 3600), '');
+  assert.strictEqual(c.inSec, 604);
+  assert.strictEqual(c.outSec, 642);
+  assert.strictEqual(c.durationSec, 38, 'a duracao foi recalculada junto');
+  assert.strictEqual(c.rev, 2, 'a revisao do intervalo subiu');
+  assert.strictEqual(c.id, 'cand_1', 'a identidade nao muda: projeto salvo continua abrindo');
+  assert.strictEqual(c.boundary, 'manual',
+    'borda mexida a mao deixa de ser afirmada como medida na palavra');
+});
+ok('trim DESCARTA a midia do intervalo antigo (o ramo que custa caro)', () => {
+  const c = trechoSalvo({
+    clipToken: 'tok_um', clipFilename: 'abc-600-640.mp4', clipBytes: 12345,
+    clipCues: [{ start: 0, end: 2, text: 'eu perdi quarenta mil' }],
+    clipStatus: 'available', clipAvailable: true
+  });
+  assert.strictEqual(ops.ytApplyTrim(c, 610, 650, 3600), '');
+  assert.strictEqual(c.clipToken, '', 'o token do arquivo antigo saiu');
+  assert.strictEqual(c.clipFilename, '', 'e o nome do arquivo antigo tambem');
+  assert.strictEqual(c.clipBytes, 0);
+  assert.strictEqual(c.clipCues.length, 0,
+    'e a legenda do clipe, que estava rebaseada no comeco ANTIGO');
+  assert.strictEqual(c.clipStatus, 'none');
+  assert.strictEqual(c.clipAvailable, false);
+  assert.strictEqual(c.rev, 2);
+});
+ok('trim recusa intervalo impossivel COM a frase do motivo, e nao altera o trecho', () => {
+  const c = trechoSalvo();
+  assert.ok(ops.ytApplyTrim(c, 700, 600, 3600).length > 0, 'fim antes do comeco');
+  assert.strictEqual(c.inSec, 600, 'o trecho recusado ficou intacto');
+  assert.ok(ops.ytApplyTrim(c, 600, 601, 3600).length > 0, 'trecho de 1s');
+  assert.ok(ops.ytApplyTrim(c, 600, 5000, 3600).length > 0, 'fim depois do fim do video');
+  assert.strictEqual(c.outSec, 640, 'nem o fim');
+});
+ok('trim apara comeco negativo em vez de recusar', () => {
+  const c = trechoSalvo();
+  assert.strictEqual(ops.ytApplyTrim(c, -30, 640, 3600), '');
+  assert.strictEqual(c.inSec, 0);
+});
+ok('aplicar os MESMOS tempos nao invalida arquivo nenhum', () => {
+  const c = trechoSalvo({ clipToken: 'tok_um', clipBytes: 99 });
+  assert.strictEqual(ops.ytApplyTrim(c, 600, 640, 3600), '');
+  assert.strictEqual(c.clipToken, 'tok_um', 'borda que nao mudou nao descarta midia');
+  assert.strictEqual(c.rev, 1, 'nem sobe a revisao');
+});
+
+/* O quadro do storyboard cai DENTRO do intervalo, e a conta do recorte fecha. */
+ok('sbFrame escolhe folha, linha e coluna do instante dentro do trecho', () => {
+  ops.__setStoryboard({
+    sheets: ['https://i.ytimg.com/sb/x/M0.jpg', 'https://i.ytimg.com/sb/x/M1.jpg',
+             'https://i.ytimg.com/sb/x/M2.jpg'],
+    columns: 3, rows: 3, fps: 0.1, width: 320, height: 180
+  });
+  const q = ops.sbFrame({ inSec: 0, outSec: 100 });
+  assert.ok(q, 'com folha valida sai um quadro');
+  assert.deepStrictEqual(q.escala, [300, 300], 'a folha ocupa 3x3 o contentor');
+  /* t = 0 + 100*0,35 = 35 s -> indice floor(35*0,1) = 3 -> folha 0, linha 1, coluna 0. */
+  assert.strictEqual(q.url, 'https://i.ytimg.com/sb/x/M0.jpg');
+  /* `Math.abs`: a coluna 0 da -0, e `strictEqual(-0, 0)` reprova (Object.is). No CSS
+     nao muda nada -- `(-0).toFixed(4)` sai '0.0000'. */
+  assert.ok(Math.abs(q.desloca[0]) < 1e-9, 'coluna 0: sem deslocamento horizontal');
+  assert.strictEqual(Math.round(q.desloca[1] * 1000) / 1000, -33.333, 'linha 1');
+  ops.__setStoryboard(null);
+});
+ok('sbFrame nunca sai da lista de folhas e nunca repete o mesmo quadro para trechos distantes', () => {
+  ops.__setStoryboard({
+    sheets: ['https://i.ytimg.com/sb/x/M0.jpg', 'https://i.ytimg.com/sb/x/M1.jpg',
+             'https://i.ytimg.com/sb/x/M2.jpg'],
+    columns: 3, rows: 3, fps: 0.1
+  });
+  assert.strictEqual(ops.sbFrame({ inSec: 9000, outSec: 9100 }).url,
+    'https://i.ytimg.com/sb/x/M2.jpg', 'instante alem da ultima folha para na ultima');
+  const a = ops.sbFrame({ inSec: 0, outSec: 60 });
+  const b = ops.sbFrame({ inSec: 600, outSec: 660 });
+  assert.ok(a.url !== b.url || a.desloca[0] !== b.desloca[0] || a.desloca[1] !== b.desloca[1],
+    'trechos em pontos diferentes do video nao mostram o MESMO quadro');
+  ops.__setStoryboard(null);
+  assert.strictEqual(ops.sbFrame({ inSec: 0, outSec: 60 }), null,
+    'sem folha nao ha quadro, e o card cai na capa rotulada');
+});
+ok('o validador da folha recusa grade impossivel e URL que nao e https', () => {
+  assert.strictEqual(ops.ytStoryboardFrom(null), null);
+  assert.strictEqual(ops.ytStoryboardFrom(
+    { storyboard: { sheets: [], columns: 3, rows: 3, fps: 0.1 } }), null, 'sem imagem');
+  assert.strictEqual(ops.ytStoryboardFrom(
+    { storyboard: { sheets: ['https://a/1.jpg'], columns: 0, rows: 3, fps: 0.1 } }), null,
+    'zero coluna devolve null em vez de dividir por zero no sbFrame');
+  assert.strictEqual(ops.ytStoryboardFrom(
+    { storyboard: { sheets: ['https://a/1.jpg'], columns: 3, rows: 3, fps: 0 } }), null,
+    'fps zero devolve null');
+  const limpo = ops.ytStoryboardFrom({ storyboard: {
+    sheets: ['https://a/1.jpg', 'javascript:alert(1)', 'http://a/2.jpg'],
+    columns: 3, rows: 3, fps: 0.1 } });
+  assert.strictEqual(limpo.sheets.length, 1, 'so https sobrevive');
+  assert.strictEqual(limpo.sheets[0], 'https://a/1.jpg');
+});
+
+/* A ordem da grade e estavel e reproduzivel -- e o que permite comparar duas analises. */
+ok('a ordem da grade e estavel nas duas opcoes', () => {
+  ops.__setCandidates([
+    { id: 'c1', inSec: 900, outSec: 940, score: 70 },
+    { id: 'c2', inSec: 100, outSec: 140, score: 84 },
+    { id: 'c3', inSec: 500, outSec: 540, score: 70 }
+  ]);
+  ops.__setSort('quality');
+  const ids = () => ops.ytSorted().map((c) => c.id).join(',');
+  assert.strictEqual(ids(), 'c2,c3,c1', 'melhor primeiro; empate desempata pelo instante');
+  assert.strictEqual(ids(), ids(), 'chamar duas vezes da a mesma ordem');
+  ops.__setSort('time');
+  assert.strictEqual(ids(), 'c2,c3,c1', 'ordem do video ordena pelo instante');
+  ops.__setSort('quality');
+  ops.__setCandidates([]);
+});
+
+/* Estado do arquivo local: cada caso com a SUA frase. Botao morto e mudo e bug (BP-008). */
+ok('clipStatusOf explica cada estado do arquivo, inclusive quando nao deixa baixar', () => {
+  const liberado = { allowed: true, reason: '' };
+  const travado = { allowed: false, reason: 'voce ainda nao declarou ter autorizacao' };
+  assert.strictEqual(ops.clipStatusOf({ id: 'x' }, travado).podeBaixar, false);
+  assert.ok(ops.clipStatusOf({ id: 'x' }, travado).motivo.length > 0, 'com o motivo escrito');
+  assert.strictEqual(ops.clipStatusOf({ id: 'x' }, liberado).podeBaixar, true);
+  assert.strictEqual(ops.clipStatusOf({ id: 'x' }, liberado).pronto, false,
+    'trecho sem arquivo nao esta pronto para editar');
+  assert.strictEqual(
+    ops.clipStatusOf({ id: 'x', clipToken: 'tok', clipBytes: 10 }, liberado).pronto, true);
+  assert.ok(ops.clipStatusOf({ id: 'x', clipStatus: 'missing' }, liberado).nota.length > 0,
+    'arquivo que saiu do disco DIZ isso, em vez de sumir calado');
+  const off = ops.clipStatusOf({ id: 'x', clipStatus: 'helper_offline' }, liberado);
+  assert.ok(off.nota.indexOf('estudio.ps1') > 0, 'renderizador desligado diz o que rodar');
+  assert.strictEqual(off.podeBaixar, false, 'e nao oferece download que nao vai funcionar');
+});
+
 console.log(provas + ' provas OK — lógica pura do Estúdio de Vídeos');

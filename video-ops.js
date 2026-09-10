@@ -3,7 +3,7 @@
    O módulo tem CINCO telas e nada além disso:
      1 Vídeo   — carrega o original desta sessão (arquivo local).
      2 Cortes  — marca os trechos no mesmo vídeo (nome + prioridade).
-     3 Clips   — a lista dos cortes e o ⬇ que gera o MP4 de verdade.
+     3 Revisão — a lista dos cortes e o ⬇ que gera o MP4 de verdade.
      Central   — os clips JÁ baixados, agrupados por vídeo. É a única coisa persistida.
      YouTube   — cola a URL, o detector sugere trechos, baixa só o trecho e edita no Remotion.
 
@@ -622,7 +622,11 @@
      §10 — segue passando por um portão explícito, agora uma declaração do operador. */
   var YT = {
     url: '', videoId: '', state: 'idle', note: '', title: '', duration: 0,
-    candidates: [], authorized: false, preview: ''
+    candidates: [], authorized: false, preview: '',
+    /* `detail` = trecho aberto no editor; `dlMenu` = trecho com o menu de download aberto;
+       `sort` = ordem da grade; `thumbnail`/`storyboard` = as imagens da fonte. Nenhum
+       deles e persistido: sao estado de TELA, e recarregar volta para a grade. */
+    detail: '', dlMenu: '', sort: 'quality', thumbnail: '', storyboard: null
   };
   var YT_ID = /^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])/;
   function ytVideoId(url) {
@@ -655,12 +659,48 @@
            no ponto que mais custa caro depois (BP-008). */
         contextWarning: cleanText(item.contextWarning, 600),
         category: cleanText(item.category, 40),
+        /* Faixa de qualidade e decomposicao. Trecho salvo ANTES desta entrega nao tem as
+           chaves: `quality` vazia faz o card nao mostrar faixa nenhuma (que e melhor que
+           mostrar faixa errada) e `factors` vazio esconde a secao, sem quebrar nada. */
+        quality: cleanText(item.quality, 20),
+        qualityLabel: cleanText(item.qualityLabel, 40),
+        factors: (Array.isArray(item.factors) ? item.factors : []).slice(0, 12)
+          .filter(function (f) { return f && typeof f === 'object'; })
+          .map(function (f) {
+            return { id: cleanText(f.id, 40), label: cleanText(f.label, 60),
+                     weight: num(f.weight), value: frac(f.value), note: cleanText(f.note, 300) };
+          }),
+        evidence: cleanText(item.evidence, 300),
+        /* De onde vem a borda: `palavra`, `fala`, `audiencia` ou `manual`. A tela DIZ isso
+           em vez de afirmar conferencia que nao houve. */
+        boundary: cleanText(item.boundary, 20) || 'fala',
+        /* Revisao do intervalo. Sobe quando a borda muda, e e o que invalida MP4 baixado,
+           legenda rebaseada e miniatura. A identidade (`id`) nao muda com ela. */
+        rev: 1,
         signals: (Array.isArray(item.signals) ? item.signals : [])
           .filter(function (s) { return typeof s === 'string'; })
           .map(function (s) { return cleanText(s, 40); }).filter(Boolean).slice(0, 6),
         clipToken: '', clipBytes: 0, clipCues: []
       };
     }).filter(function (clip) { return clip.outSec > clip.inSec; });
+  }
+
+  /* A folha de miniaturas, pelo validador. Vem do servidor, e servidor e entrada: uma
+     folha sem grade positiva faria o `sbFrame` dividir por zero, e uma URL que nao e https
+     entraria no `src` da imagem. Grade invalida devolve null, e o card cai na capa. */
+  function ytStoryboardFrom(payload) {
+    var raw = payload && payload.storyboard;
+    if (!raw || typeof raw !== 'object') return null;
+    var folhas = (Array.isArray(raw.sheets) ? raw.sheets : [])
+      .map(function (u) { return safeUrl(u); })
+      .filter(function (u) { return u.indexOf('https://') === 0; })
+      .slice(0, 80);
+    var cols = num(raw.columns);
+    var rows = num(raw.rows);
+    var fps = Number(raw.fps);
+    if (!folhas.length || cols < 1 || rows < 1 || !Number.isFinite(fps) || fps <= 0) return null;
+    return { sheets: folhas, columns: cols, rows: rows, fps: fps,
+             width: num(raw.width), height: num(raw.height) };
   }
 
   /* --- "Mais reproduzidos" (recomendação no Passo 2) -------------------------------
@@ -1525,166 +1565,436 @@
   }
 
 /* --- Tela YouTube ---------------------------------------------------------------- */
+  /* --- Hub de recomendações -----------------------------------------------------------
+     Uma grade compacta de cards 16:9, e nada de controle de produção dentro dela: quem
+     compara trechos precisa ver VÁRIOS ao mesmo tempo, e enquadramento, card de marca,
+     legenda e render são decisões de UM trecho — vivem na tela de detalhe (`yt-open`).
+     Antes desta entrega cada card ocupava uma linha inteira com os cinco controles, e
+     comparar dois trechos exigia rolar a página. */
+
+  /* Quadro do storyboard que representa o trecho. 35% dentro do corte de propósito: o
+     começo costuma cair no ponto de troca de plano (quadro preto, transição) e o fim é a
+     borda que o operador vai ajustar. `fps` do storyboard é quadros por segundo de VÍDEO
+     (~0,1 = um quadro a cada 10 s), então o índice é `floor(t * fps)`.
+     Não há cache por intervalo de propósito: a folha é a MESMA para todo o vídeo, o
+     intervalo só muda o recorte. Mexer na borda não pede imagem nova — o cache HTTP do
+     navegador já guarda a folha, e é por isso que a grade inteira custa poucas imagens. */
+  function sbFrame(clip) {
+    var sb = YT.storyboard;
+    if (!sb || !sb.sheets || !sb.sheets.length || !(sb.fps > 0)) return null;
+    var cols = Math.max(1, num(sb.columns));
+    var rows = Math.max(1, num(sb.rows));
+    var porFolha = cols * rows;
+    var t = num(clip.inSec) + (num(clip.outSec) - num(clip.inSec)) * 0.35;
+    var indice = Math.max(0, Math.floor(t * Number(sb.fps)));
+    var folha = Math.floor(indice / porFolha);
+    if (folha >= sb.sheets.length) folha = sb.sheets.length - 1;
+    var dentro = indice - folha * porFolha;
+    return {
+      url: sb.sheets[folha],
+      /* Largura/altura em % do contêiner e o deslocamento em % da PRÓPRIA imagem: com a
+         folha em `cols*100%`, mover um quadro é andar `100/cols` por cento dela. */
+      escala: [cols * 100, rows * 100],
+      desloca: [-(dentro % cols) * (100 / cols), -Math.floor(dentro / cols) * (100 / rows)]
+    };
+  }
+  /* A miniatura do card. Três estados, todos rotulados — miniatura muda é indistinguível
+     de miniatura quebrada (BP-008): quadro do trecho, capa do vídeo, ou indisponível. */
+  function ytThumbHTML(clip) {
+    var frame = sbFrame(clip);
+    var dur = Math.max(0, Math.round(num(clip.outSec) - num(clip.inSec)));
+    var faixa = fmtClock(clip.inSec) + ' a ' + fmtClock(clip.outSec);
+    var interno;
+    if (frame) {
+      interno = '<img class="yt-thumb-sheet" src="' + esc(frame.url) + '" alt=""'
+        + ' loading="lazy" decoding="async"'
+        + ' style="width:' + frame.escala[0] + '%;height:' + frame.escala[1] + '%;'
+        + 'transform:translate(' + frame.desloca[0].toFixed(4) + '%,' + frame.desloca[1].toFixed(4) + '%)"'
+        + ' onload="this.dataset.pronto=\'1\'"'
+        + ' onerror="this.closest(\'.yt-thumb\').dataset.fallback=\'quebrou\'">';
+    } else if (YT.thumbnail) {
+      interno = '<img class="yt-thumb-capa" src="' + esc(YT.thumbnail) + '" alt=""'
+        + ' loading="lazy" decoding="async" onload="this.dataset.pronto=\'1\'"'
+        + ' onerror="this.closest(\'.yt-thumb\').dataset.fallback=\'quebrou\'">'
+        + '<span class="yt-thumb-tag">Imagem do vídeo</span>';
+    } else {
+      interno = '<span class="yt-thumb-tag">Prévia indisponível</span>';
+    }
+    return '<button class="yt-thumb" type="button" data-act="yt-preview" data-id="' + esc(clip.id) + '"'
+      + ' aria-label="Ver prévia de ' + esc(clip.topic) + ', de ' + esc(faixa) + '">'
+      + interno
+      + '<span class="yt-thumb-quebrou">Prévia indisponível</span>'
+      + '<span class="yt-play" aria-hidden="true"></span>'
+      + '<span class="yt-dur">' + esc(fmtClock(dur)) + '</span>'
+      + '</button>';
+  }
+  /* Estado do arquivo local do trecho. Um lugar só: o card mostra o resumo e a tela de
+     detalhe mostra a frase inteira, e as duas leem daqui. */
+  function clipStatusOf(clip, gate) {
+    var estado = clip.clipStatus || (clip.clipToken ? 'available' : 'none');
+    var temArquivo = !!(clip.clipToken || clip.clipFilename);
+    var baixando = !!YT_BUSY['fetch:' + clip.id];
+    var out = { chip: '', nota: '', pronto: false, podeBaixar: false,
+                rotulo: 'Baixar trecho', motivo: '' };
+    if (estado === 'checking') {
+      out.chip = chip('vop-status-warn', 'Verificando…');
+      out.rotulo = 'Verificando…';
+      out.motivo = 'o Estúdio ainda está conferindo se o arquivo está no disco';
+    } else if (estado === 'available' || (temArquivo && estado === 'none')) {
+      out.chip = chip('source-ready', 'Trecho no disco · ' + fmtBytes(clip.clipBytes));
+      out.pronto = true;
+      out.podeBaixar = gate.allowed && !baixando;
+      out.rotulo = 'Baixar de novo';
+    } else if (estado === 'missing') {
+      out.chip = chip('vop-status-error', 'Arquivo saiu do disco');
+      out.nota = 'O trecho não está mais no seu computador. Baixe outra vez para editar.';
+      out.podeBaixar = gate.allowed && !baixando;
+      out.rotulo = baixando ? 'Baixando…' : 'Baixar de novo';
+      out.motivo = gate.allowed ? '' : gate.reason;
+    } else if (estado === 'helper_offline') {
+      out.chip = chip('vop-status-warn', 'Renderizador desligado');
+      out.nota = 'O renderizador local não está ativo — rode estudio.ps1 para baixar e editar.';
+      out.motivo = 'o renderizador local não está ativo';
+    } else if (estado === 'error') {
+      out.chip = chip('vop-status-error', 'Erro ao verificar');
+      out.nota = 'Não foi possível conferir o arquivo. Tente baixar de novo.';
+      out.podeBaixar = gate.allowed && !baixando;
+      out.rotulo = baixando ? 'Baixando…' : 'Tentar de novo';
+      out.motivo = gate.allowed ? '' : gate.reason;
+    } else {
+      out.podeBaixar = gate.allowed && !baixando;
+      out.rotulo = baixando ? 'Baixando…' : 'Baixar trecho';
+      out.motivo = gate.allowed ? '' : gate.reason;
+    }
+    return out;
+  }
+  /* Menu de download. Duas saídas com nomes diferentes porque são arquivos diferentes, e
+     "Baixar" sozinho não diz qual: o trecho original é o recorte cru da fonte; o vídeo
+     editado é o 9:16 que sai do Remotion com legenda e enquadramento. Editado sem trecho
+     no disco fica DESABILITADO com o motivo à vista, nunca entregando o arquivo antigo. */
+  function ytDownloadHTML(clip, status) {
+    var aberto = YT.dlMenu === clip.id;
+    var renderizando = !!YT_BUSY['render:' + clip.id];
+    return '<div class="yt-dl' + (aberto ? ' open' : '') + '">'
+      + '<button class="vop-btn vop-btn-quiet yt-dl-trigger" type="button" data-act="yt-dl-menu"'
+      + ' data-id="' + esc(clip.id) + '" aria-expanded="' + aberto + '" aria-haspopup="true">'
+      + 'Baixar<span class="yt-dl-caret" aria-hidden="true"></span></button>'
+      + (aberto
+        ? '<div class="yt-dl-menu" role="menu">'
+          + '<button type="button" role="menuitem" data-act="yt-fetch" data-id="' + esc(clip.id) + '"'
+          + (status.podeBaixar ? '' : ' disabled') + '>'
+          + esc(status.pronto ? 'Baixar trecho original de novo' : 'Baixar trecho original')
+          + '<small>' + esc(status.podeBaixar ? 'recorte cru da fonte, sem edição'
+            : ('bloqueado: ' + (status.motivo || 'sem permissão'))) + '</small></button>'
+          + '<button type="button" role="menuitem" data-act="yt-render" data-id="' + esc(clip.id) + '"'
+          + (status.pronto && !renderizando ? '' : ' disabled') + '>'
+          + esc(renderizando ? 'Renderizando…' : 'Baixar vídeo editado')
+          + '<small>' + esc(status.pronto
+            ? '9:16 com legenda e enquadramento — ' + renderEta(num(clip.outSec) - num(clip.inSec))
+            : 'baixe o trecho original primeiro') + '</small></button>'
+          + '</div>'
+        : '')
+      + '</div>';
+  }
   function ytCandidateCardHTML(clip, videoId, gate) {
-    var span = num(clip.outSec) - num(clip.inSec);
-    var open = YT.preview === clip.id;
-    var busy = !!YT_BUSY['fetch:' + clip.id];
-    var rendering = !!YT_BUSY['render:' + clip.id];
+    var status = clipStatusOf(clip, gate);
+    /* A faixa de qualidade aparece só quando NÃO é a melhor: elogio em todo card é ruído,
+       e a informação que muda decisão é a ressalva. A nota numérica saiu do card de
+       propósito — número de 0 a 100 num card lê como probabilidade de sucesso, que este
+       sistema não mede. Ela e a decomposição continuam na tela de detalhe. */
+    var faixa = clip.quality && clip.quality !== 'forte'
+      ? chip('yt-q-' + clip.quality, clip.qualityLabel) : '';
+    return '<article class="yt-card" data-clip="' + esc(clip.id) + '">'
+      + ytThumbHTML(clip)
+      + '<div class="yt-card-body">'
+      + '<h3 class="yt-card-title">' + esc(clip.topic) + '</h3>'
+      + '<div class="yt-card-meta">'
+      + '<span class="yt-range">' + esc(fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec)) + '</span>'
+      + faixa + status.chip + '</div>'
+      + (clip.evidence ? '<p class="yt-card-why">' + esc(clip.evidence) + '</p>' : '')
+      + (clip.contextWarning ? '<p class="yt-card-warn">' + esc(clip.contextWarning) + '</p>' : '')
+      + (status.nota ? '<p class="yt-card-warn">' + esc(status.nota) + '</p>' : '')
+      + '</div>'
+      + '<div class="yt-card-acts">'
+      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-open" data-id="' + esc(clip.id) + '">Editar</button>'
+      + ytDownloadHTML(clip, status)
+      + '</div>'
+      + '</article>';
+  }
+  /* --- Tela de detalhe (o editor do trecho) -------------------------------------------
+     É para onde foram os controles que estavam na grade. Mesma sessão, mesmos objetos —
+     `yt-back` volta para a grade com a rolagem no lugar. */
+  function ytFactorsHTML(clip) {
+    var fatores = Array.isArray(clip.factors) ? clip.factors : [];
+    if (!fatores.length) return '';
+    return '<details class="yt-factors"><summary>Como esta sugestão foi avaliada'
+      + (num(clip.score) ? ' <span>' + num(clip.score) + '/100</span>' : '') + '</summary>'
+      + '<p class="yt-factors-note">Nota interna, usada só para ordenar a lista. Não é '
+      + 'previsão de desempenho — o Estúdio não mede audiência futura.</p>'
+      + '<ul>' + fatores.map(function (f) {
+        var pct = Math.round(Math.max(0, Math.min(1, Number(f.value) || 0)) * 100);
+        return '<li><span class="yt-factor-name">' + esc(f.label) + '</span>'
+          + '<span class="yt-factor-bar" aria-hidden="true"><i style="width:' + pct + '%"></i></span>'
+          + '<span class="yt-factor-val">' + pct + '% de ' + num(f.weight) + ' pts</span>'
+          + '<small>' + esc(f.note) + '</small></li>';
+      }).join('') + '</ul></details>';
+  }
+  function ytTrimHTML(clip) {
+    return '<fieldset class="yt-trim"><legend>Começo e fim</legend>'
+      + '<p class="yt-trim-note">O Estúdio fecha o corte no fim da frase. Ajuste se quiser '
+      + 'outro ponto — mudar a borda descarta o arquivo já baixado, porque ele seria de '
+      + 'outro trecho.</p>'
+      + '<div class="yt-trim-row">'
+      + '<label>Começa em<input type="text" inputmode="numeric" data-trim="in" data-id="' + esc(clip.id) + '"'
+      + ' value="' + esc(fmtClock(clip.inSec)) + '" size="7" spellcheck="false"></label>'
+      + '<span class="yt-trim-nudge">'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="in" data-delta="-1" aria-label="Começar um segundo antes">−1s</button>'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="in" data-delta="1" aria-label="Começar um segundo depois">+1s</button>'
+      + '</span></div>'
+      + '<div class="yt-trim-row">'
+      + '<label>Termina em<input type="text" inputmode="numeric" data-trim="out" data-id="' + esc(clip.id) + '"'
+      + ' value="' + esc(fmtClock(clip.outSec)) + '" size="7" spellcheck="false"></label>'
+      + '<span class="yt-trim-nudge">'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="out" data-delta="-1" aria-label="Terminar um segundo antes">−1s</button>'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="out" data-delta="1" aria-label="Terminar um segundo depois">+1s</button>'
+      + '</span></div>'
+      + '<div class="yt-trim-row"><button class="vop-btn" type="button" data-act="yt-trim-apply" data-id="' + esc(clip.id) + '">Aplicar tempos digitados</button>'
+      + '<small class="yt-trim-dur">' + esc(fmtClock(num(clip.outSec) - num(clip.inSec))) + ' de duração</small></div>'
+      + '</fieldset>';
+  }
+  var BOUNDARY_MSG = {
+    palavra: 'Bordas medidas no instante da palavra, pela legenda deste vídeo.',
+    fala: 'Bordas na fala inteira: esta legenda não traz tempo por palavra, então o começo e o fim são estimados.',
+    audiencia: 'Bordas vindas da região de audiência: este vídeo não entregou legenda, e nada foi conferido na fala.',
+    manual: 'Bordas ajustadas por você — a conferência do detector não vale mais para este intervalo.'
+  };
+  function ytDetailHTML(clip, videoId, gate) {
+    var status = clipStatusOf(clip, gate);
     var temCues = ((clip.clipCues || []).length > 0);
     var capAberto = CAPS_OPEN === clip.id;
-    /* Pelo validador, nunca por `clip.titleCardStyle` cru: trecho salvo antes desta entrega
-       nao tem a chave, e ler cru deixaria NENHUM radio marcado — um seletor de duas opcoes
-       sem nada escolhido, enquanto o render sairia com o padrao. */
+    var renderizando = !!YT_BUSY['render:' + clip.id];
     var estiloAtual = titleCardStyleOf(clip);
-
-    /* Determina o estado do clip para a UI. */
-    var clipStatus = clip.clipStatus || (clip.clipToken ? 'available' : 'none');
-    var clipAvailable = clip.clipAvailable === true || (clip.clipToken && !clip.clipFilename);
-    var statusChip = '';
-    var statusNote = '';
-    var showRemotion = false;
-    var showFetch = false;
-    var fetchDisabled = true;
-    var fetchLabel = 'Baixar trecho';
-
-    if (clipStatus === 'checking') {
-      statusChip = chip('vop-status-warn', 'Verificando clip local…');
-      fetchDisabled = true;
-      fetchLabel = 'Verificando…';
-    } else if (clipStatus === 'available') {
-      statusChip = chip('source-ready', 'Disponível · ' + fmtBytes(clip.clipBytes));
-      showRemotion = true;
-    } else if (clipStatus === 'missing') {
-      statusChip = chip('vop-status-error', 'Arquivo não encontrado');
-      statusNote = '<div class="vop-warning">O clip não está mais no disco. Baixe novamente.</div>';
-      showFetch = true;
-      fetchDisabled = !gate.allowed;
-      fetchLabel = 'Baixar trecho novamente';
-    } else if (clipStatus === 'helper_offline') {
-      statusChip = chip('vop-status-warn', 'Helper offline');
-      statusNote = '<div class="vop-warning">O renderizador local não está ativo. Rode estudio.ps1 para verificar o clip.</div>';
-      fetchDisabled = true;
-      fetchLabel = 'Helper offline';
-    } else if (clipStatus === 'error') {
-      statusChip = chip('vop-status-error', 'Erro ao verificar');
-      statusNote = '<div class="vop-warning">Não foi possível verificar o clip. Tente baixar novamente.</div>';
-      showFetch = true;
-      fetchDisabled = !gate.allowed;
-      fetchLabel = 'Tentar novamente';
-    } else if (clip.clipToken) {
-      /* Clip tem token mas não foi validado ainda (ex.: recém baixado na sessão atual). */
-      statusChip = chip('source-ready', 'Baixado · ' + fmtBytes(clip.clipBytes));
-      showRemotion = true;
-    } else {
-      /* Sem clipFilename nem clipToken: fluxo normal de primeiro download. */
-      showFetch = true;
-      fetchDisabled = !gate.allowed || busy;
-      fetchLabel = busy ? 'Baixando…' : 'Baixar trecho';
-    }
-
-    return '<article class="vop-cand" data-clip="' + esc(clip.id) + '">'
-      + '<div class="vop-cand-head"><code>' + esc(fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec)) + ' · ' + span + 's</code>'
-      + (num(clip.score) ? chip('vop-cand-score', 'nota ' + num(clip.score)) : '')
-      + statusChip + '</div>'
-      + '<input class="vop-cand-title" type="text" maxlength="180" value="' + esc(clip.topic) + '"'
+    return '<section class="yt-detail" data-clip="' + esc(clip.id) + '">'
+      + '<div class="yt-detail-top">'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-back">← Todas as sugestões</button>'
+      + status.chip + '</div>'
+      + '<div class="yt-detail-grid">'
+      + '<div class="yt-detail-main">'
+      + (videoId
+        ? '<div class="yt-detail-player">'
+          + '<iframe src="https://www.youtube.com/embed/' + esc(videoId) + '?start=' + Math.floor(num(clip.inSec))
+          + '&end=' + Math.ceil(num(clip.outSec)) + '&rel=0" title="Prévia do trecho"'
+          + ' allow="encrypted-media; picture-in-picture" allowfullscreen loading="lazy"'
+          + ' referrerpolicy="strict-origin-when-cross-origin"></iframe>'
+          + (cropInsetPct(reframeOf(clip))
+            ? '<div class="vop-cand-mask" style="--corte:' + cropInsetPct(reframeOf(clip)) + '%" aria-hidden="true"></div>'
+            : '')
+          + '</div>'
+        : '')
+      + '<input class="yt-detail-title" type="text" maxlength="180" value="' + esc(clip.topic) + '"'
       + ' data-clip-field="topic" data-id="' + esc(clip.id) + '" spellcheck="false"'
-      + ' aria-label="Titulo do card, que aparece 4s no video (vazio = sem card)">'
-      + '<fieldset class="vop-cardstyle">'
-      + '<legend>Card visual</legend>'
+      + ' aria-label="Título do trecho — também é o card de 4s no vídeo e o nome do arquivo">'
+      + '<p class="yt-detail-boundary">' + esc(BOUNDARY_MSG[clip.boundary] || BOUNDARY_MSG.fala) + '</p>'
+      + (clip.hook ? '<blockquote class="yt-detail-hook">' + esc(clip.hook) + '</blockquote>' : '')
+      + (clip.reason ? '<p class="yt-detail-reason">' + esc(clip.reason) + '</p>' : '')
+      + ((clip.signals || []).length
+        ? '<div class="vop-pill-row">' + clip.signals.map(function (s) { return chip('vop-chip-quiet', signalLabel(s)); }).join('') + '</div>'
+        : '')
+      + ytFactorsHTML(clip)
+      + '</div>'
+      + '<div class="yt-detail-side">'
+      + ytTrimHTML(clip)
+      + '<fieldset class="vop-cardstyle"><legend>Card visual</legend>'
       + TITLE_CARD_STYLES.map(function (estilo) {
         var id = 'cardstyle-' + clip.id + '-' + estilo;
         return '<input type="radio" id="' + esc(id) + '" name="cardstyle-' + esc(clip.id) + '"'
           + ' data-clip-field="titleCardStyle" data-id="' + esc(clip.id) + '"'
           + ' value="' + esc(estilo) + '"' + (estiloAtual === estilo ? ' checked' : '') + '>'
           + '<label for="' + esc(id) + '">' + esc(TITLE_CARD_LABELS[estilo]) + '</label>';
-      }).join('')
-      + '</fieldset>'
+      }).join('') + '</fieldset>'
       + reframeFieldHTML(clip, 'clip-field', 'reframe',
         sourceWarning(reframeOf(clip), clip.sourceWidth, clip.sourceHeight))
-      + ((clip.signals || []).length ? '<div class="vop-pill-row">' + clip.signals.map(function (s) { return chip('vop-chip-quiet', signalLabel(s)); }).join('') + '</div>' : '')
-      + (clip.reason ? '<p class="vop-cand-reason">' + esc(clip.reason) + '</p>' : '')
-      + (clip.hook ? '<p class="vop-cand-hook">“' + esc(clip.hook) + '”</p>' : '')
-      + (clip.contextWarning ? '<div class="vop-warning">' + esc(clip.contextWarning) + '</div>' : '')
-      + (open && videoId ? '<div class="vop-cand-prev">'
-        + '<iframe class="vop-cand-frame" src="https://www.youtube.com/embed/' + esc(videoId)
-        + '?start=' + num(clip.inSec) + '&end=' + num(clip.outSec) + '&rel=0" title="Prévia do trecho"'
-        + ' allow="encrypted-media; picture-in-picture" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>'
-        /* O que o recorte joga fora, sobre a previa que ja existe. O iframe e 16:9 e mostra
-           o conteudo real, entao a faixa escurecida de cada lado E o que sai do quadro --
-           sem render novo e sem requisicao. `pointer-events: none` no CSS: sem isso o
-           player do YouTube para de aceitar clique. Nao anima: e informacao, aparece com a
-           escolha e fica parada. */
-        + (cropInsetPct(reframeOf(clip))
-          ? '<div class="vop-cand-mask" style="--corte:' + cropInsetPct(reframeOf(clip)) + '%" aria-hidden="true"></div>'
-          : '')
-        + '</div>' : '')
-      + '<div class="vop-card-actions">'
+      + '<div class="yt-detail-acts">'
       + (temCues
-        ? '<button class="vop-inline-action" type="button" data-act="yt-cap" data-id="' + esc(clip.id) + '"'
+        ? '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-cap" data-id="' + esc(clip.id) + '"'
           + ' aria-expanded="' + (capAberto ? 'true' : 'false') + '">'
-          + (capAberto ? 'Fechar legenda' : 'Legenda' + (capEdited(clip) ? ' — corrigida' : '')) + '</button>'
+          + (capAberto ? 'Fechar legenda' : 'Revisar legenda' + (capEdited(clip) ? ' — corrigida' : '')) + '</button>'
         : '')
-      + (videoId ? '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-preview" data-id="' + esc(clip.id) + '" aria-pressed="' + open + '">' + (open ? 'Fechar prévia' : 'Prever') + '</button>' : '')
-      + (showRemotion
-        ? '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-render" data-id="' + esc(clip.id) + '"'
-          + (rendering ? ' disabled' : '') + '>' + (rendering ? 'Renderizando…' : 'Editar no Remotion') + '</button>'
-          + '<button class="vop-btn" type="button" data-act="yt-render-limpo" data-id="' + esc(clip.id) + '"'
-          + (rendering ? ' disabled' : '') + '>Sem legenda</button>'
-        : '')
-      + (showFetch
-        ? '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-fetch" data-id="' + esc(clip.id) + '"'
-          + (fetchDisabled ? ' disabled' : '') + '>' + esc(fetchLabel) + '</button>'
+      + '<button class="vop-btn" type="button" data-act="yt-fetch" data-id="' + esc(clip.id) + '"'
+      + (status.podeBaixar ? '' : ' disabled') + '>' + esc(status.rotulo) + '</button>'
+      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-render" data-id="' + esc(clip.id) + '"'
+      + (status.pronto && !renderizando ? '' : ' disabled') + '>'
+      + esc(renderizando ? 'Renderizando…' : 'Baixar vídeo editado') + '</button>'
+      + (status.pronto
+        ? '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-render-limpo" data-id="' + esc(clip.id) + '"'
+          + (renderizando ? ' disabled' : '') + '>Editado, sem legenda</button>'
         : '')
       + '</div>'
-      + (!clip.clipToken && !clip.clipFilename && !gate.allowed ? '<div class="vop-warning">Baixar o trecho está bloqueado: ' + esc(gate.reason) + '.</div>' : '')
-      + statusNote
+      + (status.nota ? '<p class="vop-warning">' + esc(status.nota) + '</p>' : '')
+      + (!status.pronto && status.motivo
+        ? '<p class="vop-warning">Baixar está bloqueado: ' + esc(status.motivo) + '.</p>' : '')
+      + '</div></div>'
       + (capAberto ? capPanelHTML(clip) : '')
-      + '</article>';
+      + '</section>';
+  }
+  /* --- Prévia: UM player, num diálogo -------------------------------------------------
+     Um iframe por card era um player do YouTube por sugestão. Aqui existe UM, e ele só
+     entra no DOM quando a prévia está aberta. */
+  function ytPreviewHTML(videoId) {
+    var clip = findById(YT.candidates, YT.preview);
+    if (!clip || !videoId) return '';
+    return '<div class="yt-modal" data-act="yt-preview-close" role="presentation">'
+      + '<div class="yt-modal-box" role="dialog" aria-modal="true" aria-label="Prévia de '
+      + esc(clip.topic) + '" data-stop>'
+      + '<div class="yt-modal-head"><strong>' + esc(clip.topic) + '</strong>'
+      + '<span>' + esc(fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec)) + '</span>'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-preview-close" aria-label="Fechar prévia">Fechar</button></div>'
+      + '<div class="yt-modal-player"><iframe src="https://www.youtube.com/embed/' + esc(videoId)
+      + '?start=' + Math.floor(num(clip.inSec)) + '&end=' + Math.ceil(num(clip.outSec))
+      + '&rel=0&autoplay=1" title="Prévia do trecho"'
+      + ' allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen'
+      + ' referrerpolicy="strict-origin-when-cross-origin"></iframe></div>'
+      + '<div class="yt-modal-foot">'
+      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-open" data-id="' + esc(clip.id) + '">Editar este trecho</button>'
+      + '</div></div></div>';
+  }
+  /* Ordem da lista. Duas, e só duas: qualidade da recomendação (o padrão) e ordem do
+     vídeo, que é como quem já conhece o episódio procura. */
+  var YT_SORTS = [['quality', 'Melhores primeiro'], ['time', 'Ordem do vídeo']];
+  function ytSorted() {
+    var lista = YT.candidates.slice();
+    if (YT.sort === 'time') {
+      lista.sort(function (a, b) { return num(a.inSec) - num(b.inSec); });
+    } else {
+      /* O servidor já manda ordenado por nota; reordenar aqui com o MESMO desempate
+         mantém a lista estável quando o operador volta da tela de detalhe. */
+      lista.sort(function (a, b) {
+        return (num(b.score) - num(a.score)) || (num(a.inSec) - num(b.inSec));
+      });
+    }
+    return lista;
   }
   function ytStepHTML() {
     var videoId = ytVideoId(YT.url);
     var gate = ytFetchGate(YT);
     var probing = !!YT_BUSY['probe:url'];
-    var thumb = videoId ? 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg' : '';
-    return '<section class="vop-section" data-yt>'
-      + (videoId && YT.state === 'ready' ? '<div class="vop-yt-header">'
-        + '<img src="' + esc(thumb) + '" alt="" loading="lazy" class="vop-yt-thumb" onerror="this.onerror=null;this.style.display=\'none\';">'
-        + '<div class="vop-yt-header-info">'
-        + '<h3>' + esc(YT.title || ('YouTube ' + videoId)) + '</h3>'
-        + '<div class="vop-yt-header-meta">'
-        + (YT.duration ? '<span>' + esc(fmtClock(YT.duration)) + '</span>' : '')
-        + '<a href="https://www.youtube.com/watch?v=' + esc(videoId) + '" target="_blank" rel="noopener">Abrir no YouTube ↗</a>'
-        + '</div>'
-        + '</div>'
-        + '</div>' : '')
+    var emEdicao = YT.detail ? findById(YT.candidates, YT.detail) : null;
+    var lista = ytSorted();
+    return '<section class="vop-section yt-hub" data-yt>'
       + '<div class="vop-section-head"><div><span class="vop-eyebrow">Corte por URL</span>'
-      + '<h2>Analisar um vídeo do YouTube</h2>'
-      + '<p class="vop-form-note">A análise lê metadados, capítulos, legenda e o gráfico “Mais reproduzidos” — <strong>nenhum byte de vídeo</strong>. Baixar acontece só no trecho que você escolher.</p></div></div>'
-      + '<div class="vop-form-grid">'
-      + field('URL do vídeo', 'ytUrl', YT.url, 'type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" data-yt-url')
-      + '</div>'
-      + '<div class="vop-mark-acts">'
+      + '<h2>Cole o link e escolha o trecho</h2>'
+      + '<p class="vop-form-note">A análise lê metadados, capítulos, legenda e o gráfico '
+      + '“Mais reproduzidos” — <strong>nenhum byte de vídeo</strong>. Baixar acontece só no '
+      + 'trecho que você escolher.</p></div></div>'
+      /* Campo de URL e ação principal na mesma linha: é UMA decisão. */
+      + '<div class="yt-intake">'
+      + '<label class="yt-intake-field"><span>URL do vídeo</span>'
+      + '<input type="url" value="' + esc(YT.url) + '" placeholder="https://www.youtube.com/watch?v=…"'
+      + ' autocomplete="off" spellcheck="false" data-yt-url></label>'
       + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-probe"'
       + (probing ? ' disabled aria-busy="true"' : '') + '>'
-      + (probing ? 'Analisando…' : 'Detectar cortes') + '</button>'
-      + (YT.candidates.length ? '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-clear">Limpar sugestões</button>' : '')
+      + (probing ? 'Analisando…' : 'Analisar') + '</button>'
       + '</div>'
       /* O portão de direitos em pessoa. Analisar é livre; baixar mídia exige esta
          declaração — e o botão de baixar fica desabilitado com o motivo à vista até ela
-         existir. É o mínimo que substitui o cadastro de autorização removido. */
+         existir. Não sai daqui e não é afrouxado por causa da tela nova. */
       + '<label class="vop-yt-rights"><input type="checkbox" data-yt-rights'
       + (YT.authorized ? ' checked' : '') + '>'
       + '<span><strong>Declaro que tenho autorização do criador para publicar cortes deste vídeo.</strong>'
       + ' Baixar mídia de terceiro sem autorização é violação de direito autoral; esta declaração vale para esta sessão e para esta URL.</span></label>'
-      + (YT.note ? '<div class="vop-warning">Análise: ' + esc(YT.note) + '</div>' : '')
-      + (YT.state === 'ready' && !YT.candidates.length
-        ? '<p class="vop-form-note">A análise terminou sem trecho com sinal suficiente. Tente outro vídeo — ou marque o trecho na mão pelo Passo 1.</p>' : '')
-      + (YT.candidates.length
-        ? '<div class="vop-cand-list">' + YT.candidates.slice().sort(function (a, b) { return num(a.inSec) - num(b.inSec); })
-            .map(function (clip) { return ytCandidateCardHTML(clip, videoId, gate); }).join('') + '</div>'
+      /* Resumo da fonte: pequeno, uma linha, não domina a página. */
+      + (videoId && YT.state === 'ready'
+        ? '<div class="yt-source">'
+          + (YT.thumbnail ? '<img src="' + esc(YT.thumbnail) + '" alt="" loading="lazy" decoding="async"'
+            + ' onerror="this.style.display=\'none\'">' : '')
+          + '<div><strong>' + esc(YT.title || ('YouTube ' + videoId)) + '</strong>'
+          + '<span>' + (YT.duration ? esc(fmtClock(YT.duration)) + ' · ' : '')
+          + '<a href="https://www.youtube.com/watch?v=' + esc(videoId) + '" target="_blank" rel="noopener">Abrir no YouTube ↗</a></span></div>'
+          + '</div>'
         : '')
+      + (YT.note ? '<p class="yt-analysis-note">' + esc(YT.note) + '</p>' : '')
+      + (emEdicao ? ytDetailHTML(emEdicao, videoId, gate)
+        : (lista.length
+          ? '<div class="yt-results-head">'
+            + '<h3>' + lista.length + ' ' + (lista.length === 1 ? 'sugestão' : 'sugestões') + '</h3>'
+            + '<div class="yt-results-tools">'
+            + '<label class="yt-sort"><span>Ordem</span><select data-yt-sort>'
+            + YT_SORTS.map(function (s) {
+              return '<option value="' + s[0] + '"' + (YT.sort === s[0] ? ' selected' : '') + '>' + esc(s[1]) + '</option>';
+            }).join('') + '</select></label>'
+            + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-clear">Limpar</button>'
+            + '</div></div>'
+            + '<div class="yt-grid">' + lista.map(function (clip) {
+              return ytCandidateCardHTML(clip, videoId, gate);
+            }).join('') + '</div>'
+          : (probing
+            ? '<div class="yt-grid yt-grid-skeleton" aria-hidden="true">'
+              + '<div class="yt-skel"></div><div class="yt-skel"></div><div class="yt-skel"></div></div>'
+            : (YT.state === 'ready'
+              ? '<div class="yt-empty"><h3>Nenhum trecho passou nos critérios</h3>'
+                + '<p>Este vídeo não rendeu trecho que comece numa frase inteira e feche a ideia. '
+                + 'Tente outro vídeo — ou marque o trecho na mão pelo Passo 1.</p>'
+                + '<button class="vop-btn" type="button" data-act="tab" data-tab="overview">Marcar na mão</button></div>'
+              : ''))))
       + '<small class="vop-mark-note">O vídeo editado vai para a Central, com o endereço do arquivo no seu computador.</small>'
-      + '</section>';
+      + '</section>'
+      + ytPreviewHTML(videoId);
+  }
+  /* Rolagem da grade, guardada ao entrar no editor. Mora no MODULO e nao no estado
+     persistido: e posicao de tela, some com o recarregamento, e nao pertence ao projeto. */
+  var YT_GRID_SCROLL = 0;
+  /* Aplica o trim e FALA o que aconteceu — nenhum ramo termina calado (BP-008): aplicou,
+     recusou com o motivo, ou nao mudou nada. */
+  function ytTrimResult(clip, inSec, outSec) {
+    var tinhaArquivo = !!(clip.clipToken || clip.clipFilename);
+    var antes = clip.inSec + '-' + clip.outSec;
+    var erro = ytApplyTrim(clip, inSec, outSec, YT.duration);
+    if (erro) { toast(erro, 'error'); return; }
+    if (antes === clip.inSec + '-' + clip.outSec) { toast('Os tempos já eram esses.'); return; }
+    renderKeepingScroll();
+    toast('Trecho agora é ' + fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec) + '.'
+      + (tinhaArquivo ? ' O arquivo baixado do intervalo anterior foi descartado — baixe de novo.' : ''));
+  }
+  /* Mudar a borda muda o ARQUIVO: o MP4 já baixado é de outro intervalo, a legenda do
+     clipe está rebaseada no começo antigo e a miniatura mostra outro quadro. Tudo isso é
+     descartado junto, e a `rev` sobe — a identidade do trecho (`id`) NÃO muda, então
+     projeto salvo continua abrindo e o operador não perde o histórico. */
+  function clipBoundaryChanged(clip) {
+    clip.rev = num(clip.rev) + 1;
+    clip.clipToken = '';
+    clip.clipFilename = '';
+    clip.clipBytes = 0;
+    clip.clipCues = [];
+    clip.clipStatus = 'none';
+    clip.clipAvailable = false;
+    capDrop(clip.id);
+    projectsPersist();
+  }
+  /* Aplica um novo par de tempos. Devolve a frase do erro, ou '' quando aplicou. Exportada
+     e chamada pelo teste com o trecho construído (BP-014): é ela que invalida mídia
+     baixada, e o ramo que interessa é o do operador que JÁ tinha baixado. */
+  /* O intervalo e SEMPRE em segundo inteiro, e nao por preguica: o nome do arquivo baixado
+     e `<id>-<inicio>-<fim>.mp4` com inteiros, o `/api/yt-fetch` recebe `num(inSec)` (que
+     arredonda), o `?start=` do player e inteiro e o `/api/clip-status` acha o arquivo pelo
+     mesmo par. Um passo de meio segundo era um botao que nao fazia NADA -- `num()`
+     arredondava de volta e o `ytTrimResult` avisava "os tempos ja eram esses". Um numero,
+     um dono: quem resolve o intervalo e o `ytclip.candidates`, e ele ja entrega inteiro. */
+  function ytApplyTrim(clip, inSec, outSec, duracaoVideo) {
+    var inicio = Math.max(0, num(inSec));
+    var fim = num(outSec);
+    var teto = num(duracaoVideo);
+    if (!(fim > inicio)) return 'O fim precisa vir depois do começo.';
+    if (fim - inicio < 3) return 'O trecho ficaria com menos de 3 segundos.';
+    if (teto && fim > teto) return 'O fim passa da duração do vídeo (' + fmtClock(teto) + ').';
+    if (inicio === num(clip.inSec) && fim === num(clip.outSec)) return '';
+    clip.inSec = inicio;
+    clip.outSec = fim;
+    clip.durationSec = Math.round((fim - inicio) * 100) / 100;
+    /* A borda mudou por mão humana: a evidência de fecho do detector não vale mais para
+       este intervalo, e dizer que vale seria afirmar conferência que não houve. */
+    clip.boundary = 'manual';
+    clipBoundaryChanged(clip);
+    return '';
   }
 
   /* --- FFmpeg local ---------------------------------------------------------------- */
@@ -1862,7 +2172,10 @@
       toast('Este projeto teve erro na análise: ' + project.error, 'error');
       return;
     }
-    /* Carrega os candidatos do projeto para a sessão YT. */
+    /* Carrega os candidatos do projeto para a sessão YT. A folha de storyboard fica se o
+       vídeo for o MESMO desta sessão: ela veio do probe de agora e as URLs ainda valem.
+       Vídeo diferente (ou sessão nova, depois de recarregar) cai na capa rotulada. */
+    var mesmoVideo = YT.videoId === project.videoId;
     YT.videoId = project.videoId;
     YT.title = project.title;
     YT.duration = project.durationSec;
@@ -1871,6 +2184,16 @@
     YT.state = 'ready';
     YT.note = project.note || '';
     YT.preview = '';
+    YT.detail = '';
+    YT.dlMenu = '';
+    YT.thumbnail = safeUrl(project.thumbnail) || (project.videoId
+      ? 'https://i.ytimg.com/vi/' + project.videoId + '/hqdefault.jpg' : '');
+    /* A folha NAO e persistida: a URL dela e assinada e expira. Projeto de OUTRO video, ou
+       sessao nova depois de recarregar, cai na capa do video rotulada como capa -- que e o
+       fallback honesto, e nao uma imagem quebrada nem uma capa fingindo ser quadro do
+       trecho. Apagar tambem no mesmo video era o defeito: o probe acabava de montar a folha
+       e ela morria no clique seguinte, entao a miniatura DO TRECHO nunca aparecia. */
+    if (!mesmoVideo) YT.storyboard = null;
     YT.authorized = false;
     TAB = 'youtube';
     render();
@@ -1969,21 +2292,20 @@
     ytPost('/api/yt-probe', { url: url }).then(function (payload) {
       var fresh = ytCandidateClips(payload);
       var title = cleanText(payload && payload.title, 200);
-      var duration = num(payload && payload.duration);
+      /* `durationSec`, nao `duration`: a rota /api/yt-probe sempre mandou `durationSec`, e
+         ler a chave errada deixava YT.duration em 0 -- o tempo do video nunca aparecia no
+         cabecalho da fonte e o projeto salvava duracao zero. */
+      var duration = num(payload && payload.durationSec);
       var note = cleanText(payload && payload.note, 400);
       /* Thumbnail: usa a melhor do payload ou fallback do YouTube. */
-      var thumbnail = '';
-      if (payload && payload.thumbnails && Array.isArray(payload.thumbnails) && payload.thumbnails.length) {
-        var best = payload.thumbnails.reduce(function (a, b) {
-          var aw = (a.width || 0) * (a.height || 0);
-          var bw = (b.width || 0) * (b.height || 0);
-          return bw > aw ? b : a;
-        });
-        thumbnail = best.url || '';
-      }
+      /* A capa vem escolhida do servidor (a maior publicada). O endereco estavel do
+         YouTube fica como rede: `hqdefault` existe para todo video. */
+      var thumbnail = safeUrl(payload && payload.thumbnail);
       if (!thumbnail && videoId) {
         thumbnail = 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg';
       }
+      YT.thumbnail = thumbnail;
+      YT.storyboard = ytStoryboardFrom(payload);
       YT.videoId = videoId;
       YT.title = title;
       YT.duration = duration;
@@ -1994,8 +2316,13 @@
       /* Atualiza projeto com os resultados. */
       projectSetCandidates(project.id, fresh, title, thumbnail, duration, note);
       ytBusy(key, false);
-      /* Muda para a aba de projetos para mostrar o resultado. */
-      TAB = 'projects';
+      /* FICA na aba do hub: o fluxo pedido e "cola a URL -> analisa -> compara os trechos",
+         e mandar para a lista de projetos punha um clique entre a analise e o resultado
+         que ela acabou de produzir. O projeto continua salvo -- e a aba "Meus projetos"
+         continua sendo por onde se volta a ele depois de recarregar a pagina. */
+      TAB = 'youtube';
+      YT.detail = '';
+      YT.dlMenu = '';
       render();
       toast(fresh.length
         ? fresh.length + ' trecho(s) sugerido(s). Nada foi baixado — a escolha é sua.'
@@ -2635,7 +2962,7 @@
   }
   function tabsHTML() {
     var fluxo = [['overview', 'Vídeo', ''], ['cuts', 'Cortes', INTAKE.cuts.length || ''],
-      ['review', 'Clips', INTAKE.cuts.length || '']];
+      ['review', 'Revisão', INTAKE.cuts.length || '']];
     var projetosCount = PROJECTS && PROJECTS.projects ? PROJECTS.projects.length : 0;
     var lado = [['central', 'Central', LIB.clips.length || ''], ['projects', 'Meus projetos', projetosCount || ''], ['youtube', 'YouTube', YT.candidates.length || '']];
     return '<nav class="vop-flow" aria-label="Telas do estúdio">'
@@ -2821,6 +3148,14 @@
       renderKeepingScroll();
       return;
     }
+    /* Ordem da grade. Pelo validador: o value vem do DOM, e DOM e entrada — chave
+       desconhecida cai em `quality`, que e o padrao. */
+    if (event.target.matches('[data-yt-sort]')) {
+      YT.sort = YT_SORTS.some(function (o) { return o[0] === event.target.value; })
+        ? event.target.value : 'quality';
+      renderKeepingScroll();
+      return;
+    }
     if (event.target.matches('[data-yt-url]')) ytUrlWrite(event.target);
   }
   function onRootInput(event) {
@@ -2828,6 +3163,13 @@
     if (event.target.matches('[data-clip-field]')) { clipFieldWrite(event.target); return; }
     if (event.target.matches('[data-cap-field]')) { capCueWrite(event.target); return; }
     if (event.target.matches('[data-yt-url]')) ytUrlWrite(event.target);
+  }
+  function onEscape(event) {
+    if (!event || event.key !== 'Escape') return;
+    if (!YT.preview && !YT.dlMenu) return;
+    YT.preview = '';
+    YT.dlMenu = '';
+    renderKeepingScroll();
   }
   function onRootClick(event) {
     var button = event.target.closest('[data-act]');
@@ -2844,8 +3186,66 @@
     else if (action === 'yt-fetch') ytFetchClip(button, button.dataset.id);
     else if (action === 'yt-render') ytRenderClip(button, button.dataset.id, 'legenda');
     else if (action === 'yt-render-limpo') ytRenderClip(button, button.dataset.id, 'limpo');
-    else if (action === 'yt-preview') { YT.preview = YT.preview === button.dataset.id ? '' : button.dataset.id; renderKeepingScroll(); }
-    else if (action === 'yt-clear') { YT.candidates = []; YT.note = ''; YT.state = 'idle'; YT.preview = ''; render(); }
+    else if (action === 'yt-preview') {
+      YT.preview = YT.preview === button.dataset.id ? '' : button.dataset.id;
+      YT.dlMenu = '';
+      renderKeepingScroll();
+    }
+    else if (action === 'yt-preview-close') {
+      /* Clique DENTRO da caixa nao fecha: o fundo do dialogo e que carrega a acao, e sem
+         esta guarda clicar no player fecharia a previa (o `closest` sobe ate o fundo). */
+      if (button.classList.contains('yt-modal') && event.target.closest('[data-stop]')) return;
+      YT.preview = '';
+      renderKeepingScroll();
+    }
+    else if (action === 'yt-open') {
+      var abrir = findById(YT.candidates, button.dataset.id);
+      if (!abrir) { toast('Este trecho não está mais na lista.', 'error'); return; }
+      /* Guarda a rolagem da GRADE para voltar onde o operador estava — o pedido pede
+         posicao de rolagem sensata na volta da edicao (parente do BP-013). */
+      YT_GRID_SCROLL = typeof window !== 'undefined' ? Number(window.scrollY) || 0 : 0;
+      YT.detail = abrir.id;
+      YT.preview = '';
+      YT.dlMenu = '';
+      render();
+      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo(0, 0);
+    }
+    else if (action === 'yt-back') {
+      YT.detail = '';
+      YT.dlMenu = '';
+      render();
+      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+        var voltar = YT_GRID_SCROLL;
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { window.scrollTo(0, voltar); });
+        else window.scrollTo(0, voltar);
+      }
+    }
+    else if (action === 'yt-dl-menu') {
+      YT.dlMenu = YT.dlMenu === button.dataset.id ? '' : button.dataset.id;
+      renderKeepingScroll();
+    }
+    else if (action === 'yt-nudge') {
+      var empurrar = findById(YT.candidates, button.dataset.id);
+      if (!empurrar) { toast('Este trecho não está mais na lista.', 'error'); return; }
+      var passo = Number(button.dataset.delta) || 0;
+      var novoIn = empurrar.inSec + (button.dataset.edge === 'in' ? passo : 0);
+      var novoOut = empurrar.outSec + (button.dataset.edge === 'out' ? passo : 0);
+      ytTrimResult(empurrar, novoIn, novoOut);
+    }
+    else if (action === 'yt-trim-apply') {
+      var ajustar = findById(YT.candidates, button.dataset.id);
+      if (!ajustar) { toast('Este trecho não está mais na lista.', 'error'); return; }
+      var campoIn = document.querySelector('[data-trim="in"][data-id="' + ajustar.id + '"]');
+      var campoOut = document.querySelector('[data-trim="out"][data-id="' + ajustar.id + '"]');
+      ytTrimResult(ajustar,
+        campoIn ? parseClock(campoIn.value) : ajustar.inSec,
+        campoOut ? parseClock(campoOut.value) : ajustar.outSec);
+    }
+    else if (action === 'yt-clear') {
+      YT.candidates = []; YT.note = ''; YT.state = 'idle';
+      YT.preview = ''; YT.detail = ''; YT.dlMenu = '';
+      render();
+    }
     else if (action === 'lib-remove') {
       /* O registro sai; o arquivo em disco fica. Dizer isso na pergunta evita a leitura
          de que "remover" apaga o vídeo. */
@@ -2942,6 +3342,10 @@
     root.addEventListener('change', onRootChange);
     root.addEventListener('input', onRootInput);
     root.addEventListener('pointerdown', onRootPointerDown);
+    /* Esc fecha a prévia e o menu de baixar. No DOCUMENTO e não na raiz: o foco pode estar
+       dentro do iframe do YouTube, e aí a tecla nunca chegaria a um ouvinte da raiz.
+       Diálogo sem Esc é armadilha de teclado — sair dele exigiria achar o botão. */
+    if (document.addEventListener) document.addEventListener('keydown', onEscape);
     /* O vídeo do primeiro contato é da sessão: a URL temporária morre ao sair da página. */
     if (window.addEventListener) window.addEventListener('pagehide', intakeRelease);
     render();
@@ -2973,6 +3377,22 @@
          Prefixo `__` porque e porta de teste, nao API da tela: o `YT` e estado de SESSAO e
          nao tem outro jeito de ser alcancado de fora. */
       __setCandidates: function (lista) { YT.candidates = lista || []; },
+      /* O hub, exportado para os testes. `ytApplyTrim` e `clipBoundaryChanged` mexem em
+         dado PERSISTIDO (o candidato do projeto salvo), entao BP-014 manda que o teste as
+         chame com o trecho construido, nos dois ramos: com arquivo baixado e sem. */
+      ytApplyTrim: ytApplyTrim,
+      clipStatusOf: clipStatusOf,
+      ytStoryboardFrom: ytStoryboardFrom,
+      __setStoryboard: function (sb) { YT.storyboard = sb || null; },
+      __setSort: function (v) { YT.sort = v; },
+      __setDuration: function (v) { YT.duration = num(v); },
+      __ytState: function () { return YT; },
+      sbFrame: sbFrame,
+      ytSorted: ytSorted,
+      onEscape: onEscape,
+      ytCandidateCardHTML: ytCandidateCardHTML,
+      ytDetailHTML: ytDetailHTML,
+      ytStepHTML: ytStepHTML,
       capMessage: capMessage,
       capCuesFrom: capCuesFrom,
       capClock: capClock,

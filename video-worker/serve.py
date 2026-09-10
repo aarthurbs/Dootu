@@ -1045,14 +1045,23 @@ class CutHandler(SimpleHTTPRequestHandler):
         e enfileirar análise atrás de um corte de 4K deixaria a tela parada à toa.
         """
         info = ytclip.probe(self._json_body().get("url"))
+        sugestoes, descarte = ytclip.candidates_report(info)
+        # "Descartei sete porque terminavam no meio da frase" e "não achei nada" são coisas
+        # diferentes para quem olha a tela (BP-008): o resumo entra na `note`, junto do que
+        # já se dizia sobre legenda e heatmap ausentes.
+        nota = " ".join(p for p in (info["note"], descarte) if p).strip()
         self._send_json({
             "videoId": info["videoId"], "url": info["url"], "title": info["title"],
             "uploader": info["uploader"], "durationSec": info["durationSec"],
             "captionLang": info["captionLang"], "captionKind": info["captionKind"],
             "cueCount": len(info["cues"]), "chapterCount": len(info["chapters"]),
-            "hasHeatmap": bool(info["heatmap"]), "note": info["note"],
+            "hasHeatmap": bool(info["heatmap"]), "note": nota,
+            "thumbnail": info.get("thumbnail", ""),
+            # A folha de miniaturas COM TEMPO. O navegador recorta o quadro do trecho com
+            # `background-position` — nenhum byte de vídeo é baixado para popular a grade.
+            "storyboard": info.get("storyboard") or {},
             "mostReplayed": _most_replayed_safe(info["heatmap"], info["videoId"]),
-            "candidates": ytclip.candidates(info),
+            "candidates": sugestoes,
         })
 
     def _handle_most_replayed(self) -> None:

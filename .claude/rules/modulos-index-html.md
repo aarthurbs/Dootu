@@ -37,3 +37,17 @@ os modais de prompt/confirmação e todo o CSS exclusivo deles. A lista de token
 
 - **`#toast`** — o `<div id="toast">` e seu CSS **ficam**: `supabase-client.js` escreve nele
   (`document.getElementById('toast')`). A função `showToast()` do script inline saiu com os Prompts.
+
+- **Aparência — PREFERÊNCIA visual, três presets (2026-09-09):** `appearance.js` (síncrono no
+  `<head>`, antes do primeiro paint) põe `<html data-appearance>`; chave própria
+  `pp_appearance_v1`; presets `preto-gelo` (padrão aprovado) · `grafite` · `claro`. Blocos de
+  token no **fim** do `design-system.css`; o controle é o `<select id="appearance-select">` do
+  header (`.appearance`), na 4ª coluna do header em grade. Checks: `node test-appearance.js`.
+  - **`data-appearance` ≠ `data-theme`.** `data-theme` é do `score-bar.js` e só troca as
+    IMAGENS/cores do placar (identidade do time = conteúdo). A interface é Black + Ice sempre —
+    por isso o bloco `html[data-theme="brasil"]` **não** redeclara token de interface.
+  - **Trocar de aparência não remonta nada**: só reescreve o atributo do `<html>`. Medido com
+    vídeo tocando — mesmo nó `<video>`, `currentTime` seguiu correndo, campo em edição, foco,
+    cursor e `#main.scrollTop` intactos. Qualquer implementação que re-renderize quebra isso.
+  - Valor inválido/ausente e storage que **lança** caem no padrão, calados (é código de `<head>`:
+    se lançar, a página morre antes de montar — mesma família do BP-014).
