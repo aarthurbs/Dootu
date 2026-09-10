@@ -122,7 +122,7 @@
       #sb-acct button{border-radius:8px;padding:8px 12px;border:1px solid rgba(255,255,255,.12);background:#22222e;color:#e8eaed}
       @media (hover:hover) and (pointer:fine){#sb-acct button:hover{border-color:rgba(255,255,255,.24);background:#292936}}
       #sb-acct .sb-email{color:#9aa0a6;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      #sb-acct .sb-dot{width:7px;height:7px;border-radius:50%;background:#81c995}
+      #sb-acct .sb-dot{width:7px;height:7px;border-radius:50%;background:var(--success,#C9D4DE)}
       #sb-modal{position:fixed;inset:0;z-index:950;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(4px)}
       #sb-modal.show{display:flex}
       #sb-modal .box{background:#1a1a23;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:24px;width:340px;max-width:92vw;color:#e8eaed;font-family:system-ui,-apple-system,sans-serif}
@@ -182,7 +182,7 @@
       } else {
         var data = await signUp(email, password);
         if (SB.session) { hideModal(); renderAccount(); notify('Conta criada e conectada.'); if (SB.syncNow) SB.syncNow(); }
-        else { error.style.color = '#81c995'; error.textContent = 'Conta criada. Confirme pelo e-mail e depois entre.'; }
+        else { error.style.color = 'var(--success, #C9D4DE)'; error.textContent = 'Conta criada. Confirme pelo e-mail e depois entre.'; }
       }
     } catch (reason) { error.textContent = reason.message; }
   }

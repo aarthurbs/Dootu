@@ -8,6 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Aparência (Preto + gelo · Grafite · Claro). Síncrono e no <head> de propósito: põe
+       <html data-appearance> ANTES do primeiro paint, senão a tela pisca no tema errado. -->
+  <script src="appearance.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -18,6 +21,9 @@
        o par option é o mesmo já usado em `.field select option`. Global de propósito:
        o defeito era idêntico no Faturador e na Precificação. */
     select { color-scheme: dark; }
+    /* No preset Claro a lista do browser tem de ser clara pelo mesmo motivo do comentário
+       acima — o realce e a barra de rolagem vêm do color-scheme, não do nosso CSS. */
+    html[data-appearance="claro"] select { color-scheme: light; }
     select option { background: var(--surface); color: var(--text); }
 
     :root {
@@ -34,32 +40,39 @@
       --img-sidebar: url('assets/capa-sidebar.jpg');
       --img-logo:    url('assets/favicon.png');
 
-      --bg:         #0d1117;
-      --bg-subtle:  #111722;
-      --surface:    #161d29;
-      --surface-2:  #1d2633;
-      --surface-3:  #26303f;
-      --border:     rgba(255,255,255,.07);
-      --border-hover: rgba(255,255,255,.16);
-      --accent:     var(--team-red);
-      --accent-2:   var(--team-navy-bright);
-      --accent-3:   var(--team-silver);
-      --accent-pink:var(--team-red-hot);
-      --accent-dim: rgba(227,24,55,.12);
-      --accent-dim2:rgba(46,111,224,.16);
-      --gradient:   linear-gradient(140deg, #E31837 0%, #B81230 100%);
-      --gradient-subtle: linear-gradient(140deg, rgba(227,24,55,.12) 0%, rgba(46,111,224,.12) 100%);
-      /* Sombras realistas (offset + contidas) no lugar de glow neon — sai a "cara de IA" */
-      --glow-blue:  0 6px 22px rgba(0,43,92,.30);
-      --glow-accent:0 5px 16px rgba(227,24,55,.22);
-      --text:       #e8eaed;
-      --text-dim:   #9aa0a6;
-      --text-muted: #5f6368;
-      --danger:     #f28b82;
-      --danger-dim: rgba(242,139,130,.10);
-      --success:    #81c995;
-      --success-dim:rgba(129,201,149,.10);
-      --star:       #fdd663;
+      /* ── Black + Ice ──
+         A interface e neutra. Os --team-* acima seguem valendo para o placar ao vivo
+         (identidade do time e conteudo), mas nao alimentam mais o accent: era por ali
+         que a cor do tema vazava para botao, selecao e fundo do site inteiro. */
+      --bg:         #111113;
+      --bg-subtle:  #0B0B0D;
+      --surface:    #1C1C20;
+      --surface-2:  #151518;
+      --surface-3:  #303038;
+      --border:     #35353D;
+      --border-hover: #4A4A55;
+      --border-strong: #67676F;
+      --accent:     #E5E5EB;
+      --accent-ink: #17171B;
+      --accent-hover: #FFFFFF;
+      --accent-2:   #C9C8D1;
+      --accent-3:   #ACABB3;
+      --accent-pink:#FFFFFF;
+      --accent-dim: rgba(229,229,235,.10);
+      --accent-dim2:rgba(229,229,235,.07);
+      --gradient:   var(--bg-subtle);
+      --gradient-subtle: var(--surface-2);
+      /* Sem glow: profundidade e sombra contida, definida junto do componente */
+      --glow-blue:  none;
+      --glow-accent:none;
+      --text:       #F3F3F5;
+      --text-dim:   #ACABB3;
+      --text-muted: #8A8992;
+      --danger:     #F0A0A0;
+      --danger-dim: rgba(240,160,160,.12);
+      --success:    #C9D4DE;
+      --success-dim:rgba(201,212,222,.10);
+      --star:       #D9A441;
       --radius-sm:  8px;
       --radius:     12px;
       --radius-lg:  16px;
@@ -90,26 +103,24 @@
     /* ── Tema Brasil (Copa) — ativado por <html data-theme="brasil"> via score-bar.js.
        Verde/amarelo/azul da bandeira; cores E imagens trocam juntas no jogo da Copa. */
     html[data-theme="brasil"] {
+      /* Cores da seleção — CONTEÚDO do placar ao vivo (#wiz-roundstart é quem as usa).
+         Não alimentam mais accent/gradiente/glow: a interface é Black + Ice sempre. */
       --team-navy:        #0A3D24;
-      --team-navy-bright: #FFD43B;   /* amarelo — accent-2/links, legível no escuro */
-      --team-red:         #1FAE54;   /* verde — accent primário */
+      --team-navy-bright: #FFD43B;
+      --team-red:         #1FAE54;
       --team-red-hot:     #27C964;
       --team-silver:      #E6E2C3;
-      --accent-dim:  rgba(31,174,84,.13);
-      --accent-dim2: rgba(255,212,59,.16);
-      --gradient:        linear-gradient(140deg, #1FAE54 0%, #0E7C3A 100%);
-      --gradient-subtle: linear-gradient(140deg, rgba(31,174,84,.14) 0%, rgba(255,212,59,.12) 100%);
-      --glow-blue:   0 6px 22px rgba(255,212,59,.18);
-      --glow-accent: 0 5px 16px rgba(31,174,84,.24);
+      /* O tema Copa troca as IMAGENS do placar. A interface segue Black + Ice: sem
+         accent verde, sem gradiente verde-amarelo, sem glow. */
+      --accent-dim:  rgba(229,229,235,.10);
+      --accent-dim2: rgba(229,229,235,.07);
+      --gradient:        var(--bg-subtle);
+      --gradient-subtle: var(--surface-2);
+      --glow-blue:   none;
+      --glow-accent: none;
       --img-bg:      url('assets/themes/brasil/bg.jpg');
       --img-sidebar: url('assets/themes/brasil/sidebar.jpg');
       --img-logo:    url('assets/themes/brasil/logo.png');
-    }
-    html[data-theme="brasil"] body::before {
-      background:
-        radial-gradient(ellipse 80% 50% at 18% 12%, rgba(31,174,84,.12) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 45% at 85% 88%, rgba(255,212,59,.12) 0%, transparent 62%),
-        radial-gradient(ellipse 50% 50% at 50% 50%, rgba(31,174,84,.04) 0%, transparent 60%);
     }
     /* Transição suave de COR ao trocar de tema (a troca de IMAGEM é mascarada pelo véu) */
     #main, #sidebar, .logo-icon { transition: background-color var(--dur-3) var(--spring-soft), border-color var(--dur-3) var(--spring-soft); }
@@ -137,17 +148,8 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    /* Animated background mesh */
-    body::before {
-      content: '';
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background:
-        radial-gradient(ellipse 80% 50% at 18% 12%, rgba(227,24,55,.10) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 45% at 85% 88%, rgba(46,111,224,.12) 0%, transparent 62%),
-        radial-gradient(ellipse 50% 50% at 50% 50%, rgba(227,24,55,.03) 0%, transparent 60%);
-      pointer-events: none;
-      z-index: 0;
-    }
+    /* O halo radial vermelho/azul saiu junto com o accent colorido: o fundo do app é
+       chapado (--bg). Sobrou só a textura de quadra abaixo, que é cinza e não tem cor. */
     /* Linhas de quadra sutis (motivo genérico de basquete, não-marca) */
     body::after {
       content: '';
@@ -162,8 +164,8 @@
 
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.14); }
+    ::-webkit-scrollbar-thumb { background: var(--veil-strong); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
 
     /* ── KEYFRAMES ── */
     @keyframes fadeInUp {
@@ -216,12 +218,12 @@
     }
     .logo[aria-expanded="true"] {
       background: var(--accent-dim);
-      border-color: rgba(227,24,55,.22);
+      border-color: var(--border-hover);
     }
-    .logo:focus-visible { outline: 3px solid rgba(227,24,55,.32); outline-offset: 2px; }
+    .logo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .logo:active { transform: scale(.97); }
     @media (hover: hover) and (pointer: fine) {
-      .logo:hover { background: rgba(255,255,255,.05); border-color: var(--border); }
+      .logo:hover { background: var(--veil); border-color: var(--border); }
       .logo:hover .logo-icon { transform: scale(1.06); }
     }
     @media (max-width: 900px) {
@@ -239,7 +241,7 @@
       display: flex; align-items: center; gap: 7px; flex-shrink: 0;
       height: 36px; padding: 0 12px; max-width: 340px;
       border: 1px solid var(--border); border-radius: var(--radius-xl);
-      background: rgba(255,255,255,.03);
+      background: var(--veil);
       font-family: var(--font-display); font-weight: 700;
       font-size: 13px; letter-spacing: .03em; color: var(--text-dim);
       white-space: nowrap; user-select: none; overflow: hidden;
@@ -253,7 +255,8 @@
     #match-score.swapping .ms-in { opacity: 0; filter: blur(4px); transform: translateY(-3px); }  /* Emil: blur mascara a troca */
     #match-score .ms-crest { width: 18px; height: 18px; object-fit: contain; border-radius: 4px; background: rgba(255,255,255,.92); flex-shrink: 0; }
     #match-score .ms-tm { color: var(--text); }
-    #match-score .ms-sc { color: #fff; font-variant-numeric: tabular-nums; }
+    /* O placar e um numero que precisa ser lido nos tres presets: branco fixo sumia no Claro. */
+    #match-score .ms-sc { color: var(--text); font-variant-numeric: tabular-nums; }
     #match-score .ms-x,
 #match-score .ms-vs { color: var(--text-muted); font-weight: 600; }
     #match-score .ms-clk { color: var(--accent-2); font-weight: 600; letter-spacing: .02em; }
@@ -279,11 +282,11 @@
     /* ── BUTTONS ── */
     .btn-primary {
       background: var(--gradient);
-      color: #fff; border: none;
+      color: var(--accent-ink); border: none;
       border-radius: var(--radius-xl); padding: 10px 22px;
       font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
       transition: transform var(--dur-1) var(--spring-soft), box-shadow var(--dur-2) var(--ease);
-      box-shadow: 0 1px 2px rgba(0,0,0,.3), var(--glow-accent);
+      box-shadow: 0 1px 2px rgba(0,0,0,.3);
       position: relative; overflow: hidden;
     }
     .btn-primary::before {
@@ -294,18 +297,18 @@
     }
     .btn-primary:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 22px rgba(227,24,55,.32);
+      box-shadow: 0 6px 18px rgba(0,0,0,.34);
     }
     .btn-primary:hover::before { opacity: 1; }
     .btn-primary:active { transform: scale(.97); }
 
     .btn-ghost {
-      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      background: var(--veil); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 9px 18px;
       font-size: 14px; color: var(--text-dim); cursor: pointer;
       transition: background-color var(--ease), color var(--ease), border-color var(--ease), transform var(--dur-1) var(--spring-soft);
     }
-    .btn-ghost:hover { background: rgba(255,255,255,.08); color: var(--text); border-color: var(--border-hover); }
+    .btn-ghost:hover { background: var(--veil-strong); color: var(--text); border-color: var(--border-hover); }
     .btn-ghost:active { transform: scale(.97); }
 
     .btn-danger {
@@ -373,22 +376,21 @@
       background: var(--accent); transform: translateY(-50%);
       transition: height var(--dur-2) var(--spring-fast);
     }
-    .nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); transform: translateX(2px); }
+    .nav-item:hover { background: var(--veil); color: var(--text); transform: translateX(2px); }
     .nav-item.active {
       background: var(--accent-dim);
       color: var(--accent);
       font-weight: 600;
-      box-shadow: inset 0 0 0 1px rgba(227,24,55,.18);
     }
     .nav-item.active::before { height: 60%; }
     .nav-count {
       margin-left: auto; font-family: var(--font-display);
       font-size: 13px; font-weight: 700; letter-spacing: .02em;
-      background: rgba(255,255,255,.06); border-radius: 20px;
+      background: var(--veil); border-radius: 20px;
       padding: 1px 9px; color: var(--text-muted);
       transition: transform var(--dur-2) var(--spring-fast), color var(--dur-1) ease;
     }
-    .nav-item.active .nav-count { background: rgba(227,24,55,.18); color: var(--accent); }
+    .nav-item.active .nav-count { background: var(--veil-strong); color: var(--text); }
     /* Pulso quando a contagem muda (classe adicionada via JS) */
 
     /* Entrada escalonada dos itens da nav */
@@ -530,7 +532,7 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-xl); padding: 12px 24px;
       font-size: 14px; color: var(--text);
-      box-shadow: 0 12px 40px rgba(0,0,0,.4), var(--glow-accent);
+      box-shadow: 0 12px 40px rgba(0,0,0,.4);
       opacity: 0; pointer-events: none; white-space: nowrap;
       transition: transform 300ms cubic-bezier(.175,.885,.32,1.275), opacity 200ms ease;
       z-index: 400;
@@ -566,6 +568,14 @@
     </div>
     <div id="match-score" data-state="idle" title="Placar ao vivo · NBA + Copa · dados ESPN"><span class="ms-tm">JOGOS</span></div>
     <button id="nba-fav" type="button" title="Escolher 2 times pra torcer (NBA)"><span aria-hidden="true">🏀</span></button>
+    <div class="appearance">
+      <label class="appearance-label" for="appearance-select">Aparência</label>
+      <select id="appearance-select" aria-label="Aparência da interface">
+        <option value="preto-gelo">Preto + gelo</option>
+        <option value="grafite">Grafite neutro</option>
+        <option value="claro">Claro neutro</option>
+      </select>
+    </div>
   </header>
 
   <div class="layout">
@@ -680,7 +690,7 @@
         .hub-card-desc { font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
 
         /* ── Categorias no header (segmentado) ── */
-        .world-seg { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.03); }
+        .world-seg { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--veil); }
         .world-seg-btn {
           appearance: none; border: 0; cursor: pointer; font-family: inherit;
           padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
@@ -689,7 +699,7 @@
         }
         @media (hover: hover) and (pointer: fine) { .world-seg-btn:hover { color: var(--text); } }
         .world-seg-btn:active { transform: scale(.97); }
-        .world-seg-btn.active { background: var(--accent); color: #fff; }
+        .world-seg-btn.active { background: var(--accent); color: var(--accent-ink); }
 
         /* ── Fluxos (canvas estilo n8n) ── */
 
@@ -932,6 +942,22 @@
     const card = e.target.closest('[data-view]');
     if (card) activateView(card.dataset.view);
   });
+
+  // ═══════════════════════════════
+  //  APARÊNCIA — troca ao vivo, na tela em que o usuário já está
+  // ═══════════════════════════════
+  // Só reescreve <html data-appearance>: nada é remontado, nada é recarregado. O vídeo segue
+  // tocando na mesma posição, o campo em edição segue com o texto digitado, a rolagem e o
+  // foco ficam onde estavam — a cor é a ÚNICA coisa que muda.
+  const apSelect = document.getElementById('appearance-select');
+  if (apSelect && window.Appearance) {
+    apSelect.value = window.Appearance.current();
+    apSelect.addEventListener('change', () => {
+      // set() devolve o que ficou valendo (pode ser o padrão, se o valor for inválido):
+      // o campo mostra o estado real, não o pedido.
+      apSelect.value = window.Appearance.set(apSelect.value);
+    });
+  }
 
   // ═══════════════════════════════
   //  INIT
