@@ -5,6 +5,10 @@ import {
 } from "remotion";
 import { Video } from "@remotion/media";
 import { loadFont as carregarInter } from "@remotion/google-fonts/Inter";
+/* A segunda FAMILIA do projeto, e a primeira que nao e Inter: ela e o estilo `impacto` da
+   legenda. Nenhuma dependencia nova entra por causa dela — o `@remotion/google-fonts` ja
+   estava no package.json desde a Inter, e este import e mais um modulo de dentro dele. */
+import { loadFont as carregarArchivoBlack } from "@remotion/google-fonts/ArchivoBlack";
 import {
   TOKENS, corDoDestaque, toCaptionPages, pickEmphasis, splitEmphasis,
   ancoraLegenda, LEGENDA_BASE_PADRAO, ancoraBanda, BANDA_PADRAO,
@@ -13,6 +17,7 @@ import {
   tituloEscalonado, entradaCard, presencaCard,
   titleCardPreset, TITLE_CARD_PADRAO, TITULO_FILETE_REF,
   palcoGeometria, REFRAME_PADRAO, VIDEO_ALTURA_PADRAO,
+  legendaPreset, tetoDaPagina, LEGENDA_PADRAO,
 } from "./preset.js";
 /* O REGISTRO das marcas, nunca uma marca solta. Enquanto isto era
    `import { MARCA_BADGE, ... }`, um segundo card só poderia escolher o asset com um `if` de
@@ -32,6 +37,25 @@ import { MARCAS } from "./marca.js";
 const { fontFamily: INTER } = carregarInter("normal", {
   weights: ["600", "700", "800", "900"], subsets: ["latin"],
 });
+/* UM peso, e nao e descuido: a familia Archivo Black tem um peso so (400) e o preto ja
+   esta no desenho. Pedir 700 ou 900 dela faria o Chrome SINTETIZAR negrito sobre um peso que
+   ja e maximo — o mesmo engrossamento borrado que o comentario do peso 800 da Inter (acima)
+   registra, e que so aparece OLHANDO o frame.
+   `latin` basta para o portugues: o bloco cobre U+0000-00FF, ou seja A-Z, acentos, C-cedilha
+   e til. Subset a mais e arquivo a mais para o render esperar antes do primeiro quadro. */
+const { fontFamily: ARCHIVO_BLACK } = carregarArchivoBlack("normal", {
+  weights: ["400"], subsets: ["latin"],
+});
+
+/* O id que o preset da legenda pede -> a familia carregada aqui. E um REGISTRO, e nao um
+   `if` dentro do componente, pela razao de sempre neste arquivo: fiacao escrita a mao no JSX
+   e onde a escolha erra calada (`ancoraLegenda`, `palavrasDaPagina`, `presencaCard`).
+   Id ausente do mapa cai na Inter em vez de `undefined`: `fontFamily: undefined` faz o
+   Chrome desenhar na fonte padrao DELE — legivel, sem erro, e fora da identidade. O check
+   15g cobra que todo id do `LEGENDA_FAMILIAS` tenha entrada aqui. */
+const FAMILIAS = { inter: INTER, archivo_black: ARCHIVO_BLACK };
+const familiaDo = (estilo) => FAMILIAS[estilo && estilo.familia] || INTER;
+
 /* A Montserrat continua FORA. Ela existia para o wordmark da marca antiga; as duas placas de
    hoje estão em curvas (PNG e SVG), então nenhuma das duas identidades depende de fonte
    instalada — e o texto do card é Inter nas duas, o que o próprio README do Ecommerce Puro
@@ -81,6 +105,11 @@ export const defaultProps = {
      `pp_video_projects`) sair exatamente como saía. Valor torto não chega ao JSX: o
      `titleCardPreset` o normaliza. */
   titleCardStyle: TITLE_CARD_PADRAO,
+  /* Qual aparencia a legenda veste. O padrao e o `classico` do preset.js — a legenda que
+     TODO corte ja renderiza hoje —, e e o que faz clip salvo antes desta entrega (sem a
+     chave no `pp_video_projects`) sair exatamente como saia. Valor torto nao chega ao JSX:
+     o `legendaPreset` o normaliza. */
+  legendaStyle: LEGENDA_PADRAO,
   preset: "BUSINESS_SERIOUS",
   category: "",        // vem do detector; só escolhe a cor do destaque
 };
@@ -211,7 +240,7 @@ const Palavra = ({ texto, estilo, espaco }) => (
    sempre uma das primeiras. Os tempos das palavras já estão no relógio do corte (o
    `ytclip._lines_from_words_in_range` subtraiu o começo do trecho UMA vez), então aqui só se
    SOMA `de` — nada é subtraído de novo. */
-const Legenda = ({ pagina, cor, base, de }) => {
+const Legenda = ({ pagina, cor, base, de, aparencia }) => {
   const quadro = useCurrentFrame();
   const { fps } = useVideoConfig();
   /* Relógio do CORTE, a MESMA base dos tempos das palavras. */
@@ -243,8 +272,8 @@ const Legenda = ({ pagina, cor, base, de }) => {
           fps,
           config: MOLA_PALAVRA,
         });
-        var pop = popPalavra(progresso);
-        estilo.color = TOKENS.palavraCor;
+        var pop = popPalavra(progresso, aparencia);
+        estilo.color = aparencia.palavraCor;
         estilo.transform = "translateY(" + pop.subida + "px) scale(" + pop.escala + ")";
         /* Perto da BASE da palavra: o crescimento e a subida saem do pé do texto, então a
            linha de leitura não desce quando a palavra cresce. */
@@ -271,12 +300,22 @@ const Legenda = ({ pagina, cor, base, de }) => {
           left: (TOKENS.largura - TOKENS.legendaLargura) / 2,
           width: TOKENS.legendaLargura,
           textAlign: "center",
-          fontFamily: INTER,
-          fontWeight: TOKENS.legendaPeso,
-          fontSize: TOKENS.legendaFonte,
-          lineHeight: TOKENS.legendaEntrelinha,
-          color: TOKENS.texto,
-          textShadow: TOKENS.sombraTexto,
+          /* A TIPOGRAFIA toda vem do estilo resolvido (`LEGENDA_PRESETS`), nao mais dos
+             tokens globais: e o que permite um segundo estilo existir sem um `if` aqui
+             dentro. A GEOMETRIA acima (largura da coluna e ancora) continua global de
+             proposito — ela e limite de plataforma, nao gosto. */
+          fontFamily: familiaDo(aparencia),
+          fontWeight: aparencia.peso,
+          fontSize: aparencia.fonte,
+          lineHeight: aparencia.entrelinha,
+          letterSpacing: aparencia.tracking,
+          /* Caixa alta pelo CSS, e nunca maiusculizando a STRING da fala: assim o texto
+             que atravessa o pipeline continua sendo a fala como ela foi dita (e o que a
+             correcao na mao e o caminho FFmpeg/ASS leem), e a caixa e decisao de APARENCIA,
+             desfeita trocando o estilo. O check 15i6 cobra as duas metades. */
+          textTransform: aparencia.caixaAlta ? "uppercase" : "none",
+          color: aparencia.cor,
+          textShadow: aparencia.sombra,
           /* Reparte as duas linhas em vez de deixar uma cheia e uma com duas palavras. */
           textWrap: "balance",
         }}
@@ -290,7 +329,10 @@ const Legenda = ({ pagina, cor, base, de }) => {
               key={i}
               style={{
                 color: cor,
-                fontWeight: 900,
+                /* O peso do destaque e do ESTILO: no `impacto` a familia tem um peso so, e
+                   pedir 900 dela faria o Chrome sintetizar negrito borrado sobre um preto
+                   que ja e maximo. La a enfase e cor, como no card `primo_rico`. */
+                fontWeight: aparencia.pesoDestaque,
                 /* SEM escala, de propósito. `transform: scale(1.05)` cresce o glifo mas não
                    a caixa de layout: numa palavra longa os 5% transbordam ~17px e comem o
                    espaço seguinte — "Faturamento não" renderizou "Faturamentonão". Visto no
@@ -524,7 +566,7 @@ const Vazio = () => (
 
 export const Clip = ({
   clipFile, backgroundFile, legendaBase, bandaAltura, cues, title,
-  highlightText, autoHighlight, titleCardStyle, preset, category,
+  highlightText, autoHighlight, titleCardStyle, legendaStyle, preset, category,
   reframe, videoAltura,
 }) => {
   const { fps, durationInFrames } = useVideoConfig();
@@ -545,9 +587,17 @@ export const Clip = ({
   const escolhido = normalizarPreset(preset);
   const comLegenda = escolhido === "BUSINESS_SERIOUS";
   const cor = corDoDestaque(category);
+  /* A aparência resolvida UMA vez, e é o MESMO objeto que corta as páginas e que o
+     componente recebe. Resolver duas vezes deixaria o teto de caracteres e a fonte poderem
+     discordar — páginas cortadas para 58px desenhadas a 72px, que é uma linha estourando a
+     coluna sem erro nenhum. */
+  const aparencia = legendaPreset(legendaStyle);
   /* Fatiar a fala em páginas curtas é lógica pura e mora no preset.js, provada por
-     test-preset.mjs — aqui só vira Sequence. */
-  const paginas = comLegenda ? toCaptionPages(cues) : [];
+     test-preset.mjs — aqui só vira Sequence.
+     O teto vem do ESTILO (`tetoDaPagina`), não mais da constante: caixa alta a 72px é ~22%
+     mais larga por caractere que a caixa baixa a 58px, e cortar as duas com o mesmo número
+     é o estouro de coluna garantido. */
+  const paginas = comLegenda ? toCaptionPages(cues, tetoDaPagina(aparencia)) : [];
   /* Gate do destaque do título = `resolveTitleHighlight` (preset.js), chamado AQUI. Escrito
      à mão nesta linha, trocá-lo por uma chave que não existe desligaria o destaque em TODO
      título, calado e com a suíte verde — a mesma armadilha do `ancoraLegenda`. */
@@ -607,7 +657,8 @@ export const Clip = ({
             {/* Guarda do prop = `ancoraLegenda` (preset.js), chamada AQUI: numa variável
                 local, tirar este argumento deixava `bottom: undefined` — o React descarta a
                 propriedade e a legenda sai da âncora — sem nenhum check reprovar. */}
-            <Legenda pagina={pagina} cor={cor} base={ancoraLegenda(legendaBase)} de={de} />
+            <Legenda pagina={pagina} cor={cor} base={ancoraLegenda(legendaBase)}
+              de={de} aparencia={aparencia} />
           </Sequence>
         );
       })}

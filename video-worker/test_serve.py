@@ -490,9 +490,14 @@ def main():
               sem_banda == worker.build_filter("blur", None, "t.webp", None))
         check("20m2. e band_h=0 também cai no ramo antigo (não há tarja para preencher)",
               worker.build_filter("blur", None, "t.webp", 0) == sem_banda)
+        # O rótulo do vídeo virou `[fgr]` quando o canto passou a ser arredondado
+        # (2026-09-11) — com `VIDEO_RAIO = 0` ele volta a ser `[fgs]`. Perguntar ao dono do
+        # rótulo, em vez de cravá-lo aqui, mantém o check cobrando o que sempre cobrou: o
+        # vídeo INTEIRO entrando por cima do fundo, centrado.
+        _, rotulo_fg = worker._round_corners("blur")
         check("20n. o vídeo continua entrando inteiro por cima, sem corte",
               "force_original_aspect_ratio=decrease" in com_banda
-              and "[bg][fgs]overlay=(W-w)/2:(H-h)/2" in com_banda)
+              and ("[bg]%soverlay=(W-w)/2:(H-h)/2" % rotulo_fg) in com_banda)
         # O relógio: a miniatura é UM quadro, então quem carrega o fps é [canvas] (o vídeo).
         # Sem isto, um original de 30 fps sairia reamostrado para 25.
         check("20o. [canvas] continua sendo quem carrega o relógio",
@@ -1130,6 +1135,15 @@ def main():
     check("26q. letterbox do FFmpeg na MESMA cor do preset (%s vs %s)"
           % (cor.group(1) if cor else "-", worker.FUNDO_COR),
           bool(cor) and cor.group(1).upper() == worker.FUNDO_COR.upper())
+    # Mesma razão outra vez, agora para o CANTO do vídeo deitado (pedido do usuário,
+    # 2026-09-11). Raio diferente em cada renderizador é o mesmo corte saindo com moldura
+    # diferente conforme o botão que o operador apertou — e isso é invisível até alguém pôr
+    # os dois arquivos lado a lado.
+    raio = re.search(r"videoRaio:\s*(\d+)", preset_js)
+    check("26r. o Remotion declara o raio do canto do vídeo", bool(raio))
+    check("26s. e ele é o MESMO raio do FFmpeg (%s vs %s)"
+          % (raio.group(1) if raio else "-", worker.VIDEO_RAIO),
+          bool(raio) and int(raio.group(1)) == worker.VIDEO_RAIO)
     # O nome do campo é o contrato entre serve.py e a composição: renomear um lado só faz o
     # fundo desaparecer calado, com render verde.
     py_render = open(os.path.join(worker.REPO, "video-worker", "serve.py"),
@@ -1341,6 +1355,51 @@ def main():
     # "sem card" chegaria como `card={null}` e o `card.marca` derrubaria o render.
     check("26z6. o portao do card considera a identidade resolvida",
           "comLegenda && medida.texto && cardMarca" in clip_jsx)
+
+    # ---- o ESTILO da legenda (classico x impacto) ------------------------------------
+    # Mesma familia de elo que a identidade do card acima, e o mesmo modo de falhar calado:
+    # a tela oferece um estilo, este modulo descarta, e o video sai com a legenda de sempre
+    # sem nada errar. A diferenca e que aqui o estilo muda TAMBEM a quebra de linha (o
+    # `tetoDaPagina` do preset.js), entao um valor descartado nao muda so a fonte.
+    check("26za. o estilo escolhido CHEGA aos props, intacto",
+          props_marca({"legendaStyle": "impacto"})["legendaStyle"] == "impacto")
+    check("26za2. e o outro tambem (o valor nao e ignorado nem fixado num dos dois)",
+          props_marca({"legendaStyle": "classico"})["legendaStyle"] == "classico")
+    check("26za3. corpo sem a chave cai no padrao (clip antigo nao muda de legenda)",
+          props_marca({})["legendaStyle"] == serve.LEGENDA_PADRAO == "classico")
+    for torto in (None, "", "Impacto (caixa alta)", "IMPACTO", "impacto-caixa-alta",
+                  "outro_estilo", 7, True):
+        check("26za4. valor torto e normalizado, nunca chega cru (%r)" % (torto,),
+              props_marca({"legendaStyle": torto})["legendaStyle"] == "classico")
+    check("26za5. a chave existe sempre nos props (nunca omitida)",
+          "legendaStyle" in props_marca({}))
+    check("26za6. e sobrevive ao props-<token>.json que o render le",
+          json.loads(json.dumps(props_marca({"legendaStyle": "impacto"})))
+          ["legendaStyle"] == "impacto")
+    # PARIDADE das tres copias, pela mesma razao do 26y/26z.
+    m_leg = re.search(r"export const LEGENDA_STYLES = \[([^\]]*)\]", preset_js)
+    m_leg_padrao = re.search(r"export const LEGENDA_PADRAO = '([^']+)'", preset_js)
+    check("26zb. o conjunto de legenda foi encontrado no preset.js", bool(m_leg and m_leg_padrao))
+    leg_preset = tuple(s.strip().strip("'") for s in m_leg.group(1).split(",") if s.strip())
+    check("26zb2. a copia do servidor bate com o preset.js, na mesma ordem",
+          serve.LEGENDA_STYLES == leg_preset)
+    check("26zb3. e o padrao tambem bate", serve.LEGENDA_PADRAO == m_leg_padrao.group(1))
+    m_leg_ops = re.search(r"var LEGENDA_STYLES = \[([^\]]*)\]", ops_js)
+    m_leg_ops_padrao = re.search(r"var LEGENDA_PADRAO = '([^']+)'", ops_js)
+    check("26zc. o conjunto de legenda foi encontrado no video-ops.js",
+          bool(m_leg_ops and m_leg_ops_padrao))
+    leg_ops = tuple(s.strip().strip("'") for s in m_leg_ops.group(1).split(",") if s.strip())
+    check("26zc2. a copia da tela bate com a do servidor", leg_ops == serve.LEGENDA_STYLES)
+    check("26zc3. e o padrao da tela tambem",
+          m_leg_ops_padrao.group(1) == serve.LEGENDA_PADRAO)
+    # A composicao tem de LER a chave: prop que chega e ninguem le e a familia de defeito que
+    # criou o `ancoraLegenda`. E o teto de pagina tem de sair do estilo RESOLVIDO -- cortar a
+    # pagina com o teto do classico e desenha-la a 72px em caixa alta e a linha estourando a
+    # coluna de 820px, sem erro nenhum.
+    check("26zc4. a composicao resolve o estilo pelo gate e corta a pagina com o teto DELE",
+          "legendaStyle" in clip_jsx
+          and "const aparencia = legendaPreset(legendaStyle);" in clip_jsx
+          and "toCaptionPages(cues, tetoDaPagina(aparencia))" in clip_jsx)
     # Legenda CORRIGIDA na tela nao tem tempo por palavra e nao pode inventar um: o operador
     # reescreveu o texto, e a grade antiga descreve outras palavras. Fica estatica, de propo-
     # sito -- se um dia alguem "consertar" isto, o karaoke passa a acender palavra errada.

@@ -71,6 +71,17 @@ export const TOKENS = {
      as laterais, e é justamente o que este pedido tirou. */
   videoEscala: 1.0,
 
+  /* Raio dos cantos do vídeo deitado, em pixels do quadro 1080x1920. Pedido do usuário
+     (2026-09-11): no "Inteiro" a fonte encostava no fundo com canto reto.
+     Espelhado no `worker.VIDEO_RAIO`, com check de paridade no test_serve — sem ele o mesmo
+     corte sai com canto diferente em cada renderizador, calado.
+     É o MESMO número do `cardRaio` de propósito: dois retângulos arredondados no mesmo
+     quadro com raios diferentes leem como descuido, não como intenção.
+     Só vale no "Inteiro" (ver `palcoGeometria`): no 1:1 e no 4:5 o vídeo tem a largura do
+     quadro inteiro, então a curva cairia na BORDA do arquivo e viraria entalhe.
+     Botão de calibragem: 0 devolve o canto reto, nos dois renderizadores. */
+  videoRaio: 28,
+
   texto: '#FFFFFF',
   /* Amarelo queimado, não amarelo de aviso. Neon foi proibido explicitamente. */
   destaque: '#D9A441',
@@ -341,6 +352,15 @@ export function palcoGeometria(reframe, altura) {
     caixa.overflow = 'hidden';
     video = { width: '100%', height: '100%' };
     objectFit = 'cover';
+  } else if (TOKENS.videoRaio > 0) {
+    /* O raio vai na CAIXA, com `overflow: hidden`, e não no `<Video>`: o recorte fica sendo
+       do contêiner, que é um `<div>` comum, em vez de depender de o Chromium respeitar
+       `border-radius` num elemento substituído com overlay de vídeo. O par é obrigatório —
+       raio sem `overflow` não corta nada.
+       Só aqui (o ramo que NÃO recorta) porque no 1:1 e no 4:5 a caixa tem os 1080 de
+       largura do quadro: a curva cairia na borda do arquivo exportado. */
+    caixa.borderRadius = TOKENS.videoRaio;
+    caixa.overflow = 'hidden';
   }
   return { recorta: recorta, caixa: caixa, video: video, objectFit: objectFit };
 }
@@ -387,14 +407,24 @@ export function activeWordIndex(palavras, tempo) {
    calada. Inverter o sinal da subida ou escrever `1 - p*k` no lugar de `1 + p*k` passa em
    qualquer asercao de TEXTO sobre o Clip.jsx e so aparece olhando o frame -- entao o teste
    CHAMA esta funcao com valor construido. */
-export function popPalavra(progresso) {
+export function popPalavra(progresso, estilo) {
   var p = Number(progresso);
   if (!isFinite(p)) p = 0;
+  /* O ESTILO da legenda manda na amplitude do pop, e o argumento e OPCIONAL de proposito:
+     sem ele a funcao se comporta exatamente como antes deste registro existir (os tokens
+     globais, que sao os valores do proprio `classico`), entao nenhuma chamada antiga muda
+     de resultado. Estilo torto tambem cai nos tokens em vez de virar `NaN` na transformacao
+     -- `scale(NaN)` e ignorado pelo CSS, e a palavra ativa pararia de crescer calada. */
+  var e = estilo || TOKENS;
+  var escala = Number(e.palavraEscala);
+  var subida = Number(e.palavraSubida);
+  if (!isFinite(escala)) escala = TOKENS.palavraEscala;
+  if (!isFinite(subida)) subida = TOKENS.palavraSubida;
   return {
-    escala: 1 + (TOKENS.palavraEscala - 1) * p,
+    escala: 1 + (escala - 1) * p,
     /* `|| 0` mata o -0: `-4 * 0` da `-0` em IEEE 754, e `translateY(-0px)`, alem de feio,
        faz o valor deixar de comparar igual a 0 em teste estrito. */
-    subida: TOKENS.palavraSubida * p || 0,
+    subida: subida * p || 0,
   };
 }
 
@@ -1060,3 +1090,187 @@ export const TITULO_GEOMETRIA_COMPARTILHADA = [
   'cardEntradaQuadros', 'cardSaidaQuadros', 'cardSubida', 'cardEscalaInicial',
   'cardDuracaoSeg',
 ];
+
+/* ============================================================ estilos de LEGENDA
+
+   Até aqui a legenda tinha UMA aparência, escrita direto nos `TOKENS` e lida pelo
+   `Clip.jsx`. Este registro é o MESMO movimento que o `TITLE_CARD_PRESETS` já fez com o
+   card: a tipografia vira dado, o componente recebe UM objeto resolvido, e nenhum `if` de
+   estilo sobra dentro do JSX — que é onde a fiação erra calada neste projeto.
+
+   O que NÃO diverge por estilo, e por isso continua nos `TOKENS`: a LARGURA da coluna
+   (`legendaLargura`, os 820px que passam por baixo da trilha de botões do TikTok), a ÂNCORA
+   (`legendaBase`, calculada pelo servidor e compartilhada com o FFmpeg/ASS) e o teto de
+   linhas (`MAX_LINHAS`). Estilo escolhe tipografia; geometria de plataforma não é gosto.
+   O check 15h cobra que nenhum preset traga largura ou âncora própria. */
+
+/* LITERAIS, e não constantes interpoladas: esta lista é lida como TEXTO por regex pelo
+   `serve.py` e pelo `video-ops.js` — as outras duas cópias do conjunto, que não têm como
+   importar este módulo. Com uma constante no meio, o leitor extrai o NOME dela em vez do
+   valor e a paridade acusa divergência falsa (já aconteceu com o `TITLE_CARD_STYLES`). */
+export const LEGENDA_STYLES = ['classico', 'impacto'];
+
+/* O padrão é o `classico` porque ele É a legenda que todo corte já renderiza hoje: trecho
+   salvo antes desta entrega não tem a chave, e trocar a aparência de vídeo antigo por causa
+   de um recurso novo seria mudar o passado sem ninguém pedir. */
+export const LEGENDA_PADRAO = 'classico';
+
+/* O rótulo da tela NUNCA é a chave da lógica. */
+export const LEGENDA_LABELS = {
+  classico: 'Legenda clássica',
+  impacto: 'Impacto (caixa alta)',
+};
+
+/* PURA, exportada, e o ÚNICO validador do valor — a mesma regra do `titleCardStyleOf`, e
+   espelhada no `serve.py` e no `video-ops.js`. Desconhecido, ausente, `null`, número e
+   rótulo de tela caem no padrão: um valor torto chegando ao registro viraria `undefined`,
+   ou seja uma legenda sem fonte, sem corpo e sem cor, sem erro nenhum. */
+export function legendaStyleOf(valor) {
+  return LEGENDA_STYLES.indexOf(valor) >= 0 ? valor : LEGENDA_PADRAO;
+}
+
+/* --------------------------------------------------------- avanço médio das fontes */
+
+/* Largura média de AVANÇO, em `em` do corpo — a mesma convenção do `MAX_CHARS_LINHA`
+   (820 / (58 * 0.55) ~= 25) e do `AVANCO_MONTSERRAT` do título.
+   MEDIDO no arquivo que o projeto já tem em disco (`video-worker/fonts/Inter-Bold.ttf`,
+   lido com fontTools, média ponderada pela frequência das letras do português): 0,559em em
+   caixa baixa — ou seja, o 0,55 que já estava aqui, confirmado por medição e não por
+   herança. */
+export const AVANCO_INTER = 0.55;
+
+/* A MESMA Inter Bold, o MESMO texto, em CAIXA ALTA: 0,683em. Caixa alta não é a mesma linha
+   com letra maiúscula — é uma linha 22% mais comprida, e é exatamente por isso que um estilo
+   em caixa alta não pode herdar o teto de caracteres do estilo em caixa baixa. */
+export const AVANCO_INTER_CAIXA_ALTA = 0.683;
+
+/* ESTIMADO, não medido — e o comentário existe para ninguém tratá-lo como medição: a
+   Archivo Black NÃO está em disco neste projeto (o Remotion a busca no Google na hora do
+   render), então o número sai da medição acima (0,683em) mais 15% de folga por ser um
+   desenho black e largo contra um bold.
+   É CONSERVADOR de propósito, e a assimetria importa: superestimar o avanço fecha a página
+   mais cedo — página curta, que é justamente o efeito deste estilo; subestimar deixa a
+   linha estourar a coluna de 820px e a página vira três linhas altas demais para a folga
+   dentro do vídeo. Na dúvida, para cima.
+   BOTÃO DE CALIBRAGEM: com o arquivo da fonte em mãos, medir e trocar este número. */
+export const AVANCO_ARCHIVO_BLACK = 0.78;
+
+/* Quantos caracteres cabem numa linha da coluna da legenda com ESTE corpo e ESTA fonte.
+   É a conta do `MAX_CHARS_LINHA` com os dois parâmetros à mostra em vez de cravados: o
+   estilo novo muda o corpo E a fonte ao mesmo tempo, e um dos dois esquecido dá uma legenda
+   que estoura a coluna sem erro nenhum. Entrada torta devolve o teto de hoje em vez de
+   `NaN`, que viraria página de zero caractere e laço infinito no `toCaptionPages`. */
+export function charsPorLinhaLegenda(fonte, avanco) {
+  var corpo = Number(fonte);
+  var a = Number(avanco);
+  if (!isFinite(corpo) || corpo <= 0 || !isFinite(a) || a <= 0) return MAX_CHARS_LINHA;
+  return Math.max(1, Math.floor(TOKENS.legendaLargura / (corpo * a)));
+}
+
+/* Teto de caracteres de uma PÁGINA deste estilo — é o argumento do `toCaptionPages`, que
+   conta a página inteira e não a linha. Existe como função, e não como campo do registro,
+   porque é valor DERIVADO: gravado à mão no preset, ele passaria a mentir no dia em que
+   alguém ajustasse o corpo da fonte e esquecesse o teto. */
+export function tetoDaPagina(estilo) {
+  var e = estilo || LEGENDA_PRESETS[LEGENDA_PADRAO];
+  return charsPorLinhaLegenda(e.fonte, e.avanco) * MAX_LINHAS;
+}
+
+/* --------------------------------------------------------- o registro */
+
+export const LEGENDA_PRESETS = {
+  /* ---- Clássico: a legenda de hoje, sem um valor diferente. Ele NÃO repete número
+     nenhum — cada campo aponta para o token que o `Clip.jsx` já lia —, e é isso que faz o
+     check 15b ("o clássico não muda nada") ser verdadeiro por construção em vez de por
+     conferência de dois números iguais escritos em lugares diferentes. */
+  classico: {
+    familia: 'inter',
+    caixaAlta: false,
+    fonte: TOKENS.legendaFonte,
+    peso: TOKENS.legendaPeso,
+    entrelinha: TOKENS.legendaEntrelinha,
+    /* `normal` e não 0: é o valor que o CSS usa quando ninguém mexeu, e a legenda de hoje
+       não declara `letterSpacing` nenhum. */
+    tracking: 'normal',
+    avanco: AVANCO_INTER,
+    cor: TOKENS.texto,
+    sombra: TOKENS.sombraTexto,
+    /* Ênfase semântica do caminho ESTÁTICO (sem tempo por palavra): peso 900 mais a cor da
+       categoria, exatamente como estava escrito no componente. */
+    pesoDestaque: 900,
+    palavraCor: TOKENS.palavraCor,
+    palavraEscala: TOKENS.palavraEscala,
+    palavraSubida: TOKENS.palavraSubida,
+  },
+
+  /* ---- Impacto: caixa alta, corpo grande, uma grotesca black. É o estilo de canal de
+     negócio que o operador pediu, e a direção continua a mesma — o que muda é a ESCALA da
+     tipografia, não a quantidade de efeito: nenhuma animação nova entra aqui, a página
+     segue estática e quem se mexe continua sendo só a palavra sendo dita.
+
+     Archivo Black, e não Inter 900 em caixa alta: a diferença que se vê no frame é a
+     LARGURA do desenho, não o peso — uma black larga preenche a coluna, e é isso que dá a
+     leitura de "letreiro" da referência. E não uma condensada (Anton e parecidas): a
+     referência é larga, e condensada em caixa alta a 72px vira manchete de jornal.
+
+     Peso 400 NÃO é engano: a família Archivo Black tem UM peso, e o preto já está no
+     desenho. Pedir 700 ou 900 aqui faz o Chrome SINTETIZAR o negrito por cima de um peso
+     que já é máximo — engrossamento borrado que só aparece olhando o frame, a mesma
+     armadilha que o comentário do peso 800 da Inter registra no `Clip.jsx`. */
+  impacto: {
+    familia: 'archivo_black',
+    caixaAlta: true,
+    /* 72px contra os 58 do clássico. Com 820px de coluna e o avanço estimado, dá 14
+       caracteres por linha: "A MAIORIA / NÃO VAI" cabe em duas linhas, que é o formato da
+       referência. BOTÃO DE CALIBRAGEM do estilo — e note que subir daqui ENCURTA a página
+       sozinho, porque o teto de caracteres é derivado do corpo. */
+    fonte: 72,
+    peso: 400,
+    /* 1.10 e não os 1.18 do clássico: corpo grande pede entrelinha proporcionalmente menor,
+       senão as duas linhas parecem dois blocos soltos. E não menos que isto: em caixa alta
+       o Ã e o Õ do português ocupam a folga que o `A` não usa, e abaixo de ~1.06 o til da
+       linha de baixo encosta na base da linha de cima. */
+    entrelinha: 1.10,
+    /* Fecha 1% do avanço. A fonte já é larga; tracking negativo forte aqui gruda as
+       hastes. */
+    tracking: '-0.01em',
+    avanco: AVANCO_ARCHIVO_BLACK,
+    cor: TOKENS.texto,
+    /* Sombra mais densa que a do clássico, e pelo mesmo motivo de sempre: leitura, não
+       efeito. Um bloco de caixa alta a 72px cobre muito mais imagem, então a chance de cair
+       sobre parede clara é maior. Continua sem brilho colorido e sem contorno — contorno
+       grosso é a assinatura do editor automático que a direção do projeto evita. */
+    sombra: '0 4px 18px rgba(0,0,0,.9), 0 2px 4px rgba(0,0,0,.92)',
+    /* MESMO peso do resto (a família só tem um), então a ênfase estática aqui é COR — a
+       mesma escolha do card `primo_rico`, pelo mesmo motivo: empilhar três sinais para
+       dizer uma coisa só é o que vira cara de template. */
+    pesoDestaque: 400,
+    /* Amarelo queimado, não o verde do clássico: sobre caixa alta branca num corte de
+       negócio, o verde de karaokê lê como vídeo de dancinha. O amarelo é o `TOKENS.destaque`
+       que a direção já elegeu — a mesma família de cor do resto do projeto, sem inventar
+       tinta nova. */
+    palavraCor: TOKENS.destaque,
+    /* 1.06 contra 1.12 do clássico. `scale` cresce o glifo e NÃO a caixa de layout (medido
+       neste projeto e registrado no `TOKENS.palavraEscala`): 12% de uma palavra de 72px em
+       caixa alta transbordam mais que os mesmos 12% a 58px em caixa baixa, e o espaço entre
+       palavras não cresce junto. Pop menor, mesma leitura. */
+    palavraEscala: 1.06,
+    palavraSubida: -5,
+  },
+};
+
+/* O preset resolvido, pronto para o componente. Passa pelo `legendaStyleOf`, então valor
+   torto devolve o estilo de hoje em vez de `undefined`.
+   Aqui NÃO existe o desfecho `null` do card: "sem legenda" já é o preset `LIMPO` da
+   composição, decidido antes, e um segundo jeito de desligar a legenda seria dois donos
+   para a mesma decisão. */
+export function legendaPreset(valor) {
+  return LEGENDA_PRESETS[legendaStyleOf(valor)];
+}
+
+/* Os ids de FAMÍLIA que os presets podem pedir. A fonte em si é carregada no `Clip.jsx`
+   (é lá que o `@remotion/google-fonts` vive), e este é o contrato entre os dois: um id novo
+   no registro sem o carregamento correspondente deixaria a legenda cair na fonte de
+   fallback do Chrome — legível, sem erro, e completamente fora da identidade. O check 15g
+   amarra as duas pontas. */
+export const LEGENDA_FAMILIAS = ['inter', 'archivo_black'];

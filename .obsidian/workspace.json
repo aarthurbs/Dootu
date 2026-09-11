@@ -79,7 +79,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 200,
+    "collapsed": true
   },
   "right": {
     "id": "4a3d4fe894662114",
@@ -183,6 +184,8 @@
   },
   "active": "a4c1a24c2adc2e71",
   "lastOpenFiles": [
+    "docs/INDEX.md",
+    "studio/node_modules/@svgr/plugin-jsx/README.md",
     "CLAUDE.md",
     "studio/node_modules/@remotion/compositor-win32-x64-msvc/ffmpeg.exe",
     "_prova-visual.json",
@@ -217,8 +220,6 @@
     "studio/node_modules/postcss-selector-parser/API.md",
     "studio/node_modules/postcss-modules-values/README.md",
     "studio/node_modules/postcss-modules-values/CHANGELOG.md",
-    "studio/node_modules/postcss-modules-scope/README.md",
-    "studio/node_modules/postcss-modules-scope/CHANGELOG.md",
     "studio/node_modules/@remotion/studio-server/web/coding-agent-icons/cursor.png",
     "studio/node_modules/@remotion/studio-server/web/coding-agent-icons/copilot.png",
     "studio/node_modules/@remotion/studio-server/web/coding-agent-icons/codex.png",

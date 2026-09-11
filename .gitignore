@@ -31,3 +31,8 @@ supabase/.temp/
 # Renders do Remotion: saida gerada, nao fonte.
 studio/out/
 studio/public/clips/
+
+# Clone de REFERENCIA (MIT) do Anil-matcha/Open-Generative-AI: so consulta, nao e nosso
+# codigo. Tem .git proprio -- sem esta linha um `git add .` grava um gitlink quebrado.
+# O que saiu dele esta em video-worker/muapi.py, que nao depende deste diretorio.
+open-generative-ai/

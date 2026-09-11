@@ -43,6 +43,10 @@ que mantém descoberta e edição desacopladas.
 - `cues` — tempos em segundos **relativos ao começo do corte**, não ao vídeo original.
 - `preset` — `BUSINESS_SERIOUS` (padrão) ou `LIMPO`. Os nomes antigos `legenda`/`limpo`
   continuam valendo: o pipeline que já funciona não quebra por causa de renomeação.
+- `legendaStyle` — a APARÊNCIA da legenda: `classico` (padrão) ou `impacto`. Conjunto
+  fechado, com as três cópias de sempre (`preset.js` é o dono, `serve.py` e `video-ops.js`
+  espelham, paridade cobrada por check). Ausente cai no `classico`, então trecho salvo antes
+  do seletor sai como sempre saiu.
 - `category` — slug do detector (`money`, `failure`, `business`…). Só escolhe a COR do
   destaque; não muda enquadramento nem tempo.
 
@@ -60,7 +64,20 @@ discreta → autoridade", nunca "efeito, efeito, efeito". Na prática:
   chapado. O fundo desfocado saiu dos DOIS renderizadores em 2026-08-27 — com a legenda
   ancorada dentro do vídeo, o fundo virou moldura, e o `worker.py` pinta a mesma cor no
   perfil `blur` (nome herdado; ele já não desfoca nada).
-- **Legenda:** Inter Bold 58px, branca, centralizada, no máximo **2 linhas**, **ancorada
+- **Legenda:** a APARÊNCIA vem do estilo escolhido por corte (`legendaStyle`), e os dois
+  estão no registro `LEGENDA_PRESETS` do `preset.js` — tipografia é dado, não `if` dentro do
+  componente. O que NÃO muda com o estilo: a largura da coluna (820px), a âncora
+  (`legendaBase`, do servidor) e o teto de 2 linhas — isso é limite de plataforma, não gosto.
+  - `classico` (padrão): o que está descrito abaixo, sem um valor diferente.
+  - `impacto`: Archivo Black em CAIXA ALTA, 72px, entrelinha 1.10, sombra mais densa, e a
+    palavra sendo dita em amarelo queimado em vez do verde. A caixa alta é `textTransform`
+    do CSS — o texto que atravessa o pipeline continua sendo a fala como foi dita. Como a
+    caixa alta ocupa ~22% a mais por caractere (medido na Inter-Bold.ttf do projeto), o teto
+    de caracteres da página é DERIVADO do corpo e da fonte (`tetoDaPagina`), e não a
+    constante do clássico: são 14 caracteres por linha contra 25, ou seja páginas mais
+    curtas e trocando mais vezes — que é o formato do estilo.
+    A Archivo Black tem UM peso (400) e o Remotion a busca no Google na hora do render.
+- **Legenda (`classico`, os números de sempre):** Inter Bold 58px, branca, centralizada, no máximo **2 linhas**, **ancorada
   pela base** dentro do retângulo do vídeo (um respiro de 8% da altura dele acima da
   borda de baixo; numa fonte 16:9 a base do texto cai em y 1215) e com 820px de largura,
   que passa por baixo da trilha de botões do TikTok em vez de por cima. Fala longa vira

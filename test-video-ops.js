@@ -627,6 +627,63 @@ ok('cada identidade tem rótulo de tela, e nenhum rótulo sobra', () => {
   }
   assert.strictEqual(Object.keys(ops.TITLE_CARD_LABELS).length, ops.TITLE_CARD_STYLES.length);
 });
+
+/* --------------------------- "Legenda": qual aparência a legenda veste
+   Mesma família de elo do "Card visual" acima, e o mesmo modo de falhar calado: a tela
+   oferece um estilo, o servidor descarta, e o vídeo sai com a legenda de sempre sem nada
+   errar. Aqui pesa mais que no card, porque o estilo muda também a QUEBRA DE LINHA (o
+   `tetoDaPagina` do preset.js) — uma página cortada para um estilo e desenhada no outro
+   estoura a coluna. */
+ok('dois estilos de legenda, e o padrão é o que todo corte já renderiza', () => {
+  assert.deepStrictEqual(ops.LEGENDA_STYLES, ['classico', 'impacto']);
+  assert.strictEqual(ops.LEGENDA_PADRAO, 'classico');
+});
+ok('o validador: trecho sem a chave e valor torto caem no clássico', () => {
+  for (const torto of [undefined, null, '', 'Impacto', 'IMPACTO', 'impacto-caixa-alta', 7, {}]) {
+    assert.strictEqual(ops.legendaStyleOf({ legendaStyle: torto }), 'classico');
+  }
+  assert.strictEqual(ops.legendaStyleOf(undefined), 'classico');
+  assert.strictEqual(ops.legendaStyleOf({}), 'classico');
+});
+ok('estilo válido passa intacto (senão o seletor não seleciona nada)', () => {
+  for (const estilo of ops.LEGENDA_STYLES) {
+    assert.strictEqual(ops.legendaStyleOf({ legendaStyle: estilo }), estilo);
+  }
+});
+ok('a escolha do estilo é guardada no trecho, pelo validador', () => {
+  const clip = { id: 'cand-27', clipToken: 't', topic: 'Manchete' };
+  ops.__setCandidates([clip]);
+  ops.clipFieldWrite({ value: 'impacto', dataset: { clipField: 'legendaStyle', id: 'cand-27' } });
+  assert.strictEqual(clip.legendaStyle, 'impacto');
+  // DOM é entrada: valor torto não vira estado.
+  ops.clipFieldWrite({ value: 'inventado', dataset: { clipField: 'legendaStyle', id: 'cand-27' } });
+  assert.strictEqual(clip.legendaStyle, 'classico');
+});
+ok('e viaja no corpo do POST, sempre presente', () => {
+  const clip = { id: 'cand-28', clipToken: 't', topic: 'M', legendaStyle: 'impacto' };
+  assert.strictEqual(ops.renderBody(clip, true).legendaStyle, 'impacto');
+  // Trecho antigo não tem a chave: tem de sair como sempre saiu, e não `undefined`.
+  const corpo = ops.renderBody({ clipToken: 't', id: 'cand-29', topic: 'M' }, true);
+  assert.ok('legendaStyle' in corpo, 'a chave tem de existir no corpo');
+  assert.strictEqual(corpo.legendaStyle, 'classico');
+});
+ok('a cópia do conjunto de legenda bate com o preset.js (lista e padrão)', () => {
+  const preset = require('fs').readFileSync(
+    require('path').join(__dirname, 'studio', 'src', 'preset.js'), 'utf8');
+  const lista = /export const LEGENDA_STYLES = \[([^\]]*)\]/.exec(preset);
+  const padrao = /export const LEGENDA_PADRAO = '([^']+)'/.exec(preset);
+  assert.ok(lista && padrao, 'não achei o conjunto de legenda no preset.js — conferência '
+    + 'que não acha nada é pior que nenhuma');
+  const doPreset = lista[1].split(',').map((s) => s.trim().replace(/'/g, '')).filter(Boolean);
+  assert.deepStrictEqual(ops.LEGENDA_STYLES, doPreset);
+  assert.strictEqual(ops.LEGENDA_PADRAO, padrao[1]);
+});
+ok('cada estilo de legenda tem rótulo de tela, e nenhum rótulo sobra', () => {
+  for (const estilo of ops.LEGENDA_STYLES) {
+    assert.match(ops.LEGENDA_LABELS[estilo], /\S/, 'sem rótulo o botão sai vazio');
+  }
+  assert.strictEqual(Object.keys(ops.LEGENDA_LABELS).length, ops.LEGENDA_STYLES.length);
+});
 /* REGRESSÃO de um defeito MEDIDO no navegador: trocar a identidade "bugava a tela e deixava
    só uma faixa". O radio escondido é `position: absolute`; sem ancestral posicionado o bloco
    containing dele vira o BLOCO INICIAL, ele escapa do contexto de scroll do `#main`, e ao
