@@ -1228,6 +1228,25 @@ def _candidates(info, limit=MAX_CANDIDATES):
             "anchor": float(cue["start"]), "regiao": None, "interesse": 0.0,
             "signals": ["transcript"], "reasons": labels, "topic": "", "topicAt": None,
         })
+    # Palpite de um detector de fora (hoje o `ai-clipping` da MuAPI, via `muapi.py`), já
+    # como DADO — esta função continua pura. Entra como ÂNCORA, nunca como borda:
+    # `regiao=None` faz o trecho existir só se a fala confirmar, então a janela sai da
+    # mesma busca de frase completa e passa pelo mesmo veto editorial que todo o resto.
+    # Dar região aqui faria o `boundary` sair "audiencia" num vídeo sem legenda — afirmar
+    # conferência que não houve. `interesse=0.0` porque esse slot é popularidade MEDIDA,
+    # e confiança de modelo de terceiro não é isso.
+    for trecho in info.get("muapiHighlights") or []:
+        try:
+            inicio = float(trecho.get("start"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if not math.isfinite(inicio) or inicio < 0.0:
+            continue
+        raw.append({
+            "anchor": inicio, "regiao": None, "interesse": 0.0,
+            "signals": ["muapi"], "reasons": ["trecho apontado por detector externo"],
+            "topic": "", "topicAt": None,
+        })
 
     # Âncora mais promissora primeiro, só para escolher quem tenta antes; a NOTA quem dá é
     # o `avaliar`, depois de resolver a janela. O instante desempata — ordem estável.

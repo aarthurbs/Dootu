@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import worker  # noqa: E402  (a pasta do worker entra no path na linha acima)
 import ytclip  # noqa: E402  (descoberta de cortes por URL; mesma pasta)
 import captions  # noqa: E402  (cues -> ASS para queimar a legenda no 9:16)
+import muapi  # noqa: E402  (detector externo OPCIONAL de trechos; inerte sem MUAPI_KEY)
 
 ROUTE = "/api/video-cut"
 # Descoberta e aquisição por URL. Separadas de propósito: ANALISAR não baixa vídeo nenhum,
@@ -361,6 +362,28 @@ def title_card_style(valor):
     return valor if valor in TITLE_CARD_STYLES else TITLE_CARD_PADRAO
 
 
+# Os estilos de LEGENDA. Mesmo espelho, mesma razao e mesma guarda do TITLE_CARD_STYLES
+# acima: o dono e o `studio/src/preset.js` (`LEGENDA_STYLES`/`LEGENDA_PADRAO`), este modulo
+# e stdlib puro e o `test_serve.py` LE o preset.js para comparar.
+# "classico" e a legenda que TODO corte ja renderiza hoje, e por isso e o padrao: trecho
+# salvo antes deste seletor nao manda a chave e tem de sair exatamente como sempre saiu.
+# Aqui NAO existe o "nenhum" do card -- legenda desligada ja e o preset `limpo` da
+# composicao, e um segundo jeito de desligar a mesma coisa seria dois donos para a decisao.
+LEGENDA_STYLES = ("classico", "impacto")
+LEGENDA_PADRAO = "classico"
+
+
+def legenda_style(valor):
+    """Valor do corpo do POST -> estilo de legenda conhecido. Desconhecido = o padrao.
+
+    PURA e no nivel do modulo pelo mesmo motivo do `title_card_style`: o teste CHAMA com
+    valor construido. Recusa `None`, numero, dict, o rotulo da tela ("Impacto (caixa alta)")
+    e qualquer string fora do conjunto -- um valor desconhecido atravessando ate a composicao
+    nao tem aparencia definida, e o desfecho seria uma legenda sem fonte e sem corpo, calada.
+    """
+    return valor if valor in LEGENDA_STYLES else LEGENDA_PADRAO
+
+
 def render_props(folder, clip_name, media, body):
     """O contrato inteiro entre o servidor e a composição do Remotion, num objeto.
 
@@ -442,6 +465,11 @@ def render_props(folder, clip_name, media, body):
         # hoje: trecho salvo antes desta entrega nao manda a chave e tem de sair como
         # sempre saiu, nao com a outra marca.
         "titleCardStyle": title_card_style(body.get("titleCardStyle")),
+        # Qual aparencia a legenda veste. Conjunto FECHADO e validado aqui, pela mesma razao
+        # do titleCardStyle: o corpo do POST e entrada. Desconhecido/ausente cai no
+        # "classico", que e a legenda que todo corte ja renderiza -- trecho salvo antes deste
+        # seletor nao manda a chave e tem de sair como sempre saiu, nao no estilo novo.
+        "legendaStyle": legenda_style(body.get("legendaStyle")),
         "preset": "limpo" if body.get("preset") == "limpo" else "legenda",
         # Só o slug: a categoria escolhe a cor do destaque na composição e nada mais.
         "category": re.sub(r"[^a-z_]", "", str(body.get("category") or "").lower())[:40],
@@ -1045,11 +1073,21 @@ class CutHandler(SimpleHTTPRequestHandler):
         e enfileirar análise atrás de um corte de 4K deixaria a tela parada à toa.
         """
         info = ytclip.probe(self._json_body().get("url"))
+        # Detector externo OPCIONAL. Sem `MUAPI_KEY` no ambiente nada é chamado: a análise
+        # não fica um milissegundo mais lenta nem um centavo mais cara para quem não ligou.
+        # Ligado, o que volta é ÂNCORA — o `candidates_report` ainda resolve a borda na fala
+        # e ainda reprova pelo veto editorial. O motivo entra na `note` porque recurso ligado
+        # que não achou nada precisa dizer por quê (BP-008): lista vazia calada é
+        # indistinguível de "não rodou". A URL é a canônica do `probe`, nunca a string colada.
+        aviso_externo = ""
+        if os.environ.get(muapi.ENV_KEY):
+            info["muapiHighlights"], aviso_externo = muapi.highlights(
+                info["url"], num_highlights=ytclip.MAX_CANDIDATES)
         sugestoes, descarte = ytclip.candidates_report(info)
         # "Descartei sete porque terminavam no meio da frase" e "não achei nada" são coisas
         # diferentes para quem olha a tela (BP-008): o resumo entra na `note`, junto do que
         # já se dizia sobre legenda e heatmap ausentes.
-        nota = " ".join(p for p in (info["note"], descarte) if p).strip()
+        nota = " ".join(p for p in (info["note"], descarte, aviso_externo) if p).strip()
         self._send_json({
             "videoId": info["videoId"], "url": info["url"], "title": info["title"],
             "uploader": info["uploader"], "durationSec": info["durationSec"],

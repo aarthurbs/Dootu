@@ -86,9 +86,9 @@ inclusive a armadilha de alinhamento de quadro que vale 17 dB.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
-**Rode `.\provas.ps1`.** Ele roda as oito suítes, soma, e **confere o total contra a linha
+**Rode `.\provas.ps1`.** Ele roda as nove suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**300**) · `test_ytclip.py` (**234**) · `test_worker.py` (**116**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**322**) · `test-video-ops.js` (**83**) · `test-video-ops-dom.js` (**133**) — **1574 verificações nas oito, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**322**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**90**) · `test-video-ops-dom.js` (**133**) — **1728 verificações nas nove, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

@@ -63,6 +63,26 @@
     return TITLE_CARD_STYLES.indexOf(valor) >= 0 ? valor : TITLE_CARD_PADRAO;
   }
 
+  /* --- estilo da legenda --------------------------------------------------------------
+     Mesmo espelho, mesma razão e mesma guarda do card acima: o dono é o
+     `studio/src/preset.js` (`LEGENDA_STYLES`/`LEGENDA_PADRAO`), e o `test-video-ops.js` LÊ
+     o preset.js para comparar as duas listas e os dois padrões.
+     Aqui NÃO existe o "nenhum" do card: legenda desligada já é o preset `limpo` do botão de
+     render, e um segundo jeito de desligar a mesma coisa seria dois donos para a decisão. */
+  var LEGENDA_STYLES = ['classico', 'impacto'];
+  var LEGENDA_PADRAO = 'classico';
+  /* O rótulo da tela nunca é a chave da lógica. */
+  var LEGENDA_LABELS = {
+    classico: 'Clássica', impacto: 'Impacto'
+  };
+  /* O validador. Trecho salvo antes deste seletor (sem a chave) e valor torto caem no
+     `classico` — a legenda que TODO corte já renderiza hoje, então clip antigo continua
+     saindo igual. */
+  function legendaStyleOf(clip) {
+    var valor = clip && clip.legendaStyle;
+    return LEGENDA_STYLES.indexOf(valor) >= 0 ? valor : LEGENDA_PADRAO;
+  }
+
   /* --- enquadramento do 9:16 ---------------------------------------------------------
      TERCEIRA copia do conjunto (a primeira e `worker.REFRAMES`, a segunda o `preset.js`),
      pela mesma razao do card acima: nao ha import possivel entre um modulo stdlib do
@@ -229,7 +249,8 @@
   }
   /* Sinais que o /api/yt-probe devolve por trecho. Slug desconhecido aparece como veio,
      nunca some: é evidência (audiência medida, capítulo, fala), não palpite. */
-  var SIGNAL_LABEL = { heatmap: 'Mais reproduzidos', chapter: 'Capítulo', transcript: 'Fala' };
+  var SIGNAL_LABEL = { heatmap: 'Mais reproduzidos', chapter: 'Capítulo', transcript: 'Fala',
+                       muapi: 'Detector externo' };
   function signalLabel(id) { return SIGNAL_LABEL[id] || String(id || ''); }
 
   function uid(prefix) {
@@ -1774,6 +1795,7 @@
     var capAberto = CAPS_OPEN === clip.id;
     var renderizando = !!YT_BUSY['render:' + clip.id];
     var estiloAtual = titleCardStyleOf(clip);
+    var legendaAtual = legendaStyleOf(clip);
     return '<section class="yt-detail" data-clip="' + esc(clip.id) + '">'
       + '<div class="yt-detail-top">'
       + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-back">← Todas as sugestões</button>'
@@ -1811,6 +1833,16 @@
           + ' data-clip-field="titleCardStyle" data-id="' + esc(clip.id) + '"'
           + ' value="' + esc(estilo) + '"' + (estiloAtual === estilo ? ' checked' : '') + '>'
           + '<label for="' + esc(id) + '">' + esc(TITLE_CARD_LABELS[estilo]) + '</label>';
+      }).join('') + '</fieldset>'
+      /* Mesma classe do card de propósito: os dois são a MESMA pergunta ("que aparência
+         este corte veste?") e merecem o mesmo componente, não um estilo novo no CSS. */
+      + '<fieldset class="vop-cardstyle"><legend>Legenda</legend>'
+      + LEGENDA_STYLES.map(function (estilo) {
+        var id = 'legstyle-' + clip.id + '-' + estilo;
+        return '<input type="radio" id="' + esc(id) + '" name="legstyle-' + esc(clip.id) + '"'
+          + ' data-clip-field="legendaStyle" data-id="' + esc(clip.id) + '"'
+          + ' value="' + esc(estilo) + '"' + (legendaAtual === estilo ? ' checked' : '') + '>'
+          + '<label for="' + esc(id) + '">' + esc(LEGENDA_LABELS[estilo]) + '</label>';
       }).join('') + '</fieldset>'
       + reframeFieldHTML(clip, 'clip-field', 'reframe',
         sourceWarning(reframeOf(clip), clip.sourceWidth, clip.sourceHeight))
@@ -2405,6 +2437,11 @@
          Mandar SEMPRE a chave e o que fecha o caminho: o `render_props` do serve.py valida
          de novo, e prop mandado vence defaultProp na composicao. */
       titleCardStyle: titleCardStyleOf(clip),
+      /* O estilo da legenda, pelo validador e SEMPRE presente, pela mesma razão do
+         titleCardStyle: trecho salvo antes deste seletor não tem a chave, e mandar
+         `undefined` deixaria a composição cair no `defaultProps` em vez da escolha do
+         operador. O `render_props` do serve.py valida de novo. */
+      legendaStyle: legendaStyleOf(clip),
       /* O enquadramento escolhido. Pelo validador e SEMPRE presente, pela mesma razao do
          titleCardStyle: trecho salvo antes do seletor nao tem a chave, e mandar `undefined`
          deixaria a composicao cair no `defaultProps` em vez da escolha do operador.
@@ -3091,6 +3128,11 @@
          pagina. E um CLIQUE deliberado, nao uma tecla: gravar aqui nao martela o
          localStorage como gravaria a cada letra do titulo. */
       projectsPersist();
+    } else if (input.dataset.clipField === 'legendaStyle') {
+      /* Mesmo tratamento do titleCardStyle: validador (o DOM é entrada) e `projectsPersist`
+         porque isto é um CLIQUE deliberado, não uma tecla. */
+      clip.legendaStyle = legendaStyleOf({ legendaStyle: input.value });
+      projectsPersist();
     } else if (input.dataset.clipField === 'reframe') {
       /* Mesmo tratamento do titleCardStyle: validador (o DOM e entrada) e `projectsPersist`
          porque isto e um CLIQUE deliberado, nao uma tecla -- gravar a cada letra martelaria
@@ -3436,6 +3478,12 @@
       TITLE_CARD_STYLES: TITLE_CARD_STYLES,
       TITLE_CARD_PADRAO: TITLE_CARD_PADRAO,
       TITLE_CARD_LABELS: TITLE_CARD_LABELS,
+      /* O validador do estilo de legenda e as listas dele, pela mesma razão do card: o
+         teste CHAMA a função com um trecho construído e compara as cópias com o preset.js. */
+      legendaStyleOf: legendaStyleOf,
+      LEGENDA_STYLES: LEGENDA_STYLES,
+      LEGENDA_PADRAO: LEGENDA_PADRAO,
+      LEGENDA_LABELS: LEGENDA_LABELS,
       LIB_VERSION: LIB_VERSION,
       MAX_CANDIDATES: MAX_CANDIDATES,
       KEY: KEY

@@ -61,6 +61,16 @@ OUT_H = 1920
 # Aqui moravam BLUR_DIV/BLUR_SIGMA, os botões do fundo desfocado; o desfoque saiu em
 # 2026-08-27 (ver _reframe_chain) e os dois ficaram sem uso.
 FUNDO_COR = "#0A0A0C"
+# Raio dos cantos do vídeo deitado, em pixels do quadro 1080x1920. Espelha o
+# `TOKENS.videoRaio` do studio/src/preset.js — mesma disciplina do FUNDO_COR acima, com
+# check de paridade no test_serve: se um dos dois mudar sozinho, o mesmo corte sai com canto
+# diferente em cada renderizador, calado.
+# É o MESMO número do `cardRaio` de propósito: dois retângulos arredondados no mesmo quadro
+# com raios diferentes leem como descuido, não como intenção.
+# Só vale no `blur` (ver _round_corners): no 1:1 e no 4:5 o vídeo tem a largura do quadro
+# inteiro, então arredondar abriria entalhe escuro na BORDA do que foi exportado.
+# Botão de calibragem: 0 devolve o canto reto, nos dois renderizadores.
+VIDEO_RAIO = 28
 # Fundo por MINIATURA (o caminho novo, quando o vídeo veio do YouTube pelo baixador). Estes
 # dois são o botão de calibragem do fundo: escurecem e dessaturam a miniatura para ela ficar
 # ATRÁS do vídeo, não ao lado dele.
@@ -409,9 +419,44 @@ def _crop_source(reframe):
             % (largo, alto, alto, largo)), "[src]"
 
 
+def _round_corners(reframe, entrada="[fgs]", saida="[fgr]"):
+    r"""(segmento que arredonda os cantos do vídeo, rótulo a usar no overlay).
+
+    Pedido do usuário (2026-09-11), no "Inteiro": a fonte deitada encostava no fundo com
+    canto reto. Só o `blur` entra aqui — no 1:1 e no 4:5 o vídeo tem os 1080 de largura do
+    quadro, então o canto curvo cairia na BORDA do arquivo exportado e viraria entalhe.
+    Quem não arredonda recebe o rótulo de entrada de volta e sai byte a byte como saía.
+
+    Máscara de UM quadro: `trim=end_frame=1` antes do `geq`, e o framesync do `alphamerge`
+    repete o último quadro da segunda entrada (`repeatlast`) pelo clipe inteiro. É a razão
+    de existir desta forma — `geq` é caro por pixel, e rodá-lo por quadro custaria mais que
+    o encode. Medido nesta máquina: com o `trim` o canto volta escuro em t=0, 1,5 e 2,9 s de
+    um clipe de 3 s, e o miolo continua sendo vídeo.
+
+    `clip(...,0,1)` em vez de `if(lte(...))` de propósito: dá 1 px de meio-tom na curva,
+    que é o que o `border-radius` do navegador faz no outro renderizador. Degrau duro deixa
+    o canto serrilhado, e serrilhado é justamente o que aparece num corte de 1080 px.
+    """
+    if reframe != REFRAME_PADRAO or VIDEO_RAIO <= 0:
+        return "", entrada
+    # Distância para DENTRO da borda a partir da qual o canto começa a curvar: zero no meio
+    # de cada lado (então o `hypot` só passa do raio nos quatro cantos) e crescendo até o
+    # raio nas pontas. `W`/`H` vêm do próprio quadro, e é por isso que a máscara nasce do
+    # vídeo já escalado e não de um `color=` de tamanho calculado aqui: o `scale=decrease`
+    # arredonda a altura por conta dele, e um pixel de diferença faria o alphamerge falhar.
+    dx = "max(max(%d-X,X-(W-1-%d)),0)" % (VIDEO_RAIO, VIDEO_RAIO)
+    dy = "max(max(%d-Y,Y-(H-1-%d)),0)" % (VIDEO_RAIO, VIDEO_RAIO)
+    alfa = "255*clip(%d+0.5-hypot(%s,%s),0,1)" % (VIDEO_RAIO, dx, dy)
+    return (entrada + "split=2[fgv][fgm];"
+            "[fgm]trim=end_frame=1,format=gray,geq=lum='" + alfa + "'[fgmask];"
+            "[fgv]format=yuva420p[fgva];"
+            "[fgva][fgmask]alphamerge" + saida + ";"), saida
+
+
 def _reframe_chain(reframe, background=None, band_h=None):
     recorte, src = _crop_source(reframe)
     deita = reframe in REFRAMES and reframe != "crop"
+    arredonda, fg = _round_corners(reframe)
     if deita and background and band_h:
         # Miniatura no tamanho de UMA TARJA, repetida em cima e embaixo — em vez de UMA
         # miniatura esticada para cobrir os 1080x1920 inteiros.
@@ -431,9 +476,15 @@ def _reframe_chain(reframe, background=None, band_h=None):
         # entrada de baixo, e a miniatura tem um quadro só (a 25 fps por padrão do
         # decodificador de imagem). Com a miniatura embaixo, um original de 30 fps sairia
         # reamostrado para 25 e perderia quadro.
+        # "O conteúdo de [canvas] é irrelevante" vale ENQUANTO as duas tarjas mais o vídeo o
+        # cobrem inteiro — e o canto arredondado é exatamente o que abre buraco nessa conta.
+        # MEDIDO ao ligar o raio: o pixel (2,658), 2 px abaixo da tarja, voltava vermelho
+        # vivo — era o vídeo CRU esticado para 1080x1920 aparecendo pelo canto. Por isso a
+        # chapa: no raio 0 ela não entra e a cadeia fica byte a byte como era.
+        chapa = ("drawbox=color=%s:t=fill," % FUNDO_COR) if arredonda else ""
         return recorte + (
             "%ssplit=2[base][fg];"
-            "[base]scale=%d:%d,setsar=1[canvas];"
+            "[base]scale=%d:%d,%ssetsar=1[canvas];"
             "[1:v]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,"
             # O desfoque entra DEPOIS do corte da tarja (borrar antes desperdiçaria pixel
             # que vai ser jogado fora) e ANTES do escurecimento, para o `gblur` misturar as
@@ -443,10 +494,9 @@ def _reframe_chain(reframe, background=None, band_h=None):
             "[canvas][t1]overlay=0:0[b1];"
             "[b1][t2]overlay=0:H-h[bg];"
             "[fg]scale=%d:%d:force_original_aspect_ratio=decrease[fgs];"
-            "[bg][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1"
-            % (src, OUT_W, OUT_H, OUT_W, band_h, OUT_W, band_h, THUMB_DESFOQUE_SIGMA,
+            % (src, OUT_W, OUT_H, chapa, OUT_W, band_h, OUT_W, band_h, THUMB_DESFOQUE_SIGMA,
                THUMB_SATURACAO, THUMB_LUZ, THUMB_LUZ, THUMB_LUZ, OUT_W, OUT_H)
-        )
+        ) + arredonda + ("[bg]%soverlay=(W-w)/2:(H-h)/2,setsar=1" % fg)
     if deita and background:
         # Fundo = MINIATURA do vídeo, cobrindo o quadro inteiro e escurecida. Substitui o
         # desfoque porque o desfoque não era desfoque do quadro: era o desfoque da TIRA
@@ -467,10 +517,9 @@ def _reframe_chain(reframe, background=None, band_h=None):
             "eq=saturation=%.2f,colorchannelmixer=rr=%.2f:gg=%.2f:bb=%.2f[thumb];"
             "[canvas][thumb]overlay=0:0[bg];"
             "[fg]scale=%d:%d:force_original_aspect_ratio=decrease[fgs];"
-            "[bg][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1"
             % (src, OUT_W, OUT_H, OUT_W, OUT_H, OUT_W, OUT_H, THUMB_DESFOQUE_SIGMA,
                THUMB_SATURACAO, THUMB_LUZ, THUMB_LUZ, THUMB_LUZ, OUT_W, OUT_H)
-        )
+        ) + arredonda + ("[bg]%soverlay=(W-w)/2:(H-h)/2,setsar=1" % fg)
     if deita:
         # O rótulo mente e fica mentindo de propósito: `blur` é o nome em REFRAMES, em
         # serve.PROFILES, no FFMPEG_FILTERS do video-ops.js, no nome do arquivo baixado
@@ -489,9 +538,24 @@ def _reframe_chain(reframe, background=None, band_h=None):
         # 4:5 são a fonte pré-recortada deitada sobre a cor chapada. Antes deste ramo aceitar
         # `deita` eles vazavam para o `return` final e saíam como `crop` de quadro cheio —
         # ou seja, escolher 1:1 num MP4 local do Passo 3 entregava um 9:16 recortado.
-        return recorte + ("%sscale=%d:%d:force_original_aspect_ratio=decrease,"
-                          "pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s,setsar=1"
-                          % (src, OUT_W, OUT_H, OUT_W, OUT_H, FUNDO_COR))
+        if not arredonda:
+            return recorte + ("%sscale=%d:%d:force_original_aspect_ratio=decrease,"
+                              "pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s,setsar=1"
+                              % (src, OUT_W, OUT_H, OUT_W, OUT_H, FUNDO_COR))
+        # Canto arredondado sobre letterbox chapado. A placa de fundo nasce do PRÓPRIO vídeo
+        # já escalado (`drawbox=t=fill` é um memset no tamanho exato), e não de um `color=`
+        # com dimensão calculada aqui: a altura do `scale=decrease` é arredondada pelo
+        # FFmpeg, e um pixel de diferença faria o `alphamerge` recusar as duas entradas.
+        # O `pad` continua sendo quem monta o quadro — o letterbox é o mesmo de sempre, e é
+        # por isso que este ramo não virou `overlay` sobre tela cheia.
+        return recorte + (
+            "%sscale=%d:%d:force_original_aspect_ratio=decrease,split=2[fgs][fgbg];"
+            "[fgbg]drawbox=color=%s:t=fill[flat];"
+            % (src, OUT_W, OUT_H, FUNDO_COR)
+        ) + arredonda + (
+            "[flat]%soverlay=0:0,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s,setsar=1"
+            % (fg, OUT_W, OUT_H, FUNDO_COR)
+        )
     # Alternativa simples: reenquadramento central. Corta as laterais, sem rastreamento.
     return ("[0:v]scale=%d:%d:force_original_aspect_ratio=increase,"
             "crop=%d:%d,setsar=1" % (OUT_W, OUT_H, OUT_W, OUT_H))

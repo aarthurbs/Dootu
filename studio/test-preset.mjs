@@ -26,6 +26,11 @@ import {
   titleCardStyleOf, titleCardPreset, TITULO_GEOMETRIA_COMPARTILHADA, TITULO_FILETE_REF,
   TITLE_CARD_SEM,
 } from './src/preset.js';
+import {
+  LEGENDA_STYLES, LEGENDA_PADRAO, LEGENDA_LABELS, LEGENDA_PRESETS, LEGENDA_FAMILIAS,
+  legendaStyleOf, legendaPreset, tetoDaPagina, charsPorLinhaLegenda,
+  AVANCO_INTER, AVANCO_INTER_CAIXA_ALTA, AVANCO_ARCHIVO_BLACK, MAX_CHARS_LINHA,
+} from './src/preset.js';
 
 let n = 0;
 const ok = (label, cond) => { assert.ok(cond, label); n++; };
@@ -405,7 +410,7 @@ ok('8af. quem decide a palavra ativa e a funcao pura, com o relogio em SEGUNDOS'
   /activeWordIndex\(palavras, quadroCorte \/ fps\)/.test(corpoLegenda));
 ok('8ag. o pop sai da mola do preset, nao de numero solto no componente',
   /spring\(\{/.test(corpoLegenda) && /config: MOLA_PALAVRA/.test(corpoLegenda)
-  && /popPalavra\(progresso\)/.test(corpoLegenda));
+  && /popPalavra\(progresso, aparencia\)/.test(corpoLegenda));
 ok('8ah. a mola comeca no inicio DESTA palavra, nao no da pagina',
   /frame: quadroCorte - Math\.round\(Number\(palavra\.start\) \* fps\)/.test(corpoLegenda));
 ok('8ai. cresce por transform, NUNCA por fontSize (fontSize refluiria a linha inteira)',
@@ -484,8 +489,8 @@ ok('8ax. a ultima pagina ainda fecha no fim da cue',
   Math.abs(pgs[pgs.length - 1].end - cueDuasPaginas.end) < 1e-9);
 /* ---- fiacao do estilo. Tres lacunas que a revisao apontou: sem estes checks, apagar a cor,
    apagar o inline-block ou negar a subida passavam verdes. */
-ok('8ay. a palavra ativa recebe a COR do token (apagar a linha deixava o pop sem verde)',
-  /estilo\.color = TOKENS\.palavraCor/.test(corpoLegenda));
+ok('8ay. a palavra ativa recebe a COR do estilo (apagar a linha deixava o pop sem cor)',
+  /estilo\.color = aparencia\.palavraCor/.test(corpoLegenda));
 ok('8az. a palavra e inline-block (sem isso o transform num trecho de texto e no-op)',
   /display: "inline-block"/.test(corpoLegenda));
 ok('8ba. a subida entra no translateY SEM ser negada (negar fazia a palavra DESCER)',
@@ -605,12 +610,18 @@ const pesosInter = (clipJsx.match(/carregarInter\([\s\S]*?weights: \[([^\]]*)\]/
   .split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean);
 ok('9w. os pesos que as duas identidades usam estao TODOS no loadFont',
   ['600', '700', '800', '900'].every((p) => pesosInter.includes(p)));
-/* A familia continua UMA. O 800 e peso novo, nao fonte nova — se um dia alguem trouxer uma
-   familia por marca, o render passa a esperar mais um arquivo antes do primeiro quadro. */
-ok('9w2. e nenhuma FAMILIA nova entrou por causa da segunda identidade',
+/* O CARD continua sem familia propria: o 800 dele e peso novo, nao fonte nova. A familia
+   que entrou (Archivo Black) veio do estilo `impacto` da LEGENDA, e cada familia carregada
+   e um arquivo a mais que o render espera antes do primeiro quadro.
+   O check deixou de contar um numero fixo e passou a cobrar a RELACAO: o Clip.jsx carrega
+   exatamente as familias que algum estilo pede. Assim ele reprova nos dois erros que
+   importam — fonte carregada que estilo nenhum usa (peso morto no render) e estilo pedindo
+   familia que ninguem carregou (legenda na fonte padrao do Chrome, sem erro). */
+ok('9w2. so entram as FAMILIAS que algum estilo de legenda pede (o card nao traz nenhuma)',
   !/carregarMontserrat/.test(clipJsx)
   && !/google-fonts\/Montserrat/.test(clipJsx)
-  && (clipJsx.match(/from "@remotion\/google-fonts\//g) || []).length === 1);
+  && (clipJsx.match(/from "@remotion\/google-fonts\//g) || []).length
+     === new Set(LEGENDA_STYLES.map((e) => LEGENDA_PRESETS[e].familia)).size);
 /* A APARENCIA do destaque virou coisa da MARCA (o card ganhou uma segunda identidade), e
    por isso ela saiu do TOKENS: um valor global nao consegue ser laranja num card e peso no
    outro. O que sobra aqui e a metade do 9x que continua valendo — nenhum peso e nenhuma cor
@@ -1151,8 +1162,11 @@ ok('13u3. e o deslocamento do sublinhado tambem e relativo ao corpo',
    CHAMAM as funcoes: a licao de 2026-08-26 ("`in arquivo` so prova que alguem escreveu a
    palavra") reincidiu em 2026-08-27 e criou o `ancoraLegenda`. O que estas linhas provam e
    so que o valor CHEGA — o comportamento e provado por execucao. */
+/* O check le o prop DENTRO do destructuring do Clip, e nao a linha inteira copiada: com a
+   linha literal, qualquer prop novo vizinho (foi o `legendaStyle` da legenda) reprovava um
+   check que nada tem a ver com ele. Mesma forma do 14q. */
 ok('13v. o Clip.jsx recebe titleCardStyle como prop (sem isto a escolha nunca chega)',
-  /highlightText, autoHighlight, titleCardStyle, preset, category,/.test(clipJsx));
+  /export const Clip = \(\{[\s\S]{0,400}?\btitleCardStyle\b/.test(clipJsx));
 /* Sabotagem que isto reprova: `card={TITLE_CARD_PRESETS.primo_rico}` ou qualquer preset
    escrito a mao na tag — o seletor mudaria de posicao na tela e o video sairia sempre com a
    MESMA marca, calado, que e exatamente o defeito que esta entrega conserta. */
@@ -1244,13 +1258,18 @@ ok('14h. ancoraBanda aceita zero e ancoraVideo NAO (a polaridade entre os dois g
 /* O GATE do recorte, chamado com valor construido. `blur` tem de devolver a geometria de
    sempre -- e o que faz todo trecho ja salvo sair como saia. */
 const gBlur = palcoGeometria('blur', 608);
-ok('14i. `blur` nao recorta: largura 100%, sem altura, sem overflow, sem objectFit',
+ok('14i. `blur` nao recorta: largura 100%, sem altura, sem objectFit',
   gBlur.recorta === false && gBlur.caixa.width === '100%'
-  && gBlur.caixa.height === undefined && gBlur.caixa.overflow === undefined
+  && gBlur.caixa.height === undefined
   && gBlur.objectFit === null && gBlur.video.objectFit === undefined);
 ok('14j. e mantem o enquadramento do FFmpeg: centro 50%, escala 1',
   gBlur.caixa.top === '50%' && /scale\(1\)/.test(gBlur.caixa.transform)
   && TOKENS.videoCentroPct === 0.5 && TOKENS.videoEscala <= 1);
+/* Cantos arredondados no "Inteiro" (pedido do usuario, 2026-09-11). O PAR importa: raio sem
+   `overflow: hidden` nao corta pixel nenhum -- sai canto reto com a suite verde. */
+ok('14r. o "Inteiro" arredonda os cantos, e o raio sai do token (com o overflow que corta)',
+  gBlur.caixa.borderRadius === TOKENS.videoRaio && TOKENS.videoRaio > 0
+  && gBlur.caixa.overflow === 'hidden');
 
 const g11 = palcoGeometria('crop11', 1080);
 const g45 = palcoGeometria('crop45', 1350);
@@ -1268,6 +1287,11 @@ ok('14l. e o cover viaja FORA do estilo (no style o @remotion/media o ignora)',
   g11.objectFit === 'cover' && g45.objectFit === 'cover'
   && g11.video.objectFit === undefined && g45.video.objectFit === undefined
   && g11.video.height === '100%');
+/* O raio e SO do "Inteiro". Aqui a caixa tem os 1080 de largura do quadro, entao a curva
+   cairia na BORDA do arquivo exportado -- entalhe escuro no canto do video, nao moldura.
+   Esta e a metade que o 14r nao cobre: sem ela, arredondar tudo passa verde. */
+ok('14s. `crop11` e `crop45` NAO arredondam (a curva cairia na borda do quadro)',
+  g11.caixa.borderRadius === undefined && g45.caixa.borderRadius === undefined);
 /* Aritmetica da paridade com o FFmpeg: `cover` num 1080x1350 com fonte 16:9 escala para
    2400 de largura e corta 660 de cada lado, mantendo 1080/2400 = 45% -- o mesmo 55% que o
    `crop='min(iw,ih*4/5)'...` do filtro corta. */
@@ -1289,4 +1313,152 @@ ok('14p. o Palco usa o gate do preset, e recebe os DOIS props',
 ok('14q. e os dois props existem no destructuring do Clip (senao chegam undefined)',
   /export const Clip = \(\{[\s\S]{0,400}?\breframe\b/.test(clipJsx)
   && /export const Clip = \(\{[\s\S]{0,400}?\bvideoAltura\b/.test(clipJsx));
+
+/* ------------------------------------------------- 15. estilos de LEGENDA */
+/* A legenda tinha UMA aparencia cravada nos TOKENS e lida pelo Clip.jsx. Agora ela e um
+   registro, como o card do titulo — e estes checks sao os que cobram que o estilo de HOJE
+   continue identico e que o estilo novo caiba na coluna. */
+eq('15a. dois estilos declarados, nesta ordem', LEGENDA_STYLES, ['classico', 'impacto']);
+ok('15a2. o padrao e o `classico` (corte antigo nao muda de aparencia)',
+  LEGENDA_PADRAO === 'classico' && LEGENDA_STYLES.indexOf(LEGENDA_PADRAO) >= 0);
+ok('15a3. todo estilo tem entrada no registro, e o registro nao tem estilo a mais',
+  LEGENDA_STYLES.every((e) => !!LEGENDA_PRESETS[e])
+  && Object.keys(LEGENDA_PRESETS).length === LEGENDA_STYLES.length);
+ok('15a4. todo estilo tem rotulo, e o rotulo NUNCA e a chave',
+  LEGENDA_STYLES.every((e) => typeof LEGENDA_LABELS[e] === 'string' && LEGENDA_LABELS[e].length)
+  && LEGENDA_STYLES.every((e) => LEGENDA_LABELS[e] !== e));
+
+/* O CHECK QUE MAIS IMPORTA desta entrega: o `classico` E a legenda de hoje. Sabotagem que
+   ele reprova: ajustar um numero "so no preset" — corpo, peso, entrelinha, cor da palavra —
+   e mudar a aparencia de TODO corte ja publicado sem ninguem pedir. */
+const CLASSICO = legendaPreset('classico');
+eq('15b. o classico nao muda NENHUM valor de hoje',
+  [CLASSICO.fonte, CLASSICO.peso, CLASSICO.entrelinha, CLASSICO.cor, CLASSICO.sombra,
+    CLASSICO.palavraCor, CLASSICO.palavraEscala, CLASSICO.palavraSubida, CLASSICO.caixaAlta],
+  [TOKENS.legendaFonte, TOKENS.legendaPeso, TOKENS.legendaEntrelinha, TOKENS.texto,
+    TOKENS.sombraTexto, TOKENS.palavraCor, TOKENS.palavraEscala, TOKENS.palavraSubida, false]);
+eq('15b2. e o teto de pagina dele e o MESMO `MAX_CHARS_PAGINA` de sempre',
+  tetoDaPagina(CLASSICO), MAX_CHARS_PAGINA);
+ok('15b3. o classico continua na Inter e com a enfase estatica em peso 900',
+  CLASSICO.familia === 'inter' && CLASSICO.pesoDestaque === 900);
+
+/* --- o validador, CHAMADO com valor construido (regex nao prova gate). */
+eq('15c. ausente, null, vazio, numero e rotulo de tela caem no padrao',
+  [undefined, null, '', 7, 'Impacto (caixa alta)'].map(legendaStyleOf),
+  ['classico', 'classico', 'classico', 'classico', 'classico']);
+eq('15c2. valor VALIDO passa intacto (senao o seletor nao seleciona nada)',
+  LEGENDA_STYLES.map(legendaStyleOf), LEGENDA_STYLES);
+ok('15c3. estilo torto resolve para o preset de hoje, nunca para `undefined`',
+  legendaPreset('nao_existe') === CLASSICO && legendaPreset(undefined) === CLASSICO);
+
+/* --- o estilo novo. */
+const IMPACTO = legendaPreset('impacto');
+ok('15d. impacto e caixa alta, na familia black, com UM peso (400)',
+  IMPACTO.caixaAlta === true && IMPACTO.familia === 'archivo_black' && IMPACTO.peso === 400);
+/* A familia Archivo Black tem um peso so: pedir 700/900 dela faz o Chrome sintetizar
+   negrito borrado sobre um preto que ja e maximo — visivel so no frame. */
+ok('15d2. e a enfase estatica dele NAO pede peso que a familia nao tem',
+  IMPACTO.pesoDestaque === IMPACTO.peso);
+ok('15d3. corpo maior e entrelinha menor que a do classico (corpo grande pede linha justa)',
+  IMPACTO.fonte > CLASSICO.fonte && IMPACTO.entrelinha < CLASSICO.entrelinha);
+/* Piso da entrelinha: em caixa alta o til do A e do O ocupam a folga que o A nao usa. */
+ok('15d4. mas nao tao justa que o til da caixa alta encoste na linha de cima',
+  IMPACTO.entrelinha >= 1.06);
+/* Mesma regra do 1g: neon foi proibido por escrito. */
+const hslImpacto = hsl(IMPACTO.palavraCor);
+ok(`15d5. a cor da palavra ativa do impacto nao e neon (s ${hslImpacto.s.toFixed(2)}, l ${hslImpacto.l.toFixed(2)})`,
+  !(hslImpacto.s > 0.85 && hslImpacto.l > 0.55));
+/* `scale` cresce o glifo e NAO a caixa de layout (medido neste projeto): a 72px em caixa
+   alta o mesmo 12% do classico transborda mais px, entao o pop TEM de ser menor. */
+ok('15d6. o pop da palavra ativa e menor que o do classico (corpo maior transborda mais)',
+  IMPACTO.palavraEscala < CLASSICO.palavraEscala && IMPACTO.palavraEscala > 1);
+
+/* --- a conta da coluna, que e o que impede a linha de estourar. */
+eq('15e. o avanco medido da Inter e o numero que o MAX_CHARS_LINHA ja usava',
+  Math.round(AVANCO_INTER * 100) / 100, 0.55);
+ok('15e2. caixa alta e mais larga que caixa baixa na MESMA fonte (medido: +22%)',
+  AVANCO_INTER_CAIXA_ALTA > AVANCO_INTER * 1.15);
+ok('15e3. a estimativa da black e mais conservadora que a caixa alta medida da Inter',
+  AVANCO_ARCHIVO_BLACK > AVANCO_INTER_CAIXA_ALTA);
+eq('15e4. a conta do classico devolve o MAX_CHARS_LINHA de sempre',
+  charsPorLinhaLegenda(CLASSICO.fonte, CLASSICO.avanco), MAX_CHARS_LINHA);
+/* Entrada torta nao pode virar teto 0: pagina de zero caractere e laco infinito no
+   toCaptionPages, ou seja render travado em vez de legenda torta. */
+eq('15e5. corpo ou avanco invalidos caem no teto de hoje, nunca em zero',
+  [charsPorLinhaLegenda(0, 0.55), charsPorLinhaLegenda(58, 0), charsPorLinhaLegenda(NaN, NaN)],
+  [MAX_CHARS_LINHA, MAX_CHARS_LINHA, MAX_CHARS_LINHA]);
+ok('15f. a linha do impacto cabe na coluna de 820px por aritmetica',
+  charsPorLinhaLegenda(IMPACTO.fonte, IMPACTO.avanco) * IMPACTO.fonte * IMPACTO.avanco
+    <= TOKENS.legendaLargura);
+ok('15f2. e o teto de pagina dele e MENOR que o do classico (caixa alta ocupa mais)',
+  tetoDaPagina(IMPACTO) < tetoDaPagina(CLASSICO));
+/* Paginacao de verdade, com o teto do estilo — e nao so a formula. */
+const pagsImpacto = toCaptionPages(longa, tetoDaPagina(IMPACTO));
+ok('15f3. nenhuma pagina do impacto passa do teto DELE',
+  pagsImpacto.length > 1 && pagsImpacto.every((p) => p.text.length <= tetoDaPagina(IMPACTO)));
+ok('15f4. e nenhuma palavra foi cortada ao meio no caminho',
+  pagsImpacto.map((p) => p.text).join(' ').replace(/\s+/g, ' ')
+  === longa[0].text.replace(/\s+/g, ' '));
+ok('15f5. o impacto corta a MESMA fala em mais paginas que o classico',
+  pagsImpacto.length > toCaptionPages(longa, tetoDaPagina(CLASSICO)).length);
+/* Sem estilo, o teto e o de hoje: chamada antiga nao muda de resultado. */
+eq('15f6. tetoDaPagina() sem argumento devolve o teto do classico',
+  tetoDaPagina(undefined), MAX_CHARS_PAGINA);
+
+/* --- o pop por estilo. A polaridade e a amplitude sao o que erra calado aqui (o comentario
+   do popPalavra registra as duas vezes em que isso ja aconteceu), entao o teste CHAMA. */
+eq('15g. popPalavra SEM estilo se comporta como antes deste registro existir',
+  popPalavra(1), { escala: TOKENS.palavraEscala, subida: TOKENS.palavraSubida });
+eq('15g2. com estilo, a amplitude e a DO ESTILO',
+  popPalavra(1, IMPACTO), { escala: IMPACTO.palavraEscala, subida: IMPACTO.palavraSubida });
+eq('15g3. estilo torto cai nos tokens em vez de virar NaN na transformacao',
+  popPalavra(1, {}), { escala: TOKENS.palavraEscala, subida: TOKENS.palavraSubida });
+ok('15g4. progresso 0 nao mexe em nada, em nenhum estilo',
+  popPalavra(0, IMPACTO).escala === 1 && popPalavra(0, IMPACTO).subida === 0);
+
+/* --- geometria: o estilo escolhe TIPOGRAFIA, nunca limite de plataforma. */
+ok('15h. nenhum preset traz largura, ancora ou numero de linhas proprios',
+  LEGENDA_STYLES.every((e) => {
+    const p = LEGENDA_PRESETS[e];
+    return p.legendaLargura === undefined && p.largura === undefined
+      && p.base === undefined && p.legendaBase === undefined
+      && p.linhas === undefined && p.maxLinhas === undefined;
+  }));
+
+/* --- fiacao no Clip.jsx. Fraca de proposito (regex casa palavra): o que ela pega e o
+   componente voltando a ler os tokens globais, ou a familia nova ficando sem carregamento —
+   nos dois casos o render sai SEM erro, com a legenda de sempre ou na fonte do Chrome. */
+ok('15i. toda familia declarada tem entrada no mapa de fontes do Clip.jsx',
+  LEGENDA_FAMILIAS.every((id) => new RegExp(`\\b${id}:`).test(clipJsx))
+  && LEGENDA_STYLES.every((e) => LEGENDA_FAMILIAS.includes(LEGENDA_PRESETS[e].familia)));
+ok('15i2. a Archivo Black e carregada com o unico peso que ela tem',
+  /carregarArchivoBlack\("normal", \{\s*weights: \["400"\]/.test(clipJsx));
+ok('15i3. o Clip resolve a aparencia UMA vez e corta as paginas com o teto DELA',
+  /const aparencia = legendaPreset\(legendaStyle\);/.test(clipJsx)
+  && /toCaptionPages\(cues, tetoDaPagina\(aparencia\)\)/.test(clipJsx));
+ok('15i4. e a Legenda recebe a aparencia (sem isso ela lê `undefined` e o render cai)',
+  /aparencia=\{aparencia\}/.test(clipJsx)
+  && /const Legenda = \(\{ pagina, cor, base, de, aparencia \}\)/.test(clipJsx));
+ok('15i5. o prop legendaStyle existe no destructuring do Clip (senao chega undefined)',
+  /export const Clip = \(\{[\s\S]{0,400}?\blegendaStyle\b/.test(clipJsx));
+/* A caixa alta e do CSS: o texto que atravessa o pipeline continua sendo a fala como foi
+   dita. `toUpperCase` na string quebraria a correcao na mao e divergiria do FFmpeg/ASS. */
+ok('15i6. a caixa alta e `textTransform`, e o texto da fala nao e maiusculizado na string',
+  /textTransform: aparencia\.caixaAlta \? "uppercase" : "none"/.test(clipJsx)
+  && !/toUpperCase/.test(corpoLegenda));
+
+/* --- ARITMETICA DA ALTURA, o que o corpo maior poderia quebrar calado. Os checks 6d e 12d2
+   fazem esta conta para o classico; o estilo novo desenha uma pagina ~16% mais alta (72 x
+   1.10 contra 58 x 1.18), e as duas folgas que ela come sao as unicas do quadro: a borda de
+   cima do video e a base do card do titulo. Com a legenda ancorada pela base, uma pagina
+   alta demais nao sai da tela — ela sobe para cima do rosto e por baixo do card, e e por
+   isso que isto e check e nao inspecao visual. */
+for (const estilo of LEGENDA_STYLES) {
+  const e = LEGENDA_PRESETS[estilo];
+  const alto = MAX_LINHAS * e.fonte * e.entrelinha;
+  ok(`15j. [${estilo}] uma pagina de 2 linhas ainda comeca DENTRO do video (topo em ${(baseTexto - alto).toFixed(0)}, video comeca em ${topoVideo.toFixed(0)})`,
+    baseTexto - alto > topoVideo);
+  ok(`15j2. [${estilo}] e a base do card do titulo nao encosta no topo dela (${baseCard.toFixed(0)} < ${(TOKENS.altura - LEGENDA_BASE_PADRAO - alto).toFixed(0)})`,
+    baseCard < TOKENS.altura - LEGENDA_BASE_PADRAO - alto);
+}
 console.log(`\nok - ${n} verificacoes passaram (tipografia, quebra de linha, enfase, fundo, destaque de titulo e as duas identidades do card do BUSINESS_SERIOUS).`);

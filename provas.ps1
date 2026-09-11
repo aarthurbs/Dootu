@@ -29,6 +29,7 @@ $suites = @(
   @{ rotulo = 'test_serve.py';         cmd = 'py';   args = @('-3.12', 'video-worker/test_serve.py') },
   @{ rotulo = 'test_ytclip.py';        cmd = 'py';   args = @('-3.12', 'video-worker/test_ytclip.py') },
   @{ rotulo = 'test_worker.py';        cmd = 'py';   args = @('-3.12', 'video-worker/test_worker.py') },
+  @{ rotulo = 'test_muapi.py';         cmd = 'py';   args = @('-3.12', 'video-worker/test_muapi.py') },
   @{ rotulo = 'test_helper.py';        cmd = 'py';   args = @('-3.12', 'baixador/local-helper/test_helper.py') },
   @{ rotulo = 'studio/test-preset.mjs';cmd = 'node'; args = @('studio/test-preset.mjs') },
   @{ rotulo = 'test-video-ops.js';     cmd = 'node'; args = @('test-video-ops.js') },
@@ -78,10 +79,13 @@ Write-Host $linha
 
 # E a conferencia: o total escrito na documentacao tem de bater com o medido agora.
 $claude = Get-Content (Join-Path $raiz 'CLAUDE.md') -Raw -Encoding UTF8
-$doc = [regex]::Matches($claude, '\*\*(\d+)\s*verifica\w*\s*nas\s*oito')
+# O numeral por extenso ("nas oito") ficava FIXO aqui, entao registrar uma suite nova fazia a
+# conferencia nao achar mais a linha -- e "nao achei" e justamente o ramo que este script
+# declara ser pior que conferencia nenhuma. `\S+` casa qualquer numeral sem afrouxar a ancora.
+$doc = [regex]::Matches($claude, '\*\*(\d+)\s*verifica\w*\s*nas\s*\S+')
 if ($doc.Count -eq 0) {
   Write-Host ''
-  Write-Host 'FALHA: nao achei no CLAUDE.md a linha de total ("**N verificacoes nas oito").' -ForegroundColor Red
+  Write-Host 'FALHA: nao achei no CLAUDE.md a linha de total ("**N verificacoes nas <numeral>").' -ForegroundColor Red
   Write-Host 'Se o formato da linha mudou, ajuste este script -- conferencia que nao acha nada' -ForegroundColor Red
   Write-Host 'e pior que conferencia nenhuma, porque passa a impressao de ter conferido.' -ForegroundColor Red
   exit 1

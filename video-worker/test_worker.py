@@ -462,6 +462,43 @@ def main():
           "crop='min(" not in worker.build_filter("crop")
           and "crop=1080:1920" in worker.build_filter("crop"))
 
+    # 16y-16z: o canto ARREDONDADO do "Inteiro" (pedido do usuario, 2026-09-11). A prova e o
+    # PIXEL do arquivo renderizado: ver `geq` no texto do filtro so prova que alguem escreveu
+    # a palavra -- nao que a mascara chegou ao quadro, nem que ela pegou o canto certo.
+    def linha_visivel(caminho, y):
+        """Uma linha de 1080px do quadro, em cinza (sem subamostragem de croma)."""
+        bruto = os.path.join(root, "linha.rawvideo")
+        worker.run_ffmpeg(["-hide_banner", "-loglevel", "error", "-y", "-i", caminho,
+                           "-frames:v", "1", "-filter_complex",
+                           "[0:v]format=gray,crop=w=1080:h=1:x=0:y=%d[c]" % y,
+                           "-map", "[c]", "-f", "rawvideo", "-pix_fmt", "gray", bruto])
+        with open(bruto, "rb") as fh:
+            linha = fh.read()
+        os.remove(bruto)
+        return linha
+
+    # +3 entra no video sem encostar na linha que o 4:2:0 mistura na fronteira. Com raio 28,
+    # a 3px da borda a curva ainda cobre ate x=15, entao a coluna 0 esta bem dentro dela.
+    # x=0, nao x=2: MEDIDO, o testsrc2 tem faixa escura por ali e com o raio desligado o
+    # pixel 2 volta em 14 contra moldura 10 -- o 16z passaria verde sem nada arredondar.
+    topo = (worker.OUT_H - 608) // 2 + 3
+    blur_mp4 = os.path.join(root, "enq-blur.mp4")
+    moldura = linha_visivel(blur_mp4, 100)[0]
+    com_raio = linha_visivel(blur_mp4, topo)
+    check("16y. no `blur` o canto de cima sai na cor da moldura e o meio da borda sai video",
+          abs(com_raio[0] - moldura) <= 12 and abs(com_raio[540] - moldura) > 12)
+    # POLARIDADE, e a razao de existir do par: sozinho, o 16y passaria se o canto da FONTE
+    # fosse escuro por acaso. Com o botao de calibragem em 0 o MESMO pixel volta a ser video.
+    raio_real = worker.VIDEO_RAIO
+    reto = os.path.join(root, "enq-blur-reto.mp4")
+    try:
+        worker.VIDEO_RAIO = 0
+        worker.render_cut(src, reto, 1.0, 1.0, "blur", True)
+    finally:
+        worker.VIDEO_RAIO = raio_real
+    check("16z. e com VIDEO_RAIO=0 o mesmo canto volta a ser video (o botao desliga mesmo)",
+          abs(linha_visivel(reto, topo)[0] - moldura) > 12)
+
     # 16i-16k: COR. As tags saem no ARQUIVO, nao so no texto do filtro. Medido neste build:
     # `-color_primaries`/`-color_trc` como flags de ENCODER sao IGNORADAS (saem `unknown`),
     # e so o `setparams` na cadeia grava as quatro. Por isso a prova le o arquivo.
