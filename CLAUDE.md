@@ -74,6 +74,10 @@ PT-BR — *conteúdo forte → corte certo → comunicação clara → edição 
 **nunca** "efeito, efeito, efeito". Proibido por escrito: meme, emoji, texto em movimento
 constante, zoom agressivo, shake, música alta, cor neon, e **qualquer efeito disparado só
 porque o tempo passou**.
+**Única exceção ao "cor neon", aberta pelo operador em 2026-09-11:** a PALAVRA SENDO DITA da
+legenda usa um leque neon (`TOKENS.palavraCores`, amarelo na frente), que gira por palavra.
+Vale só para ela — texto, sombra, marca e destaque estático continuam na paleta fechada, e o
+check 1g continua cobrando isso. Não "consertar" de volta para cor única.
 **Direitos autorais (inviolável):** analisar metadados/legenda é livre; **baixar mídia passa
 por portão de declaração explícita**, conferido duas vezes e válido por URL. Nunca remover o
 portão. Nunca `--exec`, `--netrc-cmd`, cookies de navegador ou `aria2c` no yt-dlp.
@@ -88,7 +92,7 @@ Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as nove suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**338**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**96**) · `test-video-ops-dom.js` (**133**) — **1750 verificações nas nove, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**338**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**372**) · `test-video-ops.js` (**96**) · `test-video-ops-dom.js` (**133**) — **1756 verificações nas nove, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

@@ -12,7 +12,7 @@ import { loadFont as carregarArchivoBlack } from "@remotion/google-fonts/Archivo
 import {
   TOKENS, corDoDestaque, toCaptionPages, pickEmphasis, splitEmphasis,
   ancoraLegenda, LEGENDA_BASE_PADRAO, ancoraBanda, BANDA_PADRAO,
-  activeWordIndex, popPalavra, MOLA_PALAVRA,
+  activeWordIndex, popPalavra, corDaPalavra, MOLA_PALAVRA,
   palavrasDaPagina, resolveTitleHighlight, splitTitleHighlight,
   tituloEscalonado, entradaCard, presencaCard,
   titleCardPreset, TITLE_CARD_PADRAO, TITULO_FILETE_REF,
@@ -254,10 +254,11 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
   if (palavras) {
     /* Com o karaokê no ar, a ênfase SEMÂNTICA não é aplicada — e isso foi decidido OLHANDO
        o frame, não por gosto. Numa página de `category: money`, o `pickEmphasis` pintava
-       "Faturamento" no verde de dinheiro (#8FB573) de forma PERMANENTE, ao lado do verde da
-       palavra sendo dita (#59E36A): duas cores de destaque na mesma tela, que é literalmente
+       "Faturamento" no verde de dinheiro (#8FB573) de forma PERMANENTE, ao lado da cor da
+       palavra sendo dita: duas cores de destaque na mesma tela, que é literalmente
        o que o comentário do `destaqueGanho` proíbe ("viram semáforo e a hierarquia some"), e
-       o pedido é explícito em que só a palavra corrente fica verde.
+       o pedido é explícito em que só a palavra corrente fica colorida. Com o leque de
+       2026-09-11 no ar o argumento só ficou mais forte: a página já tem até cinco matizes.
        A ênfase NÃO foi removida do projeto: ela continua inteira no caminho ESTÁTICO abaixo
        (corte antigo, legenda corrigida na mão, legenda manual) e no ASS do FFmpeg, que é
        onde ela foi desenhada para viver. Se um dia se quiser as duas juntas, o conserto é
@@ -273,7 +274,7 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
           config: MOLA_PALAVRA,
         });
         var pop = popPalavra(progresso, aparencia);
-        estilo.color = aparencia.palavraCor;
+        estilo.color = corDaPalavra(aparencia, i);
         estilo.transform = "translateY(" + pop.subida + "px) scale(" + pop.escala + ")";
         /* Perto da BASE da palavra: o crescimento e a subida saem do pé do texto, então a
            linha de leitura não desce quando a palavra cresce. */

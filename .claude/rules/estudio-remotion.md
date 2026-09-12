@@ -58,6 +58,12 @@ porque o tempo passou**. Movimento só com razão semântica.
 - Página de UM átomo não acende. Átomo maior que a página derruba o caminho por palavra.
 - **A ênfase semântica (`pickEmphasis`) NÃO é aplicada com o karaokê no ar** — duas
   cores de destaque na mesma tela viram semáforo. Ela continua no caminho estático.
+- **A cor da palavra ativa é um LEQUE** (`TOKENS.palavraCores`, pedido do operador em
+  2026-09-11), o MESMO nos dois estilos de legenda, resolvido por `preset.corDaPalavra`.
+  Gira pelo ÍNDICE DA PALAVRA, nunca pelo tempo. É a única exceção ao "cor neon" proibido
+  acima. Vizinhas ficam a ≥30° de matiz **inclusive na volta** do fim para o começo — foi o
+  que tirou o laranja da lista (25° do amarelo). Lista vazia/estilo torto cai no branco do
+  texto, não em `undefined`. Checks 8q–8q7 e 15d5.
 
 ## Card do título
 - **`titleCardStyle`** é conjunto FECHADO: `primo_rico` | `puro_ecommerce` | `nenhum`.

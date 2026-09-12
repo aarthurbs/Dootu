@@ -91,11 +91,22 @@ export const TOKENS = {
   destaquePerda: '#C0554A',
 
   /* --- palavra sendo DITA agora (o "karaoke") ---------------------------------------
-     Verde de fala corrente, nao o `destaqueGanho` (#8FB573, que significa dinheiro): este e
-     mais claro porque fica no ar ~200 ms e precisa ser lido de relance. Ele nao substitui a
-     enfase semantica -- a palavra ativa VENCE a enfase enquanto esta sendo dita e devolve a
-     cor dela depois. */
-  palavraCor: '#59E36A',
+     LEQUE de cores, pedido explicito do operador em 2026-09-11: o verde unico (#59E36A) foi
+     considerado apagado demais, e o pedido foi "amarelo neon, algo assim, mas nao so amarelo
+     -- um leque de cores mesmo". Isso ABRE a excecao de neon que a direcao editorial proibia
+     para este recurso especifico; o resto da paleta (texto, destaque, marca) continua fechado.
+     A cor gira por PALAVRA (`corDaPalavra`), nao por tempo -- efeito disparado so porque o
+     tempo passou continua proibido.
+     Amarelo primeiro porque e o pedido e porque e a primeira palavra de cada pagina.
+     Ordem escolhida para que vizinhas NUNCA caiam a menos de 30° de matiz, INCLUSIVE na volta
+     do fim para o comeco: 54° -> 185° -> 315° -> 87° -> 272° -> (54°). O laranja neon que
+     estava aqui SAIU por isso e nao por gosto: 29° contra os 54° do amarelo davam 25° na
+     virada da pagina, e duas palavras seguidas saiam quase da mesma cor -- o que le como
+     defeito de render, nao como leque. O check 8q5 cobra a conta.
+     Todas com luminancia alta (>0,45): ficam ~200 ms no ar sobre a sombra da legenda e
+     precisam ser lidas de relance.
+     BOTAO DE CALIBRAGEM: uma cor so nesta lista devolve o karaoke monocromatico de antes. */
+  palavraCores: ['#FFE600', '#00E9FF', '#FF4FD1', '#8CFF1A', '#B14BFF'],
   /* BOTAO DE CALIBRAGEM deste recurso: 1.0 desliga o pop e deixa so a cor.
      Armadilha JA MEDIDA neste projeto (ver o comentario da enfase no Clip.jsx): `scale`
      cresce o glifo e NAO a caixa de layout. 12% de uma palavra de 200px transbordam 24px,
@@ -426,6 +437,23 @@ export function popPalavra(progresso, estilo) {
        faz o valor deixar de comparar igual a 0 em teste estrito. */
     subida: subida * p || 0,
   };
+}
+
+/* Cor da palavra de indice `i` dentro da pagina. PURA e exportada pelo motivo de sempre
+   (`popPalavra`, `palavrasDaPagina`): escrita a mao no Clip.jsx, ler a chave errada apagaria o
+   leque inteiro com a suite verde -- entao o teste CHAMA esta funcao com o preset de verdade.
+   O indice e o da PALAVRA, nao o do quadro: a cor de uma palavra nao muda enquanto ela esta
+   acesa. Pagina nova recomeca no amarelo de proposito -- a primeira cor vira ancora de leitura
+   em vez de o leque escorregar sem referencia.
+   Estilo torto, lista vazia ou indice ilegivel caem no BRANCO do texto: a palavra perde o
+   destaque, mas a legenda continua legivel. `color: undefined` deixaria a palavra ativa com a
+   cor da anterior e o defeito passaria calado. */
+export function corDaPalavra(estilo, indice) {
+  var leque = (estilo || TOKENS).palavraCores;
+  if (!Array.isArray(leque) || !leque.length) return TOKENS.texto;
+  var i = Math.floor(Number(indice));
+  if (!isFinite(i) || i < 0) i = 0;
+  return leque[i % leque.length];
 }
 
 /* Palavras da cue, se elas descreverem EXATAMENTE o texto dela. Senao, null -> legenda
@@ -1198,7 +1226,7 @@ export const LEGENDA_PRESETS = {
     /* Ênfase semântica do caminho ESTÁTICO (sem tempo por palavra): peso 900 mais a cor da
        categoria, exatamente como estava escrito no componente. */
     pesoDestaque: 900,
-    palavraCor: TOKENS.palavraCor,
+    palavraCores: TOKENS.palavraCores,
     palavraEscala: TOKENS.palavraEscala,
     palavraSubida: TOKENS.palavraSubida,
   },
@@ -1245,11 +1273,12 @@ export const LEGENDA_PRESETS = {
        mesma escolha do card `primo_rico`, pelo mesmo motivo: empilhar três sinais para
        dizer uma coisa só é o que vira cara de template. */
     pesoDestaque: 400,
-    /* Amarelo queimado, não o verde do clássico: sobre caixa alta branca num corte de
-       negócio, o verde de karaokê lê como vídeo de dancinha. O amarelo é o `TOKENS.destaque`
-       que a direção já elegeu — a mesma família de cor do resto do projeto, sem inventar
-       tinta nova. */
-    palavraCor: TOKENS.destaque,
+    /* O MESMO leque do clássico, e de propósito: o pedido de 2026-09-11 é do recurso, não de
+       um estilo. Aqui ele era o amarelo queimado sozinho (`TOKENS.destaque`) — que continua
+       sendo a ênfase ESTÁTICA da direção, e por isso a tinta não sumiu do projeto, só deixou
+       de ser a da palavra ativa. Duas listas diferentes seriam dois lugares para calibrar a
+       mesma decisão. */
+    palavraCores: TOKENS.palavraCores,
     /* 1.06 contra 1.12 do clássico. `scale` cresce o glifo e NÃO a caixa de layout (medido
        neste projeto e registrado no `TOKENS.palavraEscala`): 12% de uma palavra de 72px em
        caixa alta transbordam mais que os mesmos 12% a 58px em caixa baixa, e o espaço entre

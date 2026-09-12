@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import {
   TOKENS, PRESETS, corDoDestaque, toCaptionPages, pickEmphasis, splitEmphasis,
   MAX_LINHAS, MAX_CHARS_PAGINA, ancoraLegenda, LEGENDA_BASE_PADRAO,
-  activeWordIndex, popPalavra, MOLA_PALAVRA, palavrasDaPagina,
+  activeWordIndex, popPalavra, corDaPalavra, MOLA_PALAVRA, palavrasDaPagina,
   pickTitleHighlight, splitTitleHighlight, resolveTitleHighlight, TITULO_ORIGEM,
   MIN_PALAVRAS_TITULO, MAX_COBERTURA_TITULO, ancoraBanda, BANDA_PADRAO,
   tituloEscalonado, entradaCard, TITULO_FONTES, MAX_LINHAS_TITULO, larguraTitulo,
@@ -48,11 +48,21 @@ ok('1e. no maximo 2 linhas', MAX_LINHAS === 2);
 ok('1f. dois presets declarados', PRESETS.length === 2);
 
 /* Nenhuma cor pode ser neon: saturacao alta com luminancia alta foi proibida no pedido. */
+/* O `h` (matiz, 0..360) entrou com o leque do karaoke (check 8q5): la o que importa e a
+   DISTANCIA entre cores vizinhas, nao so o par saturacao/luz. Aditivo — quem so lia `{s, l}`
+   nao muda de resultado. */
 const hsl = (hex) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
-  const s = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1));
-  return { s, l };
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  const s = mx === mn ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  return { h, s, l };
 };
 for (const chave of ['destaque', 'destaqueGanho', 'destaquePerda']) {
   const { s, l } = hsl(TOKENS[chave]);
@@ -322,8 +332,38 @@ for (const ruim of [undefined, NaN, 'x', Infinity]) {
 }
 
 /* --- tokens e mola */
-ok('8q. verde de fala corrente, e nao o verde de dinheiro (que significa outra coisa)',
-  TOKENS.palavraCor === '#59E36A' && TOKENS.palavraCor !== TOKENS.destaqueGanho);
+/* O verde unico (#59E36A) saiu em 2026-09-11 a pedido do operador: leque de cores neon, com
+   amarelo na frente. O check mudou de "e esta cor" para as PROPRIEDADES que fazem o recurso
+   funcionar -- e uma delas sobrevive do regime antigo: nenhuma cor do leque pode ser a tinta
+   semantica do projeto, senao a palavra corrente diz "dinheiro"/"perda" sem querer. */
+ok('8q. o leque tem varias cores e nenhuma repetida (cor repetida encurta o leque calada)',
+  Array.isArray(TOKENS.palavraCores) && TOKENS.palavraCores.length >= 3
+  && new Set(TOKENS.palavraCores).size === TOKENS.palavraCores.length);
+ok('8q2. a primeira e o amarelo neon pedido (e a cor da 1a palavra de TODA pagina)',
+  hsl(TOKENS.palavraCores[0]).h > 40 && hsl(TOKENS.palavraCores[0]).h < 70
+  && hsl(TOKENS.palavraCores[0]).s > 0.85 && hsl(TOKENS.palavraCores[0]).l > 0.45);
+ok('8q3. nenhuma cor do leque e a tinta SEMANTICA (ganho/perda/marca) — isso ainda e semaforo',
+  TOKENS.palavraCores.every((c) =>
+    c !== TOKENS.destaqueGanho && c !== TOKENS.destaquePerda && c !== TOKENS.marcaLaranja));
+/* Fica ~200 ms no ar e e lido de relance: cor escura sobre a sombra da legenda nao aparece. */
+ok('8q4. toda cor do leque e clara o bastante para ler de relance (l > 0,45)',
+  TOKENS.palavraCores.every((c) => hsl(c).l > 0.45));
+/* Vizinhas no mesmo matiz fazem o leque parecer defeito de render em vez de escolha. */
+ok('8q5. palavras vizinhas nunca caem no mesmo matiz (>=30° de distancia, no circulo)',
+  TOKENS.palavraCores.every((c, i) => {
+    const d = Math.abs(hsl(c).h - hsl(TOKENS.palavraCores[(i + 1) % TOKENS.palavraCores.length]).h);
+    return Math.min(d, 360 - d) >= 30;
+  }));
+/* A funcao PURA, CHAMADA com o preset de verdade: regex no .jsx nao prova que a cor gira. */
+eq('8q6. a cor gira por PALAVRA e da a volta no fim do leque',
+  [0, 1, 4, 5, 6].map((i) => corDaPalavra(TOKENS, i)),
+  [TOKENS.palavraCores[0], TOKENS.palavraCores[1], TOKENS.palavraCores[4],
+    TOKENS.palavraCores[0], TOKENS.palavraCores[1]]);
+eq('8q7. estilo torto, leque vazio e indice ilegivel caem no BRANCO, nunca em `undefined`',
+  [corDaPalavra(undefined, 0), corDaPalavra({ palavraCores: [] }, 0),
+    corDaPalavra({}, 3), corDaPalavra(TOKENS, NaN), corDaPalavra(TOKENS, -2)],
+  [TOKENS.palavraCores[0], TOKENS.texto, TOKENS.texto,
+    TOKENS.palavraCores[0], TOKENS.palavraCores[0]]);
 ok('8r. escala do pop e discreta (1,45x de zoom foi proibido; 1,12 e o pedido)',
   TOKENS.palavraEscala > 1 && TOKENS.palavraEscala <= 1.15);
 ok('8s. a subida e de poucos pixels (movimento com motivo, nao salto)',
@@ -425,18 +465,20 @@ ok('8al. sem tempo por palavra o componente cai no caminho estatico de sempre',
   /conteudo \|\| pedacos\.map/.test(corpoLegenda));
 /* Decidido OLHANDO o frame: com `category: money` o pickEmphasis pintava "Faturamento" no
    verde de dinheiro (#8FB573) de forma permanente, ao lado do verde da palavra corrente
-   (#59E36A) -- duas cores de destaque na mesma tela, o "semaforo" que o proprio comentario do
-   destaqueGanho proibe, e o pedido diz que so a palavra corrente fica verde. Com karaoke, a
+   -- duas cores de destaque na mesma tela, o "semaforo" que o proprio comentario do
+   destaqueGanho proibe, e o pedido diz que so a palavra corrente fica colorida. Com karaoke, a
    enfase semantica sai; sem karaoke ela continua inteira. */
 /* A asercao olha o CODIGO, nao o texto do arquivo: a primeira versao deste check era
    `!/i === indice/` e reprovou por causa do COMENTARIO que diz como reverter a decisao -- a
    mesma armadilha ja registrada no CLAUDE.md (asserir flag proibida no texto reprova a
    documentacao). `estilo.color = cor` era a atribuicao do ramo da enfase no karaoke; o
    caminho estatico usa `color: cor` dentro de um objeto de estilo, entao os dois nao se
-   confundem e nenhum comentario casa. */
+   confundem e nenhum comentario casa.
+   O `;` no fim NAO e enfeite: sem ele o padrao e PREFIXO de `estilo.color = corDaPalavra(...)`,
+   a linha do leque, e o check reprovava a implementacao certa (pego rodando, 2026-09-11). */
 ok('8am. com karaoke a enfase semantica NAO e aplicada (uma cor de destaque por tela)',
   /var indice = palavras \? -1 : pickEmphasis\(pagina\.text\)/.test(corpoLegenda)
-  && !/estilo\.color = cor/.test(corpoLegenda));
+  && !/estilo\.color = cor;/.test(corpoLegenda));
 ok('8an. mas a enfase continua VIVA para o caminho estatico (nao foi removida do projeto)',
   /pickEmphasis/.test(corpoLegenda) && /splitEmphasis/.test(corpoLegenda)
   && /pedaco\.forte/.test(corpoLegenda));
@@ -489,8 +531,8 @@ ok('8ax. a ultima pagina ainda fecha no fim da cue',
   Math.abs(pgs[pgs.length - 1].end - cueDuasPaginas.end) < 1e-9);
 /* ---- fiacao do estilo. Tres lacunas que a revisao apontou: sem estes checks, apagar a cor,
    apagar o inline-block ou negar a subida passavam verdes. */
-ok('8ay. a palavra ativa recebe a COR do estilo (apagar a linha deixava o pop sem cor)',
-  /estilo\.color = aparencia\.palavraCor/.test(corpoLegenda));
+ok('8ay. a palavra ativa recebe a COR do leque, pelo INDICE dela (sem o `i` o leque nao gira)',
+  /estilo\.color = corDaPalavra\(aparencia, i\)/.test(corpoLegenda));
 ok('8az. a palavra e inline-block (sem isso o transform num trecho de texto e no-op)',
   /display: "inline-block"/.test(corpoLegenda));
 ok('8ba. a subida entra no translateY SEM ser negada (negar fazia a palavra DESCER)',
@@ -1334,9 +1376,9 @@ ok('15a4. todo estilo tem rotulo, e o rotulo NUNCA e a chave',
 const CLASSICO = legendaPreset('classico');
 eq('15b. o classico nao muda NENHUM valor de hoje',
   [CLASSICO.fonte, CLASSICO.peso, CLASSICO.entrelinha, CLASSICO.cor, CLASSICO.sombra,
-    CLASSICO.palavraCor, CLASSICO.palavraEscala, CLASSICO.palavraSubida, CLASSICO.caixaAlta],
+    CLASSICO.palavraCores, CLASSICO.palavraEscala, CLASSICO.palavraSubida, CLASSICO.caixaAlta],
   [TOKENS.legendaFonte, TOKENS.legendaPeso, TOKENS.legendaEntrelinha, TOKENS.texto,
-    TOKENS.sombraTexto, TOKENS.palavraCor, TOKENS.palavraEscala, TOKENS.palavraSubida, false]);
+    TOKENS.sombraTexto, TOKENS.palavraCores, TOKENS.palavraEscala, TOKENS.palavraSubida, false]);
 eq('15b2. e o teto de pagina dele e o MESMO `MAX_CHARS_PAGINA` de sempre',
   tetoDaPagina(CLASSICO), MAX_CHARS_PAGINA);
 ok('15b3. o classico continua na Inter e com a enfase estatica em peso 900',
@@ -1364,10 +1406,13 @@ ok('15d3. corpo maior e entrelinha menor que a do classico (corpo grande pede li
 /* Piso da entrelinha: em caixa alta o til do A e do O ocupam a folga que o A nao usa. */
 ok('15d4. mas nao tao justa que o til da caixa alta encoste na linha de cima',
   IMPACTO.entrelinha >= 1.06);
-/* Mesma regra do 1g: neon foi proibido por escrito. */
-const hslImpacto = hsl(IMPACTO.palavraCor);
-ok(`15d5. a cor da palavra ativa do impacto nao e neon (s ${hslImpacto.s.toFixed(2)}, l ${hslImpacto.l.toFixed(2)})`,
-  !(hslImpacto.s > 0.85 && hslImpacto.l > 0.55));
+/* A proibicao de neon do 1g VALIA aqui e caiu em 2026-09-11: o operador pediu o leque neon
+   para a palavra ativa, nos dois estilos. O que este check agora cobra e que os dois usem a
+   MESMA lista -- duas listas seriam dois lugares para calibrar a mesma decisao, e a segunda
+   sairia do lugar calada. O resto da paleta (texto, sombra, destaque estatico) continua
+   fechado, e o 1g continua valendo para ele. */
+eq('15d5. o impacto usa o MESMO leque do classico (a decisao e do recurso, nao do estilo)',
+  IMPACTO.palavraCores, CLASSICO.palavraCores);
 /* `scale` cresce o glifo e NAO a caixa de layout (medido neste projeto): a 72px em caixa
    alta o mesmo 12% do classico transborda mais px, entao o pop TEM de ser menor. */
 ok('15d6. o pop da palavra ativa e menor que o do classico (corpo maior transborda mais)',
