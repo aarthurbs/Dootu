@@ -1000,4 +1000,74 @@ ok('clipStatusOf explica cada estado do arquivo, inclusive quando nao deixa baix
   assert.strictEqual(off.podeBaixar, false, 'e nao oferece download que nao vai funcionar');
 });
 
+/* --- TikTok: enviar um clip pronto para os RASCUNHOS ---------------------------------
+   O que precisa ser provado aqui não é a chamada (isso é o test_serve.py, com 16 checks),
+   é o que a tela OFERECE. Cada ramo tem um desfecho diferente e nenhum pode ficar mudo:
+   ainda não perguntei ao worker / não tem conta / tem conta / tem conta mas o arquivo não
+   está no disco. Oferecer "Enviar" em qualquer um dos dois últimos é um botão que só sabe
+   falhar (BP-008). */
+function clipDeProva(extra) {
+  return Object.assign({
+    id: 'c1', videoName: 'Podcast', videoUrl: '', clipName: 'Trecho bom',
+    inSec: 10, outSec: 70, fileName: 'trecho-bom.mp4',
+    savedPath: 'C:\\Users\\x\\Videos\\Cortes Estudio\\trecho-bom.mp4',
+    bytes: 1234567, origin: 'youtube', createdAt: '2026-09-10T12:00:00.000Z'
+  }, extra || {});
+}
+
+ok('TikTok: antes de o worker responder a tela nao afirma nada', () => {
+  /* Desenhar "desconectado" antes de perguntar pisca uma informacao errada em toda visita
+     de quem TEM conta conectada. */
+  assert.strictEqual(ops.ttStripHTML({ checked: false, connected: false, username: '' }), '');
+});
+
+ok('TikTok: sem conta, a tela oferece conectar e nao oferece publicar', () => {
+  const html = ops.ttStripHTML({ checked: true, connected: false, username: '' });
+  assert.match(html, /data-act="tt-connect"/);
+  assert.doesNotMatch(html, /tt-publish/);
+});
+
+ok('TikTok: com conta, diz o nome, promete RASCUNHO e deixa desconectar', () => {
+  const html = ops.ttStripHTML({ checked: true, connected: true, username: 'arthur' });
+  assert.match(html, /arthur/);
+  assert.match(html, /data-act="tt-logout"/);
+  /* A promessa tem de ser a verdadeira: o video NAO sai publicado. Prometer "publica" aqui
+     seria o mesmo defeito do BP-003 ao contrario -- a tela dizendo mais do que faz. */
+  assert.match(html, /rascunho/i);
+  assert.doesNotMatch(html, /data-act="tt-connect"/);
+});
+
+ok('TikTok: nome de usuario nao escapa como HTML', () => {
+  const html = ops.ttStripHTML({ checked: true, connected: true, username: '<img src=x>' });
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+});
+
+ok('TikTok: o cartao so oferece enviar quando ha conta E arquivo em disco', () => {
+  const tt = ops.ttState();
+  const antes = { connected: tt.connected, checked: tt.checked };
+  try {
+    tt.checked = true;
+    tt.connected = false;
+    assert.doesNotMatch(ops.libCardHTML(clipDeProva()), /tt-publish/,
+      'sem conta conectada nao pode oferecer envio');
+    tt.connected = true;
+    assert.match(ops.libCardHTML(clipDeProva()), /data-act="tt-publish"/);
+    /* Clip que foi so para a pasta de Downloads do navegador nao tem copia que o worker
+       consiga achar -- o cartao ja explica isso no rodape, e nao pode oferecer o botao. */
+    assert.doesNotMatch(ops.libCardHTML(clipDeProva({ savedPath: '' })), /tt-publish/,
+      'sem savedPath o worker nao tem arquivo para enviar');
+  } finally {
+    tt.connected = antes.connected;
+    tt.checked = antes.checked;
+  }
+});
+
+ok('TikTok: libCardHTML tem UM parametro (map passa o indice no segundo)', () => {
+  /* `group.items.map(libCardHTML)` entrega (item, indice, array). Um segundo parametro
+     receberia o INDICE: falsy no primeiro cartao, truthy nos demais. Um estado de conta
+     lido dali ligaria o botao em todos menos o primeiro, sem erro nenhum. */
+  assert.strictEqual(ops.libCardHTML.length, 1);
+});
+
 console.log(provas + ' provas OK — lógica pura do Estúdio de Vídeos');

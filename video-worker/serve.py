@@ -23,6 +23,7 @@ import argparse
 import atexit
 import contextlib
 import functools
+import html
 import io
 import json
 import math
@@ -45,6 +46,7 @@ import worker  # noqa: E402  (a pasta do worker entra no path na linha acima)
 import ytclip  # noqa: E402  (descoberta de cortes por URL; mesma pasta)
 import captions  # noqa: E402  (cues -> ASS para queimar a legenda no 9:16)
 import muapi  # noqa: E402  (detector externo OPCIONAL de trechos; inerte sem MUAPI_KEY)
+import tiktok  # noqa: E402  (publica o MP4 pronto na caixa de entrada do TikTok)
 
 ROUTE = "/api/video-cut"
 # Descoberta e aquisição por URL. Separadas de propósito: ANALISAR não baixa vídeo nenhum,
@@ -61,6 +63,16 @@ ROUTE_MR = "/api/most-replayed"  # le o que o baixador local ja gravou; nao anal
 # nova ao yt-dlp, nenhum byte de rede) e guarda a correcao que o operador digitou.
 ROUTE_CAPS = "/api/clip-captions"
 ROUTE_CLIP_STATUS = "/api/clip-status"  # verifica se o MP4 do clip existe na pasta permanente
+# Publicação no TikTok (decisão do usuário, 2026-09-10). É a ÚNICA saída para fora da
+# máquina em todo o Estúdio, e é RASCUNHO: o arquivo cai na caixa de entrada do app e quem
+# publica é a pessoa, no celular. Ver `tiktok.py` e o plano em docs/02-Execution/plans/.
+# As duas primeiras são GET porque são navegação do usuário (redirect do OAuth), não API.
+ROUTE_TT_LOGIN = "/tiktok/login"
+ROUTE_TT_CALLBACK = tiktok.CAMINHO_CALLBACK
+ROUTE_TT_STATUS = "/api/tiktok/status"
+ROUTE_TT_PUBLISH = "/api/tiktok/publish"
+ROUTE_TT_PUBLISH_STATUS = "/api/tiktok/publish-status"
+ROUTE_TT_LOGOUT = "/api/tiktok/logout"
 # Tetos da legenda editada. Um corte de 90 s tem umas 40 falas; 400 e folga larga e impede
 # que a rota vire deposito. O texto e de UMA fala, nao de um paragrafo.
 MAX_EDIT_CUES = 400
@@ -167,6 +179,15 @@ STATUS_BY_CODE = {
     "render_busy": HTTPStatus.SERVICE_UNAVAILABLE,
     "contract_version": HTTPStatus.BAD_REQUEST,
     "unsupported_type": HTTPStatus.BAD_REQUEST,
+    # TikTok. Cada motivo tem código próprio porque cada um tem uma AÇÃO diferente do outro
+    # lado da tela: criar um arquivo, clicar em conectar, esperar a rede, falar com o TikTok.
+    # Colapsar tudo em "falhou" devolveria o operador para a adivinhação (BP-008).
+    "tiktok_sem_credencial": HTTPStatus.BAD_REQUEST,
+    "tiktok_desconectado": HTTPStatus.UNAUTHORIZED,
+    "tiktok_estado_invalido": HTTPStatus.BAD_REQUEST,
+    "tiktok_video": HTTPStatus.BAD_REQUEST,
+    "tiktok_recusou": HTTPStatus.BAD_GATEWAY,
+    "tiktok_sem_rede": HTTPStatus.SERVICE_UNAVAILABLE,
 }
 
 
@@ -1007,6 +1028,69 @@ class CutHandler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write("[serve] %s\n" % (fmt % args))
 
+    # ------------------------------------------------------------ GET do OAuth
+    def _tiktok_redirect_uri(self) -> str:
+        """Montado da porta REAL em que o servidor subiu, nunca de uma constante.
+
+        O `--port` existe, e um redirect_uri cravado em 8765 mandaria o TikTok devolver o
+        código para um servidor que não está lá. No portal do TikTok registre a porta
+        curinga (`http://127.0.0.1:*/tiktok/callback/`) para os dois lados combinarem sempre.
+        """
+        return "http://127.0.0.1:%d%s" % (self.server.server_address[1], ROUTE_TT_CALLBACK)
+
+    def _pagina(self, titulo: str, frase: str, status=HTTPStatus.OK) -> None:
+        """Resposta das rotas de OAuth: quem está olhando é uma ABA DE NAVEGADOR, não o
+        `fetch` da tela. JSON aqui apareceria como texto cru para a pessoa."""
+        # `frase` carrega texto que veio da query do redirect e da mensagem do TikTok —
+        # rede, não literal nosso. Escapar aqui é o ponto único: nenhuma chamada precisa
+        # lembrar.
+        frase = html.escape(frase)
+        corpo = ("<!doctype html><meta charset=utf-8><title>%s</title>"
+                 "<body style=\"font:16px system-ui;margin:3rem;max-width:34rem\">"
+                 "<h1 style=\"font-size:1.25rem\">%s</h1><p>%s</p>"
+                 "</body>" % (titulo, titulo, frase)).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def do_GET(self) -> None:
+        """Duas rotas de navegação antes do estático; o resto segue para o handler de arquivo.
+
+        Precisa existir porque o `SimpleHTTPRequestHandler` trata TODO GET como pedido de
+        arquivo — sem este desvio, `/tiktok/callback/` daria 404 e o código de autorização
+        se perderia.
+        """
+        caminho = urlparse(self.path).path
+        if caminho not in (ROUTE_TT_LOGIN, ROUTE_TT_CALLBACK):
+            SimpleHTTPRequestHandler.do_GET(self)
+            return
+        try:
+            if caminho == ROUTE_TT_LOGIN:
+                self.send_response(HTTPStatus.FOUND)
+                self.send_header("Location", tiktok.url_autorizacao(self._tiktok_redirect_uri()))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            query = parse_qs(urlparse(self.path).query)
+            recusa = _one(query, "error")
+            if recusa:
+                self._pagina("Autorização cancelada",
+                             "O TikTok respondeu \"%s\". Nada foi conectado; feche esta "
+                             "aba e tente de novo se quiser." % (recusa,),
+                             HTTPStatus.BAD_REQUEST)
+                return
+            tiktok.concluir_login(_one(query, "code"), _one(query, "state"),
+                                  self._tiktok_redirect_uri())
+            self._pagina("Conta do TikTok conectada",
+                         "Pode fechar esta aba e voltar para a Central de Clips.")
+        except worker.WorkerError as err:
+            self._pagina("Não deu para conectar", err.message,
+                         STATUS_BY_CODE.get(err.code, HTTPStatus.BAD_REQUEST))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.log_message("cliente desligou antes do fim")
+
     # ---------------------------------------------------------------- POST
     def do_POST(self) -> None:
         # Despacho por dicionário em vez de if/elif: as rotas novas herdam, sem cópia, o
@@ -1020,6 +1104,10 @@ class CutHandler(SimpleHTTPRequestHandler):
             ROUTE_MR: self._handle_most_replayed,
             ROUTE_CAPS: self._handle_clip_captions,
             ROUTE_CLIP_STATUS: self._handle_clip_status,
+            ROUTE_TT_STATUS: self._handle_tiktok_status,
+            ROUTE_TT_PUBLISH: self._handle_tiktok_publish,
+            ROUTE_TT_PUBLISH_STATUS: self._handle_tiktok_publish_status,
+            ROUTE_TT_LOGOUT: self._handle_tiktok_logout,
         }
         handler = handlers.get(urlparse(self.path).path)
         if handler is None:
@@ -1585,6 +1673,39 @@ class CutHandler(SimpleHTTPRequestHandler):
                 remove_quietly(ass_file)
 
     # ---------------------------------------------------------------- corpo
+    # ---------------------------------------------------- TikTok (caixa de entrada)
+    # Sem trava de render nas quatro: isto é espera de REDE, não trabalho de CPU. Enfileirar
+    # um upload atrás de um corte de 4K deixaria a tela parada à toa (mesmo motivo do probe).
+    def _handle_tiktok_status(self) -> None:
+        self._json_body()
+        self._send_json(tiktok.conta())
+
+    def _handle_tiktok_logout(self) -> None:
+        self._json_body()
+        tiktok.esquecer()
+        self._send_json({"connected": False, "username": ""})
+
+    def _handle_tiktok_publish(self) -> None:
+        """Sobe um clip JÁ PRONTO da pasta permanente. Não corta, não renderiza, não baixa.
+
+        O navegador manda só o NOME do arquivo, nunca o caminho: `_resolve_clip_file` resolve
+        dentro da pasta de clips e já recusa travessia. Aceitar o `savedPath` absoluto que o
+        `localStorage` guarda seria deixar a página escolher qualquer arquivo do disco para
+        mandar para fora da máquina.
+        """
+        caminho, motivo = self._resolve_clip_file(
+            self._clips_dir(), self._json_body().get("fileName"), None, None, None)
+        if not caminho:
+            raise worker.WorkerError("tiktok_video", {
+                "invalid_filename": "Esse nome de arquivo não é aceito.",
+                "missing_file": "O MP4 não está mais na pasta de clips.",
+                "insufficient_info": "Faltou dizer qual arquivo publicar.",
+            }.get(motivo, "Não achei o arquivo do clip (%s)." % (motivo,)))
+        self._send_json({"publishId": tiktok.publicar(caminho)})
+
+    def _handle_tiktok_publish_status(self) -> None:
+        self._send_json(tiktok.estado(self._json_body().get("publishId")))
+
     def _content_length(self) -> int:
         raw = self.headers.get("Content-Length")
         if not raw:

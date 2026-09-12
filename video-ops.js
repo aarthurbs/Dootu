@@ -1483,9 +1483,34 @@
   }
 
   /* --- Central de Clips (tela) -----------------------------------------------------
-     Só isto: um cartão por clip baixado, com o nome do clip, o intervalo e o botão de
-     baixar de novo. Agrupado pelo nome do vídeo de origem. Nada de post, direito,
-     conta, aprovação ou métrica — a decisão do corte já foi tomada. */
+     Um cartão por clip baixado, com o nome do clip, o intervalo e o botão de baixar de
+     novo. Agrupado pelo nome do vídeo de origem. Continua sem direito, aprovação por
+     hash, agendamento ou métrica — a decisão do corte já foi tomada.
+     Desde 2026-09-10 tem UMA saída para fora da máquina: enviar o MP4 para os rascunhos
+     do TikTok (`ttPublish`). É envio de arquivo, não pipeline de publicação. */
+  /* Uma linha, não um painel: conectar a conta é tarefa de uma vez por ano, e um banner
+     permanente cobraria atenção toda visita. Enquanto o worker não respondeu (`checked`
+     falso) não desenha nada — afirmar "desconectado" antes de perguntar pisca uma
+     informação errada. */
+  /* Recebe o estado por PARÂMETRO (com o do módulo como padrão) para o teste conseguir
+     exercitar os três desfechos sem montar meia tela. É a lição do `renderBody`: função de
+     render que só existe dentro do fetch nunca é provada, e o ramo errado passa verde. */
+  function ttStripHTML(estado) {
+    var TT_ = estado || ttState();
+    if (!TT_.checked) return '';
+    if (TT_.connected) {
+      return '<p class="vop-form-note">TikTok conectado'
+        + (TT_.username ? ' como <strong>' + esc(TT_.username) + '</strong>' : '')
+        + '. O envio vai para os <strong>rascunhos</strong> do app — você termina e publica no celular. '
+        + '<button class="vop-inline-action" type="button" data-act="tt-logout">Desconectar</button></p>';
+    }
+    return '<p class="vop-form-note">Nenhuma conta do TikTok conectada. '
+      + '<button class="vop-inline-action" type="button" data-act="tt-connect">Conectar conta do TikTok</button></p>';
+  }
+  /* UM parâmetro, e assim fica: o chamador é `group.items.map(libCardHTML)`, e `map` passa
+     (item, índice, array). Um segundo parâmetro aqui receberia o ÍNDICE — falsy no primeiro
+     cartão, truthy nos demais — e ligaria o botão do TikTok em todos menos o primeiro, sem
+     erro nenhum. Quem precisa do estado da conta lê `ttState()`. */
   function libCardHTML(clip) {
     var url = savedClipUrl(clip);
     var span = num(clip.outSec) - num(clip.inSec);
@@ -1503,6 +1528,11 @@
          seguinte diz isso em vez de oferecer um botão que não faz nada (BP-008). */
       + (url
         ? '<a class="vop-btn vop-btn-primary" href="' + esc(url) + '" download="' + esc(clip.fileName) + '">⬇ Baixar vídeo</a>'
+        : '')
+      /* Só oferece enviar o que o worker consegue achar em disco. Sem cópia local o
+         botão seria um clique que só sabe falhar — a linha do rodapé já explica por quê. */
+      + (url && TT.connected
+        ? '<button class="vop-btn vop-btn-secondary" type="button" data-act="tt-publish" data-id="' + esc(clip.id) + '">Enviar ao TikTok</button>'
         : '')
       + '<button class="vop-btn vop-btn-quiet" type="button" data-act="lib-remove" data-id="' + esc(clip.id) + '">Remover do histórico</button>'
       + '</div>'
@@ -1522,6 +1552,7 @@
       + '<div class="vop-section-head"><div><span class="vop-eyebrow">Central de Clips</span>'
       + '<h2>' + LIB.clips.length + ' clip(s) em ' + groups.length + ' vídeo(s)</h2>'
       + '<p class="vop-form-note">Os arquivos ficam no seu computador, em <code>~/Videos/Cortes Estudio</code>. Esta tela é o índice deles.</p></div></div>'
+      + ttStripHTML()
       + groups.map(function (group) {
         return '<div class="vop-lib-group">'
           + '<div class="vop-lib-group-head"><h3>' + esc(group.name) + '</h3>'
@@ -2191,6 +2222,90 @@
       button.setAttribute('aria-busy', 'true');
       button.textContent = label;
     }
+  }
+  /* --- TikTok: mandar um clip pronto para a caixa de entrada ------------------------
+     RASCUNHO, não post. O arquivo cai nos rascunhos do app e quem escreve a legenda,
+     escolhe a capa e aperta publicar é a pessoa, no celular (decisão do usuário,
+     2026-09-10 — ver docs/02-Execution/plans/PLANO-tiktok-publicar.md). Isto é o ÚNICO
+     ponto do Estúdio que fala com fora da máquina, e ele não decide nada: não escolhe
+     conta, não agenda, não aprova, não mede. Quem guarda o segredo e fala com o TikTok é
+     o worker; o navegador nunca vê client_secret nem token.
+     Estado de SESSÃO: o worker é a fonte da verdade (o token vive em disco, lá). Guardar
+     "conectado" no localStorage faria a tela mentir depois de revogar o app no TikTok. */
+  var TT = { connected: false, username: '', checked: false };
+  function ttState() { return TT; }
+  function ttRefresh(redesenhar) {
+    return ytPost('/api/tiktok/status', {}).then(function (payload) {
+      TT.connected = !!(payload && payload.connected);
+      TT.username = (payload && payload.username) || '';
+      TT.checked = true;
+      if (redesenhar && TAB === 'central') renderKeepingScroll();
+    }).catch(function () {
+      /* Worker fora do ar já é dito em toda a tela; aqui só não afirmamos "conectado". */
+      TT.connected = false; TT.checked = true;
+    });
+  }
+  function ttConnect() {
+    if (typeof window === 'undefined' || !window.open) return;
+    window.open('/tiktok/login', '_blank', 'noopener');
+    toast('Autorize na aba que abriu e volte para cá.');
+    /* Voltar o foco para esta aba é o sinal de que a autorização terminou — sem isso a
+       tela ficaria dizendo "desconectado" até um F5 (BP-008). `once` para não acumular. */
+    window.addEventListener('focus', function () { ttRefresh(true); }, { once: true });
+  }
+  function ttDisconnect() {
+    if (!confirm('Desconectar a conta do TikTok? Os vídeos já enviados não são afetados.')) return;
+    ytPost('/api/tiktok/logout', {}).then(function () {
+      TT.connected = false; TT.username = '';
+      renderKeepingScroll();
+      toast('Conta do TikTok desconectada.');
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+  /* Sobe o arquivo e SÓ ENTÃO confere o desfecho. O TikTok aceita o upload e processa
+     depois: parar no "enviado" esconderia a recusa por formato/duração, que é justamente
+     a falha que acontece (BP-008 — nenhum ramo termina mudo). Teto de tentativas para a
+     tela não ficar perguntando para sempre. */
+  var TT_TENTATIVAS = 10;
+  var TT_INTERVALO = 3000;
+  function ttWatch(publishId, tentativa) {
+    ytPost('/api/tiktok/publish-status', { publishId: publishId }).then(function (payload) {
+      var estado = (payload && payload.status) || '';
+      if (estado === 'PUBLISH_COMPLETE' || estado === 'SEND_TO_USER_INBOX') {
+        toast('Pronto no TikTok. Abra o app no celular: está nas notificações/rascunhos.');
+        return;
+      }
+      if (estado === 'FAILED') {
+        toast('O TikTok recusou o vídeo: ' + ((payload && payload.falha) || 'sem motivo informado'), 'error');
+        return;
+      }
+      if (tentativa >= TT_TENTATIVAS) {
+        toast('Enviado. O TikTok ainda está processando — confira o app em alguns minutos.', 'warn');
+        return;
+      }
+      setTimeout(function () { ttWatch(publishId, tentativa + 1); }, TT_INTERVALO);
+    }).catch(function () {
+      toast('Enviado, mas não consegui confirmar o processamento. Confira o app.', 'warn');
+    });
+  }
+  function ttPublish(button, clipId) {
+    var clip = findById(LIB.clips, clipId);
+    if (!clip) { toast('Este clip não está mais no histórico.', 'error'); return; }
+    if (!clip.fileName) { toast('Este clip não tem arquivo guardado para enviar.', 'error'); return; }
+    var key = 'tt:' + clipId;
+    if (YT_BUSY[key]) return;
+    ytBusy(key, true, button, 'Enviando…');
+    ytPost('/api/tiktok/publish', { fileName: clip.fileName }).then(function (payload) {
+      toast('Vídeo enviado. Conferindo o processamento…');
+      ttWatch(payload && payload.publishId, 1);
+    }).catch(function (err) {
+      toast(err.message, 'error');
+      /* Token vencido/app revogado volta 401: o selo tem de refletir isso na hora, senão a
+         tela segue oferecendo "Enviar" para uma conta que já não está conectada. */
+      ttRefresh(true);
+    }).then(function () {
+      ytBusy(key, false);
+      if (TAB === 'central') renderKeepingScroll();
+    });
   }
   /* Abre um projeto existente: mostra os trechos sugeridos sem re-analisar. */
   function openProject(projectId) {
@@ -3217,7 +3332,13 @@
     var button = event.target.closest('[data-act]');
     if (!button) return;
     var action = button.dataset.act;
-    if (action === 'tab') { TAB = button.dataset.tab; render(); }
+    if (action === 'tab') {
+      TAB = button.dataset.tab;
+      render();
+      /* Pergunta ao worker na PRIMEIRA vez que a Central abre, não na partida do site:
+         quem nunca vai publicar não paga uma chamada por visita. */
+      if (TAB === 'central' && !TT.checked) ttRefresh(true);
+    }
     else if (action === 'open-project') {
       var projectId = button.dataset.projectId;
       if (projectId) openProject(projectId);
@@ -3288,6 +3409,9 @@
       YT.preview = ''; YT.detail = ''; YT.dlMenu = '';
       render();
     }
+    else if (action === 'tt-connect') ttConnect();
+    else if (action === 'tt-logout') ttDisconnect();
+    else if (action === 'tt-publish') ttPublish(button, button.dataset.id);
     else if (action === 'lib-remove') {
       /* O registro sai; o arquivo em disco fica. Dizer isso na pergunta evita a leitura
          de que "remover" apaga o vídeo. */
@@ -3399,7 +3523,10 @@
       libEntry: libEntry,
       libSanitize: libSanitize,
       libGroups: libGroups,
+      libCardHTML: libCardHTML,
       savedClipUrl: savedClipUrl,
+      ttStripHTML: ttStripHTML,
+      ttState: ttState,
       ytVideoId: ytVideoId,
       ytFetchGate: ytFetchGate,
       ytCandidateClips: ytCandidateClips,
