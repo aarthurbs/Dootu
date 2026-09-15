@@ -1,18 +1,42 @@
 # Estado atual
 
-Última atualização: 2026-09-14
-Branch: `estudio/hub-recomendacoes` · commit base: `2202ec1`
+Última atualização: 2026-09-15
+Branch: `estudio/hub-recomendacoes` · commit base: `656dcd9`
 
 ## Tarefa ativa
 
-- Objetivo: entregar a tela **Resultados dos cortes** no Estúdio — registro manual de
-  publicação e de medições, com comparação de formatos e análise de padrões.
+- Objetivo: fazer o Estúdio trabalhar com o **vídeo inteiro importado** como mídia de
+  edição — player interno no site, cortes marcados em qualquer ponto da duração, e todo
+  export saindo desse mesmo arquivo.
 - Plano utilizado: pedido direto do usuário nesta sessão.
-- Status: concluída e validada (1782 verificações em 10 suítes, zero falhas).
-- Escopo: interface local do Estúdio. Integração com API de plataforma **não** entra: o
-  preenchimento é manual, conforme o pedido.
+- Status: concluída e validada (1866 verificações em 10 suítes, zero falhas).
+- Escopo: importação, reprodução e edição de vídeo. Nada de publicação.
 
 ## Trabalho concluído
+
+- **2026-09-15 — a fonte passou a ser o VÍDEO INTEIRO (decisão do usuário).** Reverte
+  explicitamente o "só o trecho escolhido é baixado". Colar a URL + declarar o direito +
+  `Importar vídeo` baixa o original completo uma vez (`/api/yt-import` numa thread, com
+  progresso real em `/api/yt-import-state`); ele toca num `<video>` do próprio site
+  (`/sources/…`, com **Range**, que é o que permite arrastar a barra num arquivo de 2 GB), e
+  **todo** corte sai dele — trecho cru pelo `/api/video-cut` e editado pelo
+  `/api/remotion-render`, os dois com `start`/`end` dentro da fonte. O `<iframe>` do YouTube
+  saiu das duas pontas (diálogo de prévia e tela de detalhe); a prévia virou um seek no
+  player, e `Marcar trecho daqui` cria corte no instante em que ele está.
+  - A economia que fez a mudança caber: a importação grava o `.mostreplayed.json` no formato
+    do baixador, então a fonte herda de graça a legenda (`cut_captions`,
+    `/api/clip-captions`), o fundo por miniatura e o gráfico de audiência — **nenhuma rota
+    nova para nenhum dos três**.
+  - Mudar a borda de um corte invalida o que foi exportado dele e **nunca** a fonte.
+  - **O ENCODE 1 do `PLANO-3` deixou de existir no caminho normal** (a importação não usa
+    `--force-keyframes-at-cuts`, porque não recorta nada). A medição de 2026-09-08 não foi
+    revogada nem reaberta: ela dizia "não vale mexer nele", e não "ele tem de continuar
+    existindo". O `fetch_section`, que a medição cobre, segue intacto.
+  - Dois defeitos achados RODANDO, que nenhuma suíte pegava: o destino do render perdeu a
+    extensão `.mp4` quando o token deixou de ser um nome de arquivo (o Remotion decide o
+    container por ela, e o erro saía como "O Remotion falhou: npm notice"); e dois exports do
+    mesmo vídeo colidiam no mesmo `props-<token>.json`. Os dois viraram `render_paths`, que é
+    pura e tem check.
 
 - **2026-09-14 — tela Resultados dos cortes.** Quarta tela do Estúdio (`video-results.js`,
   chave própria `pp_video_results_v1`). Registra publicação vinculada a um corte da Central
@@ -87,6 +111,24 @@ Na entrega anterior (simplificação para três telas): `video-ops.js`,
 
 ## Validações executadas
 
+- **Vídeo inteiro como fonte, 2026-09-15:** `.\provas.ps1` → **1866 verificações nas dez
+  suítes, zero falhas**, total conferido automaticamente contra o `CLAUDE.md`. Novas: 32 no
+  `test_serve` (rotas de importação, Range/206 e 416, sidecar da fonte lido de volta pelo
+  leitor real, `-ss` antes do `-i`, nomes do render), 20 no `test_ytclip` (progresso monótono
+  entre as duas faixas do yt-dlp, argv REAL do `fetch_full`), 8 no `test-video-ops.js` e 24
+  no DOM. `node test-video-ops-rec.js` (fora do `provas.ps1`) também rodado: aprovado.
+- **Conferido rodando**, com servidor de verdade (`serve.py --port 8766`) e uma fonte
+  sintética de 6 s gravada na pasta do baixador (removida depois, com os artefatos):
+  o player interno monta e lê a duração do ARQUIVO (6 s), toca, e **busca para 4,5 s** — o
+  que só funciona porque o `/sources/` responde 206. Depois de um `render()` completo é o
+  **mesmo nó** `<video>`, com `currentTime` preservado e ainda tocando (é a prova do
+  `srcAdopt`). `Marcar trecho daqui` criou corte em 0:01 com o fim limitado à duração, e
+  `daqui` moveu o fim para 0:04 (teto de 3,2 s). **Dois cortes do MESMO arquivo**: 1→3 s em
+  9:16 (`X-Clip-Captions: burned`, 1080x1920, 2,010 s medidos) e 3,5→5,5 s cru (1920x1080,
+  2,010 s) — nenhum byte rebaixado entre os dois. O editado pelo Remotion saiu em 1080x1920,
+  2,050 s, áudio normalizado, guardado como `…-1-3-editado.mp4`. As falas do intervalo voltam
+  **rebaseadas no começo do corte** (0,00 e 1,50 para falas de 1,0-2,0 e 2,5-3,0 da fonte),
+  que é o contrato de sincronia entre legenda e arquivo exportado.
 - **Resultados dos cortes, 2026-09-14:** `.\provas.ps1` → **1782 verificações nas dez
   suítes, zero falhas**, total conferido automaticamente contra o `CLAUDE.md`. Inclui as 46
   provas novas (`test-video-results.js`) e as 141 do DOM. `node --check` nos dois módulos.

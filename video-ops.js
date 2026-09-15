@@ -641,12 +641,56 @@
      §10 — segue passando por um portão explícito, agora uma declaração do operador. */
   var YT = {
     url: '', videoId: '', state: 'idle', note: '', title: '', duration: 0,
-    candidates: [], authorized: false, preview: '',
+    candidates: [], authorized: false,
     /* `detail` = trecho aberto no editor; `dlMenu` = trecho com o menu de download aberto;
        `sort` = ordem da grade; `thumbnail`/`storyboard` = as imagens da fonte. Nenhum
-       deles e persistido: sao estado de TELA, e recarregar volta para a grade. */
+       deles e persistido: sao estado de TELA, e recarregar volta para a grade.
+       `preview` SAIU: a previa era um dialogo com iframe do YouTube, e hoje ela e um seek no
+       player da fonte -- nao ha o que guardar, porque nada abre nem fecha. */
     detail: '', dlMenu: '', sort: 'quality', thumbnail: '', storyboard: null
   };
+  /* --- A FONTE: o vídeo inteiro importado ------------------------------------------
+     A mudança de arquitetura desta entrega (decisão do usuário, 2026-09-15). Até aqui cada
+     trecho era um download próprio, e o editor mostrava um iframe do YouTube; agora o
+     original INTEIRO entra uma vez, toca num player do próprio site e TODO corte sai dele.
+
+     Estado de SESSÃO: o arquivo no disco é a verdade durável (e o servidor o redescobre por
+     ele), isto aqui é só o que a tela precisa. `videoId` é a chave da CORRIDA — colar outra
+     URL no meio de uma importação invalida a anterior, e a resposta dela é descartada em vez
+     de assumir o lugar do vídeo novo. */
+  var SRC = {
+    videoId: '', state: 'idle', stage: '', percent: 0, error: '',
+    token: '', name: '', url: '', bytes: 0,
+    durationSec: 0, width: 0, height: 0, hasAudio: false
+  };
+  /* ESPELHO do `serve.IMPORT_STATES`/`IMPORT_STAGES`. Conjuntos FECHADOS, e cada valor tem
+     frase aqui: estado que sai do servidor sem frase do outro lado é o erro mudo que o
+     conjunto existe para impedir (BP-008, a mesma regra do CAPTION_STATES). */
+  var IMPORT_STATES = ['idle', 'importing', 'ready', 'error'];
+  var IMPORT_STAGES = ['lendo', 'baixando', 'preparando'];
+  var IMPORT_MSG = {
+    idle: 'Nenhum vídeo importado nesta URL. Importe para poder tocar, marcar e exportar.',
+    importing: 'Trazendo o vídeo para o Estúdio.',
+    ready: 'Vídeo pronto no Estúdio. Todo corte sai deste arquivo — nada é baixado de novo.',
+    error: 'A importação falhou.'
+  };
+  var IMPORT_STAGE_MSG = {
+    lendo: 'Lendo os dados do vídeo',
+    baixando: 'Baixando o vídeo inteiro',
+    preparando: 'Preparando o arquivo'
+  };
+  /* De quanto em quanto tempo a barra pergunta ao servidor. 1,2 s é mais rápido que o olho
+     percebe como travado e mais lento que o download muda de ponto percentual. */
+  var SRC_POLL_MS = 1200;
+  /* Quantas falhas de rede SEGUIDAS no acompanhamento antes de desistir. Falha isolada não é
+     falha da importação (ela corre no servidor), mas tentar para sempre deixaria a barra
+     andando com o servidor morto — indistinguível de download em curso. */
+  var SRC_POLL_TRIES = 10;
+  var SRC_POLL = 0;
+  /* Sequência da importação pedida. Só a mais recente pode escrever em SRC. */
+  var SRC_SEQ = 0;
+  /* O nó `<video>` da fonte, PRESERVADO entre renders (ver srcAdopt). */
+  var SRC_NODE = null;
   var YT_ID = /^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])/;
   function ytVideoId(url) {
     var found = YT_ID.exec(safeUrl(url));
@@ -660,6 +704,223 @@
     if (!ytVideoId(it.url)) return { allowed: false, reason: 'a URL não é de um vídeo do YouTube' };
     if (!it.authorized) return { allowed: false, reason: 'você ainda não declarou ter autorização do criador' };
     return { allowed: true, reason: '' };
+  }
+  function srcReady() { return SRC.state === 'ready' && !!SRC.token && !!SRC.url; }
+  /* Preserva o `<video>` entre renders. O `render()` troca o innerHTML inteiro, e um player
+     novo a cada re-render perderia a posição, o volume e o buffer — num arquivo de 2 GB isso
+     significa rebaixar tudo e voltar ao segundo zero a cada clique em "Baixar". Por isso a
+     marcação DECLARA o player (assim ele é testável e a tela é a fonte da verdade) e aqui o
+     nó vivo é trocado pelo recém-criado quando a URL é a mesma.
+
+     O detach e o reattach acontecem na MESMA tarefa síncrona: a especificação só pausa a
+     mídia depois de esperar um "stable state" e conferir se o elemento continua fora do
+     documento — como ele já voltou, a reprodução não é interrompida. Fora da mesma tarefa
+     isto não funcionaria. */
+  function srcAdopt(root) {
+    if (!root || !root.querySelector) return;
+    var fresco = root.querySelector('[data-src-video]');
+    if (!fresco) return;
+    var mesmo = SRC_NODE && SRC_NODE.getAttribute && fresco.getAttribute
+      && SRC_NODE.getAttribute('src') === fresco.getAttribute('src');
+    if (mesmo && fresco.parentNode && fresco.parentNode.replaceChild) {
+      fresco.parentNode.replaceChild(SRC_NODE, fresco);
+      return;
+    }
+    SRC_NODE = fresco;
+  }
+  function srcVideo() {
+    if (SRC_NODE) return SRC_NODE;
+    if (typeof document === 'undefined' || !document.querySelector) return null;
+    return document.querySelector('[data-src-video]');
+  }
+  /* O instante em que o player está, ou null. `null` e NUNCA 0: sem player na tela, zero
+     seria "o começo do vídeo" — a mesma regra do `parseClock`, onde texto que não é tempo
+     vira '' em vez de 0 calado. */
+  function srcNow() {
+    var v = srcVideo();
+    var t = v ? Number(v.currentTime) : NaN;
+    return (typeof t === 'number' && isFinite(t)) ? t : null;
+  }
+  function srcSeek(seconds, play) {
+    var v = srcVideo();
+    if (!v) return false;
+    try { v.currentTime = Math.max(0, secs(seconds)); } catch (e) { return false; }
+    if (play && typeof v.play === 'function') {
+      var p = v.play();
+      /* Autoplay recusado pelo navegador não é erro para tratar: o player está na tela com
+         os controles, e o operador dá play. Sem o catch a promessa rejeitada vira ruído no
+         console a cada prévia. */
+      if (p && typeof p.catch === 'function') p.catch(function () {});
+    }
+    return true;
+  }
+  /* A barra anda SEM re-render. Dois motivos, os dois já pagos neste projeto: um innerHTML
+     novo por segundo tiraria o foco de quem estiver digitando na URL (BP-001) e remontaria o
+     player quando ele existir (a lição do appearance.js — trocar de estado não remonta nada).
+     Devolve false quando a tela mudou de CARA e o caminho longo é o certo. */
+  function srcRefresh() {
+    if (typeof document === 'undefined' || !document.querySelector) return false;
+    var faixa = document.querySelector('[data-src-strip]');
+    if (!faixa || !faixa.dataset || faixa.dataset.state !== SRC.state) return false;
+    if (SRC.state !== 'importing') return false;
+    var pct = Math.max(0, Math.min(100, num(SRC.percent)));
+    var linha = faixa.querySelector && faixa.querySelector('[data-src-line]');
+    if (linha) linha.textContent = srcStageLabel() + ' · ' + pct + '%';
+    var fill = faixa.querySelector && faixa.querySelector('[data-src-fill]');
+    if (fill && fill.style) fill.style.transform = 'scaleX(' + (pct / 100).toFixed(3) + ')';
+    var barra = faixa.querySelector && faixa.querySelector('[data-src-bar]');
+    if (barra && barra.setAttribute) barra.setAttribute('aria-valuenow', String(pct));
+    return true;
+  }
+  function srcStageLabel() {
+    return IMPORT_STAGE_MSG[SRC.stage] || 'Preparando o arquivo';
+  }
+  /* Fronteira de ENTRADA da importação: o corpo vem do servidor, e servidor é entrada.
+     Devolve true enquanto ainda há o que acompanhar.
+
+     As três guardas do começo são o que cumpre o pedido "se a URL mudar durante a importação,
+     o resultado da anterior não pode substituir o vídeo novo": resposta de sequência velha,
+     de outro id, ou de um id que já não é o da URL na tela é DESCARTADA — não aplicada. */
+  function srcApply(payload, seq, videoId) {
+    if (seq !== SRC_SEQ) return false;
+    var vindo = cleanText(payload && payload.videoId, 40);
+    if (vindo && vindo !== videoId) return false;
+    if (videoId !== ytVideoId(YT.url)) return false;
+    var estado = cleanText(payload && payload.state, 20);
+    if (IMPORT_STATES.indexOf(estado) < 0) estado = 'error';
+    SRC.videoId = videoId;
+    SRC.stage = IMPORT_STAGES.indexOf(cleanText(payload && payload.stage, 20)) >= 0
+      ? cleanText(payload.stage, 20) : '';
+    SRC.percent = Math.max(0, Math.min(100, num(payload && payload.percent)));
+    SRC.error = cleanText(payload && payload.error, 400);
+    if (estado === 'ready') {
+      SRC.token = cleanText(payload && payload.sourceToken, 80);
+      SRC.name = cleanText(payload && payload.sourceName, 200);
+      SRC.url = cleanText(payload && payload.sourceUrl, 400);
+      SRC.bytes = num(payload && payload.bytes);
+      SRC.durationSec = secs(payload && payload.durationSec);
+      SRC.width = num(payload && payload.width);
+      SRC.height = num(payload && payload.height);
+      SRC.hasAudio = !!(payload && payload.hasAudio);
+      SRC.percent = 100;
+      if (!SRC.token || !SRC.url) {
+        /* Pronto sem token ou sem endereço é fonte que não toca e não corta. Cair em erro COM
+           motivo é melhor que uma tela que diz "pronto" e não faz nada (BP-008). */
+        estado = 'error';
+        SRC.error = 'O Estúdio terminou a importação mas não recebeu o endereço do arquivo. Importe de novo.';
+      } else {
+        /* A duração do ARQUIVO manda no teto do corte: o `ytApplyTrim` recusa fim depois do
+           fim do vídeo, e o metadado do YouTube pode divergir do que foi baixado. */
+        if (SRC.durationSec) YT.duration = SRC.durationSec;
+        /* O portão de direitos, conferido DE NOVO na volta: a declaração pode ser desmarcada
+           durante os minutos da importação. O arquivo fica no disco (apagar dado do operador
+           não é papel desta tela), mas ele não entra na sessão — e o motivo é dito. */
+        var revisto = ytFetchGate(YT);
+        if (!revisto.allowed) {
+          estado = 'error';
+          SRC.token = '';
+          SRC.url = '';
+          SRC.error = 'O vídeo chegou, mas o direito mudou no caminho: ' + revisto.reason
+            + '. Declare de novo e importe — o arquivo já está no disco, então é instantâneo.';
+        }
+      }
+    }
+    SRC.state = estado;
+    if (estado !== 'importing') {
+      ytBusy('import:url', false);
+      SRC_POLL = 0;
+    }
+    /* Transição de estado muda a CARA da tela (barra -> player, barra -> erro), e aí o
+       re-render é o certo; progresso dentro do mesmo estado é atualização pontual. */
+    if (!srcRefresh()) renderKeepingScroll();
+    return estado === 'importing';
+  }
+  function srcPollNext(seq, videoId, falhas) {
+    if (seq !== SRC_SEQ || SRC.state !== 'importing') return;
+    if (typeof setTimeout !== 'function') return;
+    SRC_POLL = setTimeout(function () {
+      if (seq !== SRC_SEQ) return;
+      ytPost('/api/yt-import-state', { videoId: videoId }).then(function (payload) {
+        if (srcApply(payload, seq, videoId)) srcPollNext(seq, videoId, 0);
+      }).catch(function (error) {
+        if (seq !== SRC_SEQ) return;
+        var tentou = num(falhas) + 1;
+        if (tentou < SRC_POLL_TRIES) { srcPollNext(seq, videoId, tentou); return; }
+        SRC.state = 'error';
+        SRC.error = 'Perdi contato com o renderizador durante a importação ('
+          + (cleanText(error && error.message, 200) || 'sem detalhe')
+          + '). O download pode ter continuado: importe de novo para conferir — se o arquivo '
+          + 'já estiver no disco, é instantâneo.';
+        ytBusy('import:url', false);
+        renderKeepingScroll();
+      });
+    }, SRC_POLL_MS);
+  }
+  /* Trocar de vídeo apaga a fonte da sessão. A sequência sobe ANTES de tudo: resposta em voo
+     da importação anterior deixa de valer no mesmo instante. */
+  function srcReset() {
+    SRC_SEQ += 1;
+    if (SRC_POLL && typeof clearTimeout === 'function') clearTimeout(SRC_POLL);
+    SRC_POLL = 0;
+    /* O player de OUTRO vídeo não é reaproveitado — sem isto o `srcAdopt` compararia URLs
+       diferentes, o que já daria certo, mas o nó velho ficaria pendurado no módulo. */
+    SRC_NODE = null;
+    SRC.videoId = ''; SRC.state = 'idle'; SRC.stage = ''; SRC.percent = 0; SRC.error = '';
+    SRC.token = ''; SRC.name = ''; SRC.url = ''; SRC.bytes = 0;
+    SRC.durationSec = 0; SRC.width = 0; SRC.height = 0; SRC.hasAudio = false;
+  }
+  /* Importa o vídeo INTEIRO. É a ação principal da tela: cola o link, declara o direito,
+     clica. Baixar mídia passa pelo portão — e ele é conferido de novo no `srcApply`.
+
+     A ANÁLISE não espera o download: ela só lê metadados e legenda (nenhum byte de vídeo), e
+     rodar as duas em paralelo põe os trechos sugeridos na tela enquanto o arquivo vem. */
+  function srcImport(button) {
+    var url = safeUrl(YT.url);
+    var videoId = ytVideoId(url);
+    if (!videoId) { toast('Cole o link de um vídeo do YouTube.', 'error'); return; }
+    var gate = ytFetchGate(YT);
+    if (!gate.allowed) {
+      toast('Importar o vídeo está bloqueado: ' + gate.reason + '.', 'error');
+      return;
+    }
+    if (SRC.state === 'importing') { toast('Este vídeo já está sendo importado.'); return; }
+    if (SRC_POLL && typeof clearTimeout === 'function') clearTimeout(SRC_POLL);
+    var seq = (SRC_SEQ += 1);
+    SRC.videoId = videoId; SRC.state = 'importing'; SRC.stage = 'lendo';
+    SRC.percent = 0; SRC.error = '';
+    ytBusy('import:url', true, button, 'Importando…');
+    renderKeepingScroll();
+    ytPost('/api/yt-import', { url: url }).then(function (payload) {
+      if (srcApply(payload, seq, videoId)) srcPollNext(seq, videoId, 0);
+    }).catch(function (error) {
+      if (seq !== SRC_SEQ) return;
+      SRC.state = 'error';
+      SRC.error = cleanText(error && error.message, 400) || 'A importação falhou.';
+      ytBusy('import:url', false);
+      renderKeepingScroll();
+      toast(SRC.error, 'error');
+    });
+    if (!YT.candidates.length) ytProbe(null);
+  }
+  /* Religa a fonte de um projeto reaberto. NÃO baixa nada: a rota de estado só devolve o que
+     já está no disco (e o registra de novo no servidor da sessão). Fonte que saiu do disco
+     cai em `idle`, e aí a tela pede a importação — com o motivo escrito. */
+  function srcRestore(videoId) {
+    if (!videoId) return;
+    if (SRC_POLL && typeof clearTimeout === 'function') clearTimeout(SRC_POLL);
+    var seq = (SRC_SEQ += 1);
+    SRC.videoId = videoId;
+    ytPost('/api/yt-import-state', { videoId: videoId }).then(function (payload) {
+      if (srcApply(payload, seq, videoId)) srcPollNext(seq, videoId, 0);
+    }).catch(function () {
+      if (seq !== SRC_SEQ) return;
+      /* Renderizador desligado não é fonte ausente, e dizer "não importado" seria mentira.
+         O estado fica `idle` com a frase do renderizador, que é a ação certa: subir o
+         serviço. */
+      SRC.state = 'idle';
+      SRC.error = 'O renderizador não está ativo — rode estudio.ps1 para tocar e cortar o vídeo.';
+      renderKeepingScroll();
+    });
   }
   /* Converte a resposta do probe em trechos sugeridos da sessão. Trecho sem duração
      positiva é descartado: entraria como cartão que não baixa nada. */
@@ -1647,43 +1908,45 @@
       + '<span class="yt-dur">' + esc(fmtClock(dur)) + '</span>'
       + '</button>';
   }
-  /* Estado do arquivo local do trecho. Um lugar só: o card mostra o resumo e a tela de
-     detalhe mostra a frase inteira, e as duas leem daqui. */
+  /* O que se pode FAZER com este trecho. Um lugar só: o card mostra o resumo e a tela de
+     detalhe mostra a frase inteira, e as duas leem daqui.
+
+     Desde a importação do vídeo inteiro a PERGUNTA mudou. Antes era "o MP4 deste trecho está
+     no disco?", e era isso que destravava o render; agora é "a FONTE está pronta?" — porque
+     todo corte sai dela, e o arquivo do trecho, quando existe, é o RESULTADO de uma
+     exportação anterior. Ele continua sendo descartado quando a borda muda
+     (`clipBoundaryChanged`), e a fonte NÃO vai junto. */
   function clipStatusOf(clip, gate) {
-    var estado = clip.clipStatus || (clip.clipToken ? 'available' : 'none');
-    var temArquivo = !!(clip.clipToken || clip.clipFilename);
-    var baixando = !!YT_BUSY['fetch:' + clip.id];
+    var exportado = !!(clip && (clip.clipToken || clip.clipFilename));
+    var ocupado = !!YT_BUSY['fetch:' + (clip && clip.id)];
     var out = { chip: '', nota: '', pronto: false, podeBaixar: false,
-                rotulo: 'Baixar trecho', motivo: '' };
-    if (estado === 'checking') {
-      out.chip = chip('vop-status-warn', 'Verificando…');
-      out.rotulo = 'Verificando…';
-      out.motivo = 'o Estúdio ainda está conferindo se o arquivo está no disco';
-    } else if (estado === 'available' || (temArquivo && estado === 'none')) {
-      out.chip = chip('source-ready', 'Trecho no disco · ' + fmtBytes(clip.clipBytes));
+                rotulo: 'Baixar trecho original', motivo: '' };
+    if (exportado) {
+      out.chip = chip('source-ready', 'Já exportado · ' + fmtBytes(clip.clipBytes));
+    }
+    if (SRC.state === 'ready') {
       out.pronto = true;
-      out.podeBaixar = gate.allowed && !baixando;
-      out.rotulo = 'Baixar de novo';
-    } else if (estado === 'missing') {
-      out.chip = chip('vop-status-error', 'Arquivo saiu do disco');
-      out.nota = 'O trecho não está mais no seu computador. Baixe outra vez para editar.';
-      out.podeBaixar = gate.allowed && !baixando;
-      out.rotulo = baixando ? 'Baixando…' : 'Baixar de novo';
-      out.motivo = gate.allowed ? '' : gate.reason;
-    } else if (estado === 'helper_offline') {
-      out.chip = chip('vop-status-warn', 'Renderizador desligado');
-      out.nota = 'O renderizador local não está ativo — rode estudio.ps1 para baixar e editar.';
-      out.motivo = 'o renderizador local não está ativo';
-    } else if (estado === 'error') {
-      out.chip = chip('vop-status-error', 'Erro ao verificar');
-      out.nota = 'Não foi possível conferir o arquivo. Tente baixar de novo.';
-      out.podeBaixar = gate.allowed && !baixando;
-      out.rotulo = baixando ? 'Baixando…' : 'Tentar de novo';
-      out.motivo = gate.allowed ? '' : gate.reason;
+      out.podeBaixar = !ocupado;
+      out.rotulo = ocupado ? 'Gerando…' : (exportado ? 'Gerar de novo' : 'Baixar trecho original');
+    } else if (SRC.state === 'importing') {
+      out.chip = chip('vop-status-warn', 'Importando o vídeo · ' + num(SRC.percent) + '%');
+      out.rotulo = 'Importando o vídeo…';
+      out.motivo = 'o vídeo ainda está sendo importado';
+    } else if (SRC.state === 'error') {
+      out.chip = chip('vop-status-error', 'Importação falhou');
+      out.nota = SRC.error || IMPORT_MSG.error;
+      out.motivo = 'a importação do vídeo falhou — importe de novo para cortar';
     } else {
-      out.podeBaixar = gate.allowed && !baixando;
-      out.rotulo = baixando ? 'Baixando…' : 'Baixar trecho';
-      out.motivo = gate.allowed ? '' : gate.reason;
+      out.nota = 'Importe o vídeo inteiro para tocar, marcar e exportar este trecho.';
+      out.motivo = 'o vídeo ainda não foi importado';
+    }
+    /* O portão de direitos é a condição EXTERNA e vence as outras na hora de explicar. Quando
+       falta a declaração E o vídeo, os dois são verdade — mas declarar é o passo que libera
+       importar, então é ele que a frase precisa nomear. Dizer "o vídeo não foi importado" a
+       quem nem pode importar manda o operador para a ação errada (BP-008). */
+    if (!(gate && gate.allowed)) {
+      out.podeBaixar = false;
+      out.motivo = (gate && gate.reason) || 'sem permissão';
     }
     return out;
   }
@@ -1702,15 +1965,18 @@
         ? '<div class="yt-dl-menu" role="menu">'
           + '<button type="button" role="menuitem" data-act="yt-fetch" data-id="' + esc(clip.id) + '"'
           + (status.podeBaixar ? '' : ' disabled') + '>'
-          + esc(status.pronto ? 'Baixar trecho original de novo' : 'Baixar trecho original')
-          + '<small>' + esc(status.podeBaixar ? 'recorte cru da fonte, sem edição'
+          + esc('Baixar trecho original')
+          + '<small>' + esc(status.podeBaixar
+            ? 'recorte cru do vídeo importado, sem edição — segundos'
             : ('bloqueado: ' + (status.motivo || 'sem permissão'))) + '</small></button>'
           + '<button type="button" role="menuitem" data-act="yt-render" data-id="' + esc(clip.id) + '"'
-          + (status.pronto && !renderizando ? '' : ' disabled') + '>'
+          + (status.podeBaixar && !renderizando ? '' : ' disabled') + '>'
           + esc(renderizando ? 'Renderizando…' : 'Baixar vídeo editado')
-          + '<small>' + esc(status.pronto
+          /* O editado não depende mais de baixar o trecho antes: os dois saem do MESMO
+             arquivo importado, e o único pré-requisito é a fonte estar pronta. */
+          + '<small>' + esc(status.podeBaixar
             ? '9:16 com legenda e enquadramento — ' + renderEta(num(clip.outSec) - num(clip.inSec))
-            : 'baixe o trecho original primeiro') + '</small></button>'
+            : (status.motivo || 'importe o vídeo primeiro')) + '</small></button>'
           + '</div>'
         : '')
       + '</div>';
@@ -1758,25 +2024,33 @@
           + '<small>' + esc(f.note) + '</small></li>';
       }).join('') + '</ul></details>';
   }
+  /* Uma borda: campo digitável, os dois empurrões de 1 s e "daqui" — que lê o instante do
+     player. É "daqui" que cumpre o pedido de escolher pontos FORA do intervalo recomendado
+     sem digitar tempo: o operador arrasta a barra até onde quer e clica. */
+  function ytEdgeHTML(clip, edge, rotulo, valor) {
+    var id = esc(clip.id);
+    var lado = edge === 'in' ? 'Começar' : 'Terminar';
+    return '<div class="yt-trim-row">'
+      + '<label>' + esc(rotulo) + '<input type="text" inputmode="numeric" data-trim="' + edge + '"'
+      + ' data-id="' + id + '" value="' + esc(fmtClock(valor)) + '" size="7" spellcheck="false"></label>'
+      + '<span class="yt-trim-nudge">'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + id + '"'
+      + ' data-edge="' + edge + '" data-delta="-1" aria-label="' + esc(lado) + ' um segundo antes">−1s</button>'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + id + '"'
+      + ' data-edge="' + edge + '" data-delta="1" aria-label="' + esc(lado) + ' um segundo depois">+1s</button>'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-mark" data-id="' + id + '"'
+      + ' data-edge="' + edge + '"' + (srcReady() ? '' : ' disabled')
+      + ' aria-label="' + esc(lado) + ' no ponto em que o vídeo está">daqui</button>'
+      + '</span></div>';
+  }
   function ytTrimHTML(clip) {
     return '<fieldset class="yt-trim"><legend>Começo e fim</legend>'
-      + '<p class="yt-trim-note">O Estúdio fecha o corte no fim da frase. Ajuste se quiser '
-      + 'outro ponto — mudar a borda descarta o arquivo já baixado, porque ele seria de '
-      + 'outro trecho.</p>'
-      + '<div class="yt-trim-row">'
-      + '<label>Começa em<input type="text" inputmode="numeric" data-trim="in" data-id="' + esc(clip.id) + '"'
-      + ' value="' + esc(fmtClock(clip.inSec)) + '" size="7" spellcheck="false"></label>'
-      + '<span class="yt-trim-nudge">'
-      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="in" data-delta="-1" aria-label="Começar um segundo antes">−1s</button>'
-      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="in" data-delta="1" aria-label="Começar um segundo depois">+1s</button>'
-      + '</span></div>'
-      + '<div class="yt-trim-row">'
-      + '<label>Termina em<input type="text" inputmode="numeric" data-trim="out" data-id="' + esc(clip.id) + '"'
-      + ' value="' + esc(fmtClock(clip.outSec)) + '" size="7" spellcheck="false"></label>'
-      + '<span class="yt-trim-nudge">'
-      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="out" data-delta="-1" aria-label="Terminar um segundo antes">−1s</button>'
-      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-nudge" data-id="' + esc(clip.id) + '" data-edge="out" data-delta="1" aria-label="Terminar um segundo depois">+1s</button>'
-      + '</span></div>'
+      + '<p class="yt-trim-note">O Estúdio fecha o corte no fim da frase. Ajuste para onde '
+      + 'quiser — inclusive fora do intervalo sugerido: “daqui” usa o ponto em que o player '
+      + 'está. Mudar a borda descarta o vídeo que você já exportou DESTE trecho (ele era de '
+      + 'outro intervalo); o vídeo importado não é tocado.</p>'
+      + ytEdgeHTML(clip, 'in', 'Começa em', clip.inSec)
+      + ytEdgeHTML(clip, 'out', 'Termina em', clip.outSec)
       + '<div class="yt-trim-row"><button class="vop-btn" type="button" data-act="yt-trim-apply" data-id="' + esc(clip.id) + '">Aplicar tempos digitados</button>'
       + '<small class="yt-trim-dur">' + esc(fmtClock(num(clip.outSec) - num(clip.inSec))) + ' de duração</small></div>'
       + '</fieldset>';
@@ -1789,7 +2063,11 @@
   };
   function ytDetailHTML(clip, videoId, gate) {
     var status = clipStatusOf(clip, gate);
-    var temCues = ((clip.clipCues || []).length > 0);
+    /* A revisão da legenda é oferecida sempre que a FONTE está pronta, e não só quando as
+       falas já estão na mão: elas são lidas na abertura do trecho (`srcCuesLoad`), e esconder
+       o botão enquanto a chamada corre faria ele aparecer do nada meio segundo depois. O
+       painel diz em que estado está — inclusive "este trecho não tem fala" (BP-008). */
+    var temCues = srcReady() || ((clip.clipCues || []).length > 0);
     var capAberto = CAPS_OPEN === clip.id;
     var renderizando = !!YT_BUSY['render:' + clip.id];
     var estiloAtual = titleCardStyleOf(clip);
@@ -1800,17 +2078,15 @@
       + status.chip + '</div>'
       + '<div class="yt-detail-grid">'
       + '<div class="yt-detail-main">'
-      + (videoId
-        ? '<div class="yt-detail-player">'
-          + '<iframe src="https://www.youtube.com/embed/' + esc(videoId) + '?start=' + Math.floor(num(clip.inSec))
-          + '&end=' + Math.ceil(num(clip.outSec)) + '&rel=0" title="Prévia do trecho"'
-          + ' allow="encrypted-media; picture-in-picture" allowfullscreen loading="lazy"'
-          + ' referrerpolicy="strict-origin-when-cross-origin"></iframe>'
-          + (cropInsetPct(reframeOf(clip))
-            ? '<div class="vop-cand-mask" style="--corte:' + cropInsetPct(reframeOf(clip)) + '%" aria-hidden="true"></div>'
-            : '')
-          + '</div>'
-        : '')
+      /* O player NÃO mora aqui. Ele é o da FONTE, no painel logo acima desta tela: um
+         arquivo, um player, e é nele que o trecho é conferido. Duplicá-lo aqui custaria um
+         segundo decode do mesmo vídeo de 2 GB e faria os dois discordarem sobre onde o
+         operador está olhando. O iframe do YouTube que ficava neste lugar saiu por decisão
+         do usuário — o Estúdio toca a mídia que importou, não a página de terceiro. */
+      + '<p class="yt-detail-onde">' + esc(srcReady()
+        ? 'A prévia é o player acima, na duração inteira do vídeo. Abrir este trecho já '
+          + 'posicionou o vídeo no começo dele.'
+        : 'Importe o vídeo para conferir este trecho no player.') + '</p>'
       + '<input class="yt-detail-title" type="text" maxlength="180" value="' + esc(clip.topic) + '"'
       + ' data-clip-field="topic" data-id="' + esc(clip.id) + '" spellcheck="false"'
       + ' aria-label="Título do trecho — também é o card de 4s no vídeo e o nome do arquivo">'
@@ -1853,40 +2129,89 @@
       + '<button class="vop-btn" type="button" data-act="yt-fetch" data-id="' + esc(clip.id) + '"'
       + (status.podeBaixar ? '' : ' disabled') + '>' + esc(status.rotulo) + '</button>'
       + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-render" data-id="' + esc(clip.id) + '"'
-      + (status.pronto && !renderizando ? '' : ' disabled') + '>'
+      + (status.podeBaixar && !renderizando ? '' : ' disabled') + '>'
       + esc(renderizando ? 'Renderizando…' : 'Baixar vídeo editado') + '</button>'
-      + (status.pronto
+      + (status.podeBaixar
         ? '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-render-limpo" data-id="' + esc(clip.id) + '"'
           + (renderizando ? ' disabled' : '') + '>Editado, sem legenda</button>'
         : '')
       + '</div>'
       + (status.nota ? '<p class="vop-warning">' + esc(status.nota) + '</p>' : '')
-      + (!status.pronto && status.motivo
-        ? '<p class="vop-warning">Baixar está bloqueado: ' + esc(status.motivo) + '.</p>' : '')
+      + (!status.podeBaixar && status.motivo
+        ? '<p class="vop-warning">Exportar está bloqueado: ' + esc(status.motivo) + '.</p>' : '')
       + '</div></div>'
       + (capAberto ? capPanelHTML(clip) : '')
       + '</section>';
   }
-  /* --- Prévia: UM player, num diálogo -------------------------------------------------
-     Um iframe por card era um player do YouTube por sugestão. Aqui existe UM, e ele só
-     entra no DOM quando a prévia está aberta. */
-  function ytPreviewHTML(videoId) {
-    var clip = findById(YT.candidates, YT.preview);
-    if (!clip || !videoId) return '';
-    return '<div class="yt-modal" data-act="yt-preview-close" role="presentation">'
-      + '<div class="yt-modal-box" role="dialog" aria-modal="true" aria-label="Prévia de '
-      + esc(clip.topic) + '" data-stop>'
-      + '<div class="yt-modal-head"><strong>' + esc(clip.topic) + '</strong>'
-      + '<span>' + esc(fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec)) + '</span>'
-      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-preview-close" aria-label="Fechar prévia">Fechar</button></div>'
-      + '<div class="yt-modal-player"><iframe src="https://www.youtube.com/embed/' + esc(videoId)
-      + '?start=' + Math.floor(num(clip.inSec)) + '&end=' + Math.ceil(num(clip.outSec))
-      + '&rel=0&autoplay=1" title="Prévia do trecho"'
-      + ' allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen'
-      + ' referrerpolicy="strict-origin-when-cross-origin"></iframe></div>'
-      + '<div class="yt-modal-foot">'
-      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-open" data-id="' + esc(clip.id) + '">Editar este trecho</button>'
-      + '</div></div></div>';
+  /* --- O player da FONTE: um arquivo, um player, a tela inteira -------------------------
+     Substitui o diálogo com iframe do YouTube que existia aqui. Não é "esconder o logo": o
+     `<video>` toca o MP4 que o Estúdio importou, servido pelo `/sources/` do renderizador
+     local com Range — por isso a barra arrasta para qualquer ponto da duração inteira, e não
+     só para o que já baixou. Sem embed, sem miniatura de terceiro, sem sair do site.
+
+     UM só, e no alto da tela: a grade usa para dar prévia do trecho (arrasta e toca), a tela
+     de detalhe usa para conferir o que vai exportar, e "Marcar trecho daqui" usa o instante
+     dele. Dois players do mesmo arquivo de 2 GB custariam dois decodes e discordariam sobre
+     onde o operador está olhando. */
+  function srcBarHTML(pct) {
+    return '<div class="yt-imp-bar" data-src-bar role="progressbar" aria-valuemin="0"'
+      + ' aria-valuemax="100" aria-valuenow="' + pct + '"'
+      + ' aria-label="Progresso da importação do vídeo">'
+      + '<i data-src-fill style="transform:scaleX(' + (pct / 100).toFixed(3) + ')"></i></div>';
+  }
+  /* A faixa de estado da importação. TODO estado tem frase, inclusive o que não age
+     (BP-008): `idle` diz que nada foi importado, `importing` mostra etapa e porcentagem,
+     `error` diz o motivo E oferece tentar de novo, `ready` confirma. */
+  function srcStripHTML() {
+    var estado = SRC.state;
+    var abre = '<div class="yt-imp" data-src-strip data-state="' + esc(estado) + '">';
+    if (estado === 'importing') {
+      var pct = Math.max(0, Math.min(100, num(SRC.percent)));
+      return abre
+        + '<p class="yt-imp-line" data-src-line>' + esc(srcStageLabel()) + ' · ' + pct + '%</p>'
+        + srcBarHTML(pct)
+        + '<p class="yt-imp-note">O vídeo inteiro entra no Estúdio uma vez. Depois disso todo '
+        + 'corte sai deste arquivo — nenhum trecho é baixado de novo.</p>'
+        + '</div>';
+    }
+    if (estado === 'error') {
+      return abre
+        + '<p class="yt-imp-line" data-src-line>' + esc(SRC.error || IMPORT_MSG.error) + '</p>'
+        + '<button class="vop-btn" type="button" data-act="yt-import">Tentar importar de novo</button>'
+        + '</div>';
+    }
+    if (estado === 'ready') {
+      return abre + '<p class="yt-imp-line" data-src-line>' + esc(IMPORT_MSG.ready) + '</p></div>';
+    }
+    return abre + '<p class="yt-imp-line" data-src-line>'
+      + esc(SRC.error || IMPORT_MSG.idle) + '</p></div>';
+  }
+  function srcPanelHTML() {
+    if (!srcReady()) return srcStripHTML();
+    /* A máscara mostra quanto o enquadramento escolhido descarta, e ela segue o trecho
+       ABERTO — na grade não há recorte escolhido, então não há o que mascarar. */
+    var aberto = YT.detail ? findById(YT.candidates, YT.detail) : null;
+    var corte = aberto ? cropInsetPct(reframeOf(aberto)) : 0;
+    var aviso = sourceWarning(aberto ? reframeOf(aberto) : REFRAME_PADRAO, SRC.width, SRC.height);
+    return '<section class="yt-src" data-src-panel>'
+      + '<div class="yt-src-stage">'
+      /* `preload="metadata"`: a duração e o índice entram na hora, os bytes só quando o
+         operador der play ou arrastar. Num arquivo de 2 GB, `auto` começaria a baixar tudo
+         de novo — depois de o vídeo já estar no disco desta máquina. */
+      + '<video class="yt-src-video" data-src-video src="' + esc(SRC.url) + '" controls'
+      + ' preload="metadata" playsinline></video>'
+      + (corte ? '<div class="vop-cand-mask" style="--corte:' + corte + '%" aria-hidden="true"></div>' : '')
+      + '</div>'
+      + '<div class="yt-src-meta">'
+      + '<p class="yt-src-id"><strong>' + esc(SRC.name) + '</strong> · '
+      + esc(fmtClock(SRC.durationSec)) + ' · ' + esc(fmtBytes(SRC.bytes))
+      + (SRC.width ? ' · ' + num(SRC.width) + '×' + num(SRC.height) : '')
+      + (SRC.hasAudio ? '' : ' · <em>sem faixa de áudio</em>') + '</p>'
+      + '<button class="vop-btn" type="button" data-act="yt-manual">Marcar trecho daqui</button>'
+      + '</div>'
+      + (aviso ? '<p class="vop-warning">' + esc(aviso) + '</p>' : '')
+      + srcStripHTML()
+      + '</section>';
   }
   /* Ordem da lista. Duas, e só duas: qualidade da recomendação (o padrão) e ordem do
      vídeo, que é como quem já conhece o episódio procura. */
@@ -1910,20 +2235,23 @@
     var probing = !!YT_BUSY['probe:url'];
     var emEdicao = YT.detail ? findById(YT.candidates, YT.detail) : null;
     var lista = ytSorted();
+    var importando = SRC.state === 'importing';
     return '<section class="vop-section yt-hub" data-yt>'
       + '<div class="vop-section-head"><div><span class="vop-eyebrow">Corte por URL</span>'
-      + '<h2>Cole o link e escolha o trecho</h2>'
-      + '<p class="vop-form-note">A análise lê metadados, capítulos, legenda e o gráfico '
-      + '“Mais reproduzidos” — <strong>nenhum byte de vídeo</strong>. Baixar acontece só no '
-      + 'trecho que você escolher.</p></div></div>'
-      /* Campo de URL e ação principal na mesma linha: é UMA decisão. */
+      + '<h2>Importe o vídeo e escolha os trechos</h2>'
+      + '<p class="vop-form-note">O vídeo <strong>inteiro</strong> entra no Estúdio uma vez e '
+      + 'toca aqui dentro. Todo corte é gerado desse mesmo arquivo — você pode exportar '
+      + 'quantos quiser sem baixar o original de novo.</p></div></div>'
+      /* Campo de URL e ação principal na mesma linha: é UMA decisão. O rótulo diz o que o
+         botão FAZ — "Analisar" descrevia o passo antigo, em que a análise era tudo o que
+         acontecia e a mídia vinha depois, trecho por trecho. */
       + '<div class="yt-intake">'
       + '<label class="yt-intake-field"><span>URL do vídeo</span>'
       + '<input type="url" value="' + esc(YT.url) + '" placeholder="https://www.youtube.com/watch?v=…"'
       + ' autocomplete="off" spellcheck="false" data-yt-url></label>'
-      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-probe"'
-      + (probing ? ' disabled aria-busy="true"' : '') + '>'
-      + (probing ? 'Analisando…' : 'Analisar') + '</button>'
+      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-import"'
+      + (importando ? ' disabled aria-busy="true"' : '') + '>'
+      + (importando ? 'Importando…' : 'Importar vídeo') + '</button>'
       + '</div>'
       /* O portão de direitos em pessoa. Analisar é livre; baixar mídia exige esta
          declaração — e o botão de baixar fica desabilitado com o motivo à vista até ela
@@ -1932,16 +2260,19 @@
       + (YT.authorized ? ' checked' : '') + '>'
       + '<span><strong>Declaro que tenho autorização do criador para publicar cortes deste vídeo.</strong>'
       + ' Baixar mídia de terceiro sem autorização é violação de direito autoral; esta declaração vale para esta sessão e para esta URL.</span></label>'
-      /* Resumo da fonte: pequeno, uma linha, não domina a página. */
+      /* Resumo da fonte: pequeno, uma linha, não domina a página. O link "Abrir no YouTube"
+         saiu por decisão do usuário — a edição acontece dentro do site, e um atalho para
+         fora dele no meio do editor é exatamente o que o pedido manda tirar. */
       + (videoId && YT.state === 'ready'
         ? '<div class="yt-source">'
           + (YT.thumbnail ? '<img src="' + esc(YT.thumbnail) + '" alt="" loading="lazy" decoding="async"'
             + ' onerror="this.style.display=\'none\'">' : '')
           + '<div><strong>' + esc(YT.title || ('YouTube ' + videoId)) + '</strong>'
-          + '<span>' + (YT.duration ? esc(fmtClock(YT.duration)) + ' · ' : '')
-          + '<a href="https://www.youtube.com/watch?v=' + esc(videoId) + '" target="_blank" rel="noopener">Abrir no YouTube ↗</a></span></div>'
+          + '<span>' + (YT.duration ? esc(fmtClock(YT.duration)) : '') + '</span></div>'
           + '</div>'
         : '')
+      /* O player da fonte fica ACIMA da grade e da tela de detalhe, e é o mesmo nos dois. */
+      + srcPanelHTML()
       + (YT.note ? '<p class="yt-analysis-note">' + esc(YT.note) + '</p>' : '')
       + (emEdicao ? ytDetailHTML(emEdicao, videoId, gate)
         : (lista.length
@@ -1966,8 +2297,7 @@
                 + 'Tente analisar outro vídeo.</p></div>'
               : ''))))
       + '<small class="vop-mark-note">O vídeo editado vai para a Central, com o endereço do arquivo no seu computador.</small>'
-      + '</section>'
-      + ytPreviewHTML(videoId);
+      + '</section>';
   }
   /* Rolagem da grade, guardada ao entrar no editor. Mora no MODULO e nao no estado
      persistido: e posicao de tela, some com o recarregamento, e nao pertence ao projeto. */
@@ -1976,13 +2306,22 @@
      recusou com o motivo, ou nao mudou nada. */
   function ytTrimResult(clip, inSec, outSec) {
     var tinhaArquivo = !!(clip.clipToken || clip.clipFilename);
+    var jaAberto = YT.detail === clip.id;
     var antes = clip.inSec + '-' + clip.outSec;
     var erro = ytApplyTrim(clip, inSec, outSec, YT.duration);
     if (erro) { toast(erro, 'error'); return; }
     if (antes === clip.inSec + '-' + clip.outSec) { toast('Os tempos já eram esses.'); return; }
     renderKeepingScroll();
+    /* A legenda do trecho estava rebaseada no começo ANTIGO e foi descartada junto com a
+       borda; ler as falas do novo intervalo é o que mantém o painel e o render sincronizados
+       com o que o operador acabou de escolher. Só do trecho ABERTO: recarregar a legenda de
+       um trecho que ele nem está vendo é chamada de rede sem motivo. */
+    if (jaAberto && srcReady()) srcCuesLoad(clip);
     toast('Trecho agora é ' + fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec) + '.'
-      + (tinhaArquivo ? ' O arquivo baixado do intervalo anterior foi descartado — baixe de novo.' : ''));
+      + (tinhaArquivo
+        ? ' O vídeo que você já exportou deste trecho foi descartado (era de outro intervalo)'
+          + ' — exporte de novo. O vídeo importado continua no Estúdio.'
+        : ''));
   }
   /* Mudar a borda muda o ARQUIVO: o MP4 já baixado é de outro intervalo, a legenda do
      clipe está rebaseada no começo antigo e a miniatura mostra outro quadro. Tudo isso é
@@ -1994,8 +2333,13 @@
     clip.clipFilename = '';
     clip.clipBytes = 0;
     clip.clipCues = [];
+    /* `clipStatus`/`clipAvailable` eram do `validateProjectClips`, que saiu. Continuam sendo
+       ZERADOS aqui, e não removidos: projeto salvo antes de 2026-09-15 tem as duas chaves, e
+       deixar um `available` velho num trecho de outro intervalo seria mentira persistida. */
     clip.clipStatus = 'none';
     clip.clipAvailable = false;
+    /* A FONTE não é tocada — e isto é o pedido em pessoa: "mudar um corte pode invalidar a
+       versão exportada dele, mas não pode invalidar nem remover o vídeo importado". */
     capDrop(clip.id);
     projectsPersist();
   }
@@ -2212,7 +2556,6 @@
     YT.url = project.url;
     YT.state = 'ready';
     YT.note = project.note || '';
-    YT.preview = '';
     YT.detail = '';
     YT.dlMenu = '';
     YT.thumbnail = safeUrl(project.thumbnail) || (project.videoId
@@ -2223,78 +2566,25 @@
        trecho. Apagar tambem no mesmo video era o defeito: o probe acabava de montar a folha
        e ela morria no clique seguinte, entao a miniatura DO TRECHO nunca aparecia. */
     if (!mesmoVideo) YT.storyboard = null;
+    /* Projeto de OUTRO vídeo não herda a fonte deste: o player estaria tocando o arquivo
+       errado sob os trechos novos. Mesmo vídeo mantém a fonte já religada. */
+    if (!mesmoVideo) srcReset();
+    /* A declaração é por sessão e por URL. Por isso a fonte NÃO é religada aqui: religar
+       traria a mídia de terceiro de volta à tela sem declaração nenhuma. Quem religa é o
+       próprio portão, no `onRootChange` — marcar a caixa restaura do disco na hora, sem
+       rede, porque o arquivo já está lá. */
     YT.authorized = false;
     TAB = 'youtube';
     render();
-    /* Valida disponibilidade dos clips baixados (clipFilename) depois do render. */
-    validateProjectClips();
   }
 
-  /* Valida se os clips do projeto aberto ainda existem no disco.
-     Atualiza cada candidato com clipStatus: checking | available | missing | helper_offline | error
-     Valida TODOS os clips que poderiam ter sido baixados (clipToken OU clipFilename).
-     Para clips sem clipFilename, deriva o nome canônico via videoId+start+end no backend.
-     Se resolvido, persiste o clipFilename no projeto. */
-  function validateProjectClips() {
-    var candidates = YT.candidates || [];
-    var videoId = YT.videoId || '';
-    var clipsToCheck = candidates.filter(function (c) { return c && (c.clipToken || c.clipFilename); });
-    if (!clipsToCheck.length) return;
-
-    clipsToCheck.forEach(function (clip) {
-      clip.clipStatus = 'checking';
-    });
-    renderKeepingScroll();
-
-    clipsToCheck.forEach(function (clip) {
-      if (!clip) return;
-      var hasExplicitFilename = !!clip.clipFilename;
-      var payload = hasExplicitFilename
-        ? { filename: clip.clipFilename }
-        : { videoId: videoId, start: num(clip.inSec), end: num(clip.outSec) };
-
-      ytPost('/api/clip-status', payload).then(function (resp) {
-        var alvo = findById(YT.candidates, clip.id);
-        if (!alvo) return;
-        alvo.clipAvailable = resp && resp.available === true;
-        alvo.clipStatus = alvo.clipAvailable ? 'available' : 'missing';
-        alvo.clipBytes = num(resp && resp.bytes);
-        if (alvo.clipAvailable && resp.clipToken) {
-          alvo.clipToken = resp.clipToken;
-        }
-        /* Se o backend resolveu um filename que não tínhamos, persiste no projeto. */
-        if (alvo.clipAvailable && resp.filename && !hasExplicitFilename) {
-          alvo.clipFilename = resp.filename;
-          persistProjectClipFilename(alvo.id, resp.filename);
-        }
-        renderKeepingScroll();
-      }).catch(function (error) {
-        var alvo = findById(YT.candidates, clip.id);
-        if (!alvo) return;
-        var msg = error && error.message ? error.message : '';
-        if (/renderizador não está ativo|fetch/.test(msg)) {
-          alvo.clipStatus = 'helper_offline';
-        } else {
-          alvo.clipStatus = 'error';
-        }
-        alvo.clipAvailable = false;
-        renderKeepingScroll();
-      });
-    });
-  }
-
-  /* Persiste o clipFilename resolvido no projeto salvo (pp_video_projects_v1). */
-  function persistProjectClipFilename(candidateId, filename) {
-    if (!PROJECTS || !PROJECTS.projects) return;
-    var project = PROJECTS.projects.find(function (p) {
-      return p.candidates && p.candidates.some(function (c) { return c.id === candidateId; });
-    });
-    if (!project) return;
-    var candidate = findById(project.candidates, candidateId);
-    if (!candidate) return;
-    candidate.clipFilename = filename;
-    projectsPersist();
-  }
+  /* `validateProjectClips` e `persistProjectClipFilename` SAIRAM (2026-09-15). Elas
+     existiam para responder "o MP4 deste trecho ainda esta no disco?" -- era isso que
+     destravava o botao de render, e por isso o projeto reaberto disparava uma chamada ao
+     /api/clip-status POR TRECHO. Com o video inteiro importado a pergunta e outra e vale
+     para todos: "a FONTE esta pronta?". Quem responde e o `srcRestore`, com UMA chamada.
+     A rota /api/clip-status fica no servidor (ela tem teste proprio e nao custa nada
+     parada); o que saiu foi o chamador. */
   function ytFail(key, error) {
     ytBusy(key, false);
     renderKeepingScroll();
@@ -2310,11 +2600,24 @@
     if (YT_BUSY[key]) return;
     /* Cria ou reserva projeto para este vídeo. */
     var project = projectCreateOrReserve(videoId, url, '', '', 0);
-    /* Se projeto já existe e está pronto, abre ele em vez de re-analisar. */
-    if (project.status === PROJECT_STATUS.ready) {
-      toast('Este vídeo já foi analisado. Abrindo projeto…');
-      TAB = 'projects';
-      render();
+    /* Vídeo já analisado: reaproveita as sugestões salvas em vez de gastar outra análise.
+       NÃO troca de aba e NÃO derruba a declaração de direitos — antes isto mandava o
+       operador para "Meus projetos" (um clique entre ele e o resultado) e, pior, o caminho
+       de lá zera a declaração que ele acabou de dar para importar. O fluxo pedido é colar,
+       importar e ver os trechos na MESMA tela. */
+    if (project.status === PROJECT_STATUS.ready && (project.candidates || []).length) {
+      YT.videoId = videoId;
+      YT.title = project.title;
+      YT.duration = num(project.durationSec) || YT.duration;
+      YT.candidates = project.candidates;
+      YT.note = project.note || '';
+      YT.state = 'ready';
+      YT.detail = '';
+      YT.dlMenu = '';
+      YT.thumbnail = safeUrl(project.thumbnail) || YT.thumbnail;
+      ytBusy(key, false);
+      renderKeepingScroll();
+      toast(project.candidates.length + ' trecho(s) deste vídeo já estavam analisados.');
       return;
     }
     ytBusy(key, true, button, 'Analisando…');
@@ -2341,7 +2644,6 @@
       YT.note = note;
       YT.candidates = fresh;
       YT.state = 'ready';
-      YT.preview = '';
       /* Atualiza projeto com os resultados. */
       projectSetCandidates(project.id, fresh, title, thumbnail, duration, note);
       ytBusy(key, false);
@@ -2361,31 +2663,172 @@
       ytFail(key, error);
     });
   }
-  /* Baixa bytes de vídeo: só passa pelo portão de direitos, e o portão é conferido DE
-     NOVO na volta — a declaração pode ser desmarcada durante os ~50s da chamada. */
+  /* Duração de partida de um trecho marcado à mão: o alvo do detector
+     (`ytclip.TARGET_CLIP_SEC`). Não é teto — as bordas são ajustáveis depois, como em
+     qualquer sugestão. */
+  var MANUAL_SEC = 45;
+  /* `unshift` e NÃO um array novo: o `YT.candidates` É o array do projeto salvo (o
+     `openProject` o pega por referência), e trocá-lo por outro desligaria os dois — o trecho
+     novo apareceria na tela e nunca no disco. */
+  function ytAddCandidate(clip) {
+    YT.candidates.unshift(clip);
+    projectsPersist();
+  }
+  /* Um trecho marcado À MÃO, a partir de onde o player está. É o que cumpre "navegar pela
+     duração inteira e definir um corte manualmente": nenhuma sugestão precisa existir, e o
+     ponto pode estar em qualquer lugar do vídeo. */
+  function ytManualClip() {
+    if (!srcReady()) { toast('Importe o vídeo antes de marcar um trecho.', 'error'); return; }
+    var agora = srcNow();
+    if (agora === null) { toast('O player do vídeo não está na tela.', 'error'); return; }
+    var inicio = Math.floor(agora);
+    var teto = num(SRC.durationSec) || num(YT.duration);
+    var fim = teto ? Math.min(teto, inicio + MANUAL_SEC) : inicio + MANUAL_SEC;
+    if (!(fim - inicio >= 3)) {
+      toast('Faltam menos de 3 segundos até o fim do vídeo — arraste para trás e marque de novo.', 'error');
+      return;
+    }
+    var clip = {
+      id: uid('cand'), name: 'Trecho de ' + fmtClock(inicio),
+      topic: 'Trecho de ' + fmtClock(inicio),
+      inSec: inicio, outSec: fim, hook: '', reason: '',
+      score: 0, contextWarning: '', category: '',
+      quality: '', qualityLabel: '', factors: [],
+      evidence: 'Marcado por você no player, em ' + fmtClock(inicio) + '.',
+      /* `manual` de propósito: a conferência do detector não vale para esta borda, e dizer
+         que vale seria afirmar uma checagem que não houve. */
+      boundary: 'manual', rev: 1, signals: [],
+      durationSec: fim - inicio,
+      clipToken: '', clipFilename: '', clipBytes: 0, clipCues: []
+    };
+    ytAddCandidate(clip);
+    YT.detail = clip.id;
+    YT.dlMenu = '';
+    render();
+    srcSeek(inicio, false);
+    srcCuesLoad(clip);
+    toast('Trecho criado em ' + fmtClock(inicio) + ' → ' + fmtClock(fim)
+      + '. Ajuste as bordas e exporte — sai do vídeo que já está importado.');
+  }
+  /* As falas DESTE intervalo, recortadas do sidecar da fonte pelo servidor.
+
+     Substitui o que vinha dentro do `/api/yt-fetch`: a legenda viajava junto do download de
+     UM trecho, e sem aquele download não havia legenda. Agora a fonte é o vídeo inteiro, a
+     transcrição dele está no sidecar, e o recorte é pedido na hora — uma chamada por trecho
+     aberto, e o navegador nunca guarda a transcrição inteira de um podcast de 3 h. */
+  function srcCuesLoad(clip) {
+    /* Devolve promessa para o export poder ESPERAR: quem exporta direto da grade nunca abriu
+       o editor, então as falas ainda não foram lidas, e descobrir isso no fim de um render de
+       minutos é o pior desfecho possível. */
+    if (!srcReady() || !clip) return Promise.resolve(null);
+    var pedido = num(clip.rev);
+    CAPS[clip.id] = { inSec: num(clip.inSec), outSec: num(clip.outSec), state: 'loading',
+                      cues: [], original: [] };
+    return ytPost(CAP_ROUTE, { token: SRC.token, name: SRC.name,
+                               start: num(clip.inSec), end: num(clip.outSec) })
+      .then(function (payload) {
+        var alvo = findById(YT.candidates, clip.id);
+        /* A borda pode ter mudado durante a chamada (um `daqui`, um −1s). A legenda que
+           chegou é de OUTRO intervalo, e escrevê-la aqui poria o texto de um trecho em cima
+           de outro — o mesmo defeito que o `capOf` já guarda pelo par de tempos. */
+        if (!alvo || num(alvo.rev) !== pedido) return;
+        var cues = capCuesFrom(payload);
+        alvo.clipCues = cues;
+        alvo.captionState = cleanText(payload && payload.state, 40) || 'ok';
+        var entry = CAPS[clip.id];
+        if (entry && entry.state === 'loading') {
+          entry.cues = cues;
+          entry.original = cues.map(function (c) {
+            return { start: c.start, end: c.end, text: c.text };
+          });
+          entry.state = alvo.captionState;
+        }
+        projectsPersist();
+        renderKeepingScroll();
+      })
+      .catch(function (error) {
+        capDrop(clip.id);
+        var alvo = findById(YT.candidates, clip.id);
+        if (alvo) alvo.captionState = 'CAPTIONS_EXTRACTION_FAILED';
+        renderKeepingScroll();
+        toast('Legenda deste trecho: '
+          + (cleanText(error && error.message, 300) || 'não consegui ler.'), 'error');
+      });
+  }
+  /* "Baixar trecho original": o recorte CRU da fonte já importada, pelo /api/video-cut.
+
+     Até esta entrega este botão chamava o /api/yt-fetch e baixava o trecho do YouTube — rede
+     a cada trecho, e o arquivo dele era pré-requisito para exportar o editado. Agora nenhum
+     byte novo vem da internet: o corte sai do arquivo que está no disco, e é por isso que
+     dois trechos seguidos não rebaixam o original.
+
+     O portão de direitos continua valendo e continua conferido DUAS vezes (antes de chamar e
+     na volta): o arquivo é de vídeo de terceiro do mesmo jeito. */
   function ytFetchClip(button, clipId) {
     var clip = findById(YT.candidates, clipId);
     if (!clip) { toast('Este trecho não está mais na lista.', 'error'); return; }
+    if (!srcReady()) { toast('Importe o vídeo antes de gerar um trecho.', 'error'); return; }
     var gate = ytFetchGate(YT);
-    if (!gate.allowed) { toast('Baixar o trecho está bloqueado: ' + gate.reason + '.', 'error'); return; }
+    if (!gate.allowed) { toast('Gerar o trecho está bloqueado: ' + gate.reason + '.', 'error'); return; }
     var key = 'fetch:' + clipId;
     if (YT_BUSY[key]) return;
-    ytBusy(key, true, button, 'Baixando…');
-    toast('Baixando o trecho — leva cerca de um minuto. Você pode continuar usando a aba.');
-    /* A URL entregue ao processo é reconstruída do id validado, nunca a string colada. */
-    ytPost('/api/yt-fetch', { url: 'https://www.youtube.com/watch?v=' + YT.videoId, start: num(clip.inSec), end: num(clip.outSec) }).then(function (payload) {
-      var alvo = findById(YT.candidates, clipId);
-      if (!alvo) throw new Error('O trecho saiu da lista durante o download.');
-      var revisto = ytFetchGate(YT);
-      if (!revisto.allowed) throw new Error('O arquivo chegou, mas o direito mudou no caminho: ' + revisto.reason + '.');
-      alvo.clipToken = cleanText(payload && payload.clipToken, 200);
-      alvo.clipFilename = cleanText(payload && payload.clipFilename, 200);
-      alvo.clipBytes = num(payload && payload.bytes);
-      alvo.clipCues = Array.isArray(payload && payload.cues) ? payload.cues : [];
-      ytBusy(key, false);
-      render();
-      toast('Trecho baixado (' + fmtBytes(alvo.clipBytes) + '). Pronto para editar no Remotion.');
-    }).catch(function (error) { ytFail(key, error); });
+    var inicio = num(clip.inSec);
+    var fim = num(clip.outSec);
+    if (!(fim > inicio)) { toast('Este trecho não tem um intervalo válido.', 'error'); return; }
+    var nome = cutFileName(clip.topic, inicio, fim, 'horizontal');
+    /* O token e o nome são lidos AGORA e guardados: a fonte pode ser trocada durante a
+       chamada, e usar o SRC de então escreveria o resultado de um vídeo no registro de
+       outro. */
+    var fonteToken = SRC.token;
+    var fonteNome = SRC.name;
+    var query = '?token=' + encodeURIComponent(fonteToken)
+      + '&name=' + encodeURIComponent(fonteNome)
+      + '&start=' + encodeURIComponent(inicio) + '&end=' + encodeURIComponent(fim)
+      + '&profile=horizontal&output=' + encodeURIComponent(nome);
+    var guardado = '';
+    var audio = '';
+    ytBusy(key, true, button, 'Gerando…');
+    toast('Recortando o trecho do vídeo já importado — leva segundos, não baixa nada.');
+    /* Sem corpo: o servidor acha a fonte pelo token no cache dele. É esse caminho
+       (`length == 0` no /api/video-cut) que faz o original não subir nem descer de novo. */
+    fetch('/api/video-cut' + query, { method: 'POST', headers: { Accept: 'video/mp4' } })
+      .catch(function () {
+        throw new Error('O renderizador não está ativo — rode estudio.ps1.');
+      })
+      .then(function (response) {
+        if (!response.ok) return renderError(response).then(function (m) { throw new Error(m); });
+        guardado = savedPathOf(response);
+        audio = audioStateOf(response);
+        return response.blob();
+      })
+      .then(function (blob) {
+        if (!blob || !blob.size) throw new Error('O renderizador devolveu um arquivo vazio.');
+        var revisto = ytFetchGate(YT);
+        if (!revisto.allowed) throw new Error('O arquivo saiu, mas o direito mudou no caminho: ' + revisto.reason + '.');
+        downloadBlob(nome, blob);
+        var alvo = findById(YT.candidates, clipId);
+        if (alvo) {
+          /* Registro do que foi EXPORTADO deste trecho — não mais "o trecho está no disco".
+             É o que o `clipBoundaryChanged` descarta quando a borda muda, sem levar a fonte. */
+          alvo.clipToken = fonteToken;
+          alvo.clipFilename = nome;
+          alvo.clipBytes = blob.size;
+          projectsPersist();
+        }
+        libAdd({
+          videoName: YT.title || ('YouTube ' + YT.videoId),
+          videoUrl: YT.videoId ? 'https://www.youtube.com/watch?v=' + YT.videoId : '',
+          clipName: clip.topic, inSec: inicio, outSec: fim,
+          fileName: nome, savedPath: guardado, bytes: blob.size, origin: 'youtube'
+        });
+        ytBusy(key, false);
+        render();
+        toast((guardado
+          ? 'Trecho original guardado em ' + guardado + ' e listado na Central.'
+          : 'Trecho original salvo em Downloads: ' + nome + '.')
+          + (audioMessage(audio) ? ' ' + audioMessage(audio) : ''));
+      })
+      .catch(function (error) { ytFail(key, error); });
   }
   /* --- Edição: manda o trecho para o Remotion --------------------------------------
      O contrato entre as duas metades é só este objeto: qual arquivo, que falas e que
@@ -2412,9 +2855,18 @@
      E a mesma licao do BP-014 (a funcao que le dado persistido tem que ser exportada e
      chamada pelo teste) aplicada ao dado que SAI: agora o teste constroi um trecho e
      confere o que sobe. */
-  function renderBody(clip, comLegenda) {
-    return {
-      clipToken: clip.clipToken,
+  /* `fonte` = `{token, name}` da fonte importada. Presente, o corpo passa a dizer QUAL
+     pedaço dela renderizar; ausente, o comportamento é o de antes (o arquivo do token é o
+     clipe inteiro), e é isso que mantém funcionando um trecho baixado antes desta entrega.
+
+     Os dois campos andam JUNTOS num único ramo de propósito: mandar o token da fonte sem o
+     intervalo faria o servidor renderizar o vídeo INTEIRO — duas horas de podcast no lugar de
+     um corte de 40 s, depois de um render de horas. Separá-los em dois `if` seria abrir a
+     porta para exatamente isso. */
+  function renderBody(clip, comLegenda, fonte) {
+    var daFonte = !!(fonte && fonte.token);
+    var corpo = {
+      clipToken: daFonte ? fonte.token : clip.clipToken,
       preset: comLegenda ? 'legenda' : 'limpo',
       category: cleanText(clip.category, 40),
       /* O texto corrigido no painel vence o que o YouTube detectou. Sem correcao, vai o
@@ -2446,27 +2898,63 @@
          de novo e dela tira o `videoAltura`, o `bandaAltura` e o `legendaBase`. */
       reframe: reframeOf(clip)
     };
+    if (daFonte) {
+      corpo.start = num(clip.inSec);
+      corpo.end = num(clip.outSec);
+      /* O nome da fonte é a chave do sidecar dela no servidor (legenda e miniatura). */
+      corpo.name = cleanText(fonte.name, 200);
+    }
+    return corpo;
   }
   function ytRenderClip(button, clipId, preset) {
     var clip = findById(YT.candidates, clipId);
-    if (!clip || (!clip.clipToken && !clip.clipFilename)) { toast('Baixe o trecho antes de editar.', 'error'); return; }
+    if (!clip) { toast('Este trecho não está mais na lista.', 'error'); return; }
+    /* O pré-requisito mudou: era "este trecho já foi baixado", agora é "o vídeo está
+       importado". É o que permite exportar dois cortes diferentes sem um único download novo
+       — e o que faz o primeiro corte sair sem etapa intermediária nenhuma. */
+    if (!srcReady()) { toast('Importe o vídeo antes de exportar o corte editado.', 'error'); return; }
+    var gate = ytFetchGate(YT);
+    if (!gate.allowed) { toast('Exportar está bloqueado: ' + gate.reason + '.', 'error'); return; }
     var key = 'render:' + clipId;
     if (YT_BUSY[key]) return;
     var comLegenda = preset !== 'limpo';
+    ytBusy(key, true, button, 'Renderizando…');
+    toast('Renderizando no Remotion — ' + renderEta(num(clip.outSec) - num(clip.inSec))
+      + ' para este trecho. Pode continuar usando a aba, mas não feche o navegador.');
+    /* As falas deste intervalo podem AINDA não ter sido lidas: quem exporta pelo menu da
+       grade nunca abriu o editor, e antes desta entrega elas vinham dentro do download do
+       trecho. Lê ANTES de renderizar — descobrir no fim de um render de minutos que o vídeo
+       saiu sem legenda porque ninguém abriu o trecho é o pior desfecho possível (BP-008).
+       `capOf` é a guarda que impede isto de atropelar uma correção já digitada. */
+    var esperaLegenda = (comLegenda && !capOf(clip) && !(clip.clipCues || []).length)
+      ? srcCuesLoad(clip)
+      : Promise.resolve(null);
+    esperaLegenda.then(function () {
+      ytRenderStart(button, clipId, comLegenda, key);
+    });
+  }
+  /* A segunda metade do export editado, depois de a legenda estar na mão. Separada para o
+     `ytRenderClip` poder ESPERAR a leitura das falas sem aninhar o fetch do MP4 dentro de
+     outro then. */
+  function ytRenderStart(button, clipId, comLegenda, key) {
+    var clip = findById(YT.candidates, clipId);
+    if (!clip) { ytBusy(key, false); toast('O trecho saiu da lista.', 'error'); return; }
     if (comLegenda && !(clip.clipCues || []).length) {
       /* Nem toda fonte tem legenda. Dizer isso ANTES do render de minutos é melhor que
          entregar um vídeo mudo e deixar o operador achar que o preset quebrou (BP-008). */
       toast('Este trecho não tem legenda disponível; vai sair sem texto na tela.');
     }
-    ytBusy(key, true, button, 'Renderizando…');
-    toast('Renderizando no Remotion — ' + renderEta(num(clip.outSec) - num(clip.inSec))
-      + ' para este trecho. Pode continuar usando a aba, mas não feche o navegador.');
     var nome = cutFileName(clip.topic, num(clip.inSec), num(clip.outSec), 'crop');
     var guardado = '';
     var audio = '';
     var fundo = '';
-    var body = renderBody(clip, comLegenda);
-    if (clip.clipFilename) body.clipFilename = clip.clipFilename;
+    var body = renderBody(clip, comLegenda, { token: SRC.token, name: SRC.name });
+    /* `clipFilename` NÃO vai mais no corpo, e a omissão é a correção de um perigo real: ele
+       era a rede de segurança que restaurava o arquivo do trecho quando o token expirava, e
+       hoje ele guarda o nome do que foi EXPORTADO deste trecho. Mandado junto, um token de
+       fonte expirado faria o servidor cair nessa rede e renderizar o vídeo JÁ EXPORTADO como
+       se fosse a fonte. A rede certa agora é o próprio `/api/yt-import`, que redescobre a
+       fonte no disco sem baixar nada. */
     fetch('/api/remotion-render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'video/mp4' },
@@ -2982,7 +3470,7 @@
   var FLOW_HINT = {
     central: 'Os clips que você já baixou, agrupados por vídeo. Aqui você baixa de novo.',
     projects: 'Seus projetos de análise: cada vídeo do YouTube analisado vira um projeto com seus trechos sugeridos.',
-    youtube: 'Cole a URL do YouTube: a análise sugere trechos e só o trecho escolhido é baixado.',
+    youtube: 'Cole a URL do YouTube e importe o vídeo inteiro: ele toca aqui dentro e todo corte sai desse mesmo arquivo.',
     resultados: 'O que aconteceu depois de publicar: registre cada publicação, anote as métricas com data e veja quais formatos rendem mais.'
   };
   /* A tela Resultados vive no `video-results.js` — módulo próprio, chave própria
@@ -3035,6 +3523,12 @@
       + '<button class="vop-btn vop-btn-danger" type="button" data-act="reset-broken">Começar de novo</button></div></section>';
   }
   function render() {
+    /* Sem DOM não há o que pintar. A guarda existe porque o módulo é carregado FORA do
+       navegador pela própria suíte de lógica pura (`test-video-ops.js`), e desde que o
+       `srcApply` passou a repintar na transição de estado ele alcança este ponto de lá —
+       `document` indefinido derrubava a suíte inteira. Mesma família do guarda de `window`
+       que o resto do arquivo já usa. */
+    if (typeof document === 'undefined') return;
     var root = document.getElementById('video-ops-root');
     if (!root) return;
     if (BROKEN_RAW) {
@@ -3049,6 +3543,9 @@
     else if (TAB === 'youtube') body = ytStepHTML();
     else if (TAB === 'resultados') body = resultadosHTML();
     root.innerHTML = headerHTML() + tabsHTML() + '<main class="vop-body">' + body + '</main>';
+    /* O player da fonte volta VIVO para a tela nova, com a posição, o volume e o buffer
+       intactos. Tem de ser aqui, na MESMA tarefa do innerHTML — ver srcAdopt. */
+    srcAdopt(root);
     bindIntake();
     refreshBadge();
   }
@@ -3173,7 +3670,12 @@
       YT.note = '';
       YT.title = '';
       YT.state = 'idle';
-      YT.preview = '';
+      /* A FONTE também cai: o player estava tocando o arquivo do vídeo ANTERIOR, e deixá-lo
+         na tela sob uma URL nova seria a mentira mais cara desta tela — o operador marcaria
+         trechos no vídeo errado. A sequência sobe aqui dentro, então uma importação em voo
+         deixa de poder escrever (é o que impede o resultado da URL antiga de substituir o
+         vídeo recém-pedido). */
+      srcReset();
       /* A declaração é por URL: trocar o vídeo exige declarar de novo, senão a
          autorização de um vídeo cobriria outro em silêncio. */
       YT.authorized = false;
@@ -3198,6 +3700,14 @@
        aqui o re-render é o certo — e é barato, a tela é uma lista. */
     if (event.target.matches('[data-yt-rights]')) {
       YT.authorized = !!event.target.checked;
+      /* Declarar RELIGA a fonte que já está no disco. É o caminho do projeto reaberto: a
+         declaração vale por sessão, então ela não sobrevive ao recarregamento — mas o
+         ARQUIVO sobrevive, e a rota de estado só o redescobre, sem baixar um byte. Marcar a
+         caixa e ver o vídeo aparecer na hora é o desfecho certo; obrigar a "importar" de
+         novo um arquivo que já está lá seria pedir ao operador um clique sem função. */
+      if (YT.authorized && !srcReady() && SRC.state !== 'importing') {
+        srcRestore(ytVideoId(YT.url));
+      }
       renderKeepingScroll();
       return;
     }
@@ -3217,10 +3727,11 @@
     if (event.target.matches('[data-cap-field]')) { capCueWrite(event.target); return; }
     if (event.target.matches('[data-yt-url]')) ytUrlWrite(event.target);
   }
+  /* Esc fecha o menu de baixar. O diálogo de prévia saiu com o iframe, então não há mais
+     diálogo para fechar — o player da fonte é parte da tela e não se fecha. */
   function onEscape(event) {
     if (!event || event.key !== 'Escape') return;
-    if (!YT.preview && !YT.dlMenu) return;
-    YT.preview = '';
+    if (!YT.dlMenu) return;
     YT.dlMenu = '';
     renderKeepingScroll();
   }
@@ -3246,22 +3757,42 @@
       if (projectId) openProject(projectId);
       return;
     }
+    else if (action === 'yt-import') srcImport(button);
     else if (action === 'yt-probe') ytProbe(button);
-    else if (action === 'yt-probe') ytProbe(button);
+    else if (action === 'yt-manual') ytManualClip();
     else if (action === 'yt-fetch') ytFetchClip(button, button.dataset.id);
     else if (action === 'yt-render') ytRenderClip(button, button.dataset.id, 'legenda');
     else if (action === 'yt-render-limpo') ytRenderClip(button, button.dataset.id, 'limpo');
-    else if (action === 'yt-preview') {
-      YT.preview = YT.preview === button.dataset.id ? '' : button.dataset.id;
-      YT.dlMenu = '';
-      renderKeepingScroll();
+    else if (action === 'yt-mark') {
+      var marcar = findById(YT.candidates, button.dataset.id);
+      if (!marcar) { toast('Este trecho não está mais na lista.', 'error'); return; }
+      var agora = srcNow();
+      if (agora === null) {
+        toast('O player do vídeo não está na tela — importe o vídeo para marcar por aqui.', 'error');
+        return;
+      }
+      /* Segundo INTEIRO, como todo o resto do intervalo: o nome do arquivo, o /api/video-cut
+         e o /api/remotion-render trabalham em inteiro, e fração aqui prometeria uma borda que
+         o export não entrega. Piso no começo e teto no fim, os dois ALARGANDO — é a mesma
+         regra do `ytclip.candidates`, que nunca come fala. */
+      var daqui = button.dataset.edge === 'in' ? Math.floor(agora) : Math.ceil(agora);
+      ytTrimResult(marcar,
+        button.dataset.edge === 'in' ? daqui : marcar.inSec,
+        button.dataset.edge === 'out' ? daqui : marcar.outSec);
     }
-    else if (action === 'yt-preview-close') {
-      /* Clique DENTRO da caixa nao fecha: o fundo do dialogo e que carrega a acao, e sem
-         esta guarda clicar no player fecharia a previa (o `closest` sobe ate o fundo). */
-      if (button.classList.contains('yt-modal') && event.target.closest('[data-stop]')) return;
-      YT.preview = '';
-      renderKeepingScroll();
+    else if (action === 'yt-preview') {
+      /* A prévia é um SEEK no player da fonte, não um diálogo: leva o vídeo ao começo do
+         trecho e toca. Sem re-render de propósito — reescrever a tela remontaria o player
+         que acabou de receber o comando. */
+      var espiar = findById(YT.candidates, button.dataset.id);
+      if (!espiar) { toast('Este trecho não está mais na lista.', 'error'); return; }
+      if (!srcSeek(espiar.inSec, true)) {
+        toast(srcReady()
+          ? 'O player do vídeo não está na tela.'
+          : 'Importe o vídeo para ver a prévia dentro do Estúdio.', 'error');
+        return;
+      }
+      if (YT.dlMenu) { YT.dlMenu = ''; renderKeepingScroll(); }
     }
     else if (action === 'yt-open') {
       var abrir = findById(YT.candidates, button.dataset.id);
@@ -3270,10 +3801,17 @@
          posicao de rolagem sensata na volta da edicao (parente do BP-013). */
       YT_GRID_SCROLL = typeof window !== 'undefined' ? Number(window.scrollY) || 0 : 0;
       YT.detail = abrir.id;
-      YT.preview = '';
       YT.dlMenu = '';
       render();
       if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo(0, 0);
+      /* Abrir um trecho POSICIONA o vídeo no começo dele — é o pedido explícito ("the editor
+         should seek the video to the suggested starting point"). Sem tocar: quem abre o
+         editor vai ajustar a borda, e som começando sozinho atrapalha. Depois do `render()`,
+         porque é ele que adota o player na tela. */
+      srcSeek(abrir.inSec, false);
+      /* As falas DESTE intervalo, se ainda não foram lidas. Uma chamada por trecho aberto, e
+         a transcrição inteira nunca entra no navegador. */
+      if (srcReady() && !capOf(abrir) && !(abrir.clipCues || []).length) srcCuesLoad(abrir);
     }
     else if (action === 'yt-back') {
       YT.detail = '';
@@ -3308,7 +3846,10 @@
     }
     else if (action === 'yt-clear') {
       YT.candidates = []; YT.note = ''; YT.state = 'idle';
-      YT.preview = ''; YT.detail = ''; YT.dlMenu = '';
+      YT.detail = ''; YT.dlMenu = '';
+      /* "Limpar" limpa as SUGESTÕES, não o vídeo importado: ele custou minutos de download e
+         continua servindo para marcar trecho à mão. Apagá-lo junto seria o desfecho que o
+         pedido proíbe — mexer no corte não pode invalidar o original. */
       render();
     }
     else if (action === 'lib-remove') {
@@ -3447,6 +3988,31 @@
          chame com o trecho construido, nos dois ramos: com arquivo baixado e sem. */
       ytApplyTrim: ytApplyTrim,
       clipStatusOf: clipStatusOf,
+      /* A fonte importada. `srcApply` é a fronteira de ENTRADA da importação e a dona das
+         guardas de corrida — BP-014 manda que ela seja exportada e chamada pelo teste com o
+         payload construído, nos DOIS ramos (resposta do vídeo pedido × resposta de outro
+         vídeo), porque o ramo que quebra é justamente o de quem trocou a URL no meio. */
+      srcApply: srcApply,
+      srcReady: srcReady,
+      srcReset: srcReset,
+      srcCuesLoad: srcCuesLoad,
+      srcPanelHTML: srcPanelHTML,
+      srcStripHTML: srcStripHTML,
+      IMPORT_STATES: IMPORT_STATES,
+      IMPORT_STAGES: IMPORT_STAGES,
+      IMPORT_MSG: IMPORT_MSG,
+      IMPORT_STAGE_MSG: IMPORT_STAGE_MSG,
+      /* Porta de teste, não API da tela (prefixo `__`): SRC é estado de SESSÃO e não tem
+         outro jeito de ser alcançado de fora. */
+      __srcState: function () { return SRC; },
+      /* A sequência da importação em curso. Sem ela o teste só conseguiria provar o ramo que
+         DESCARTA (sequência velha), e o ramo que aplica ficaria sem cobertura — é a metade
+         que o BP-014 diz que quebra calada. */
+      __srcSeq: function () { return SRC_SEQ; },
+      __setSource: function (dados) {
+        Object.keys(dados || {}).forEach(function (k) { SRC[k] = dados[k]; });
+        return SRC;
+      },
       ytStoryboardFrom: ytStoryboardFrom,
       __setStoryboard: function (sb) { YT.storyboard = sb || null; },
       __setSort: function (v) { YT.sort = v; },

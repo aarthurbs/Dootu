@@ -983,13 +983,18 @@ def main():
                 fila.render_lock.release()
             check("29h. e a vez que não chega levanta WorkerError('render_busy')",
                   erro_fila is not None and erro_fila.code == "render_busy")
-            # Guarda de regressão: reverter QUALQUER dos três pontos para o `with` cru
+            # Guarda de regressão: reverter QUALQUER dos quatro pontos para o `with` cru
             # devolve a espera sem prazo calada, e os checks acima só passam pelo video-cut.
+            # Os quatro: /api/video-cut, /api/yt-fetch, /api/remotion-render e o
+            # `_cut_for_render` (o recorte da fonte importada que alimenta o Remotion, que é
+            # FFmpeg de verdade e por isso entra na mesma fila). A IMPORTAÇÃO em si não conta
+            # de propósito — ela não recodifica nada, e segurar a fila por vinte minutos de
+            # download deixaria o operador sem poder exportar durante todo esse tempo.
             fonte_fila = open(os.path.join(worker.REPO, "video-worker", "serve.py"),
                               encoding="utf-8").read()
             check("29i. nenhuma rota voltou ao `with self.render_lock` cru",
                   "with self.render_lock" not in fonte_fila
-                  and fonte_fila.count("with self._render_slot():") == 3)
+                  and fonte_fila.count("with self._render_slot():") == 4)
 
             # 16: o corte PRONTO fica no computador e é servido de volta. É o que faz a
             # revisão abrir com o vídeo na tela depois de fechar o site — antes o MP4 só
@@ -1074,6 +1079,118 @@ def main():
         check("13e. o temporário está fora da pasta do projeto",
               not os.path.realpath(temporario).startswith(
                   os.path.realpath(worker.REPO) + os.sep))
+
+        # ---------------------------------------- 31: a FONTE importada (vídeo inteiro)
+        # A mudança de arquitetura de 2026-09-15: o Estúdio importa o vídeo INTEIRO e todo
+        # corte sai dele. Nada aqui baixa nada — o que se prova é o contrato das rotas novas
+        # e o Range, que é o que permite arrastar a barra num arquivo de 2 GB.
+        estado_torto = pedir(base + serve.ROUTE_IMPORT_STATE,
+                             data=json.dumps({"videoId": "../etc"}).encode(),
+                             headers={"Content-Type": "application/json"})
+        check("31a. /api/yt-import-state recusa id que não é de vídeo do YouTube",
+              estado_torto.status == 400 and estado_torto.codigo_erro == "job_invalid")
+        # Nada no disco = `idle`, e o videoId VOLTA: é por ele que o navegador descarta
+        # resposta de um vídeo que já não é o pedido (a corrida da URL trocada no meio).
+        vazio = pedir(base + serve.ROUTE_IMPORT_STATE,
+                      data=json.dumps({"videoId": "zzzzzzzzzzz"}).encode(),
+                      headers={"Content-Type": "application/json"})
+        corpo_vazio = json.loads(vazio.body.decode("utf-8"))
+        check("31b. sem fonte no disco o estado é `idle`, e diz de que vídeo fala",
+              vazio.status == 200 and corpo_vazio["state"] == serve.IMPORT_IDLE
+              and corpo_vazio["videoId"] == "zzzzzzzzzzz" and corpo_vazio["sourceToken"] == "")
+        # Fonte PRONTA no disco: a rota de estado a redescobre, registra no cache e devolve o
+        # token — sem rede. É o ramo que faz o projeto reaberto amanhã não rebaixar 2 GB.
+        fonte_mp4 = make_source(os.path.join(sidecars, "abcdefghijk.mp4"), 2, 320, 180)
+        serve.write_source_sidecar(sidecars, "abcdefghijk.mp4", {
+            "videoId": "abcdefghijk", "url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "durationSec": 2.0, "heatmap": [], "cues": FALAS, "words": [],
+            "captionLang": "pt-BR", "captionKind": "manual", "note": ""})
+        achada = pedir(base + serve.ROUTE_IMPORT_STATE,
+                       data=json.dumps({"videoId": "abcdefghijk"}).encode(),
+                       headers={"Content-Type": "application/json"})
+        pronta = json.loads(achada.body.decode("utf-8"))
+        check("31c. fonte já no disco volta PRONTA, com token, endereço e dimensões",
+              pronta["state"] == serve.IMPORT_READY
+              and pronta["sourceToken"] == "abcdefghijk"
+              and pronta["sourceUrl"] == serve.SOURCES_URL + "abcdefghijk.mp4"
+              and pronta["width"] == 320 and pronta["height"] == 180
+              and pronta["hasAudio"] is True and pronta["percent"] == 100)
+        # O token é o id do vídeo, e ele TEM de passar no validador da query do /api/video-cut
+        # — se não passasse, o primeiro corte da fonte importada morreria em 400.
+        check("31d. o token da fonte passa no TOKEN_RE que o /api/video-cut exige",
+              bool(serve.TOKEN_RE.match(pronta["sourceToken"])))
+        # E o corte SAI da fonte registrada, sem corpo nenhum na requisição: é isso que
+        # significa "não baixa nem sobe o original de novo".
+        corte_da_fonte = post_cut(base, "abcdefghijk", 0.2, 1.2, "horizontal",
+                                  "da-fonte.mp4")
+        check("31e. o /api/video-cut corta a fonte importada sem reenviar um byte dela",
+              corte_da_fonte.status == 200 and len(corte_da_fonte.body) > 1000)
+        # DOIS cortes seguidos, intervalos diferentes, zero upload: o critério de aceitação.
+        outro_corte = post_cut(base, "abcdefghijk", 1.0, 2.0, "horizontal", "outro.mp4")
+        check("31f. e um SEGUNDO corte de outro intervalo sai da mesma fonte",
+              outro_corte.status == 200 and len(outro_corte.body) > 1000)
+
+        # ---- Range: sem 206 não existe "navegar pela duração inteira" ------------------
+        inteiro = pedir(base + serve.SOURCES_URL + "abcdefghijk.mp4")
+        tamanho_fonte = os.path.getsize(fonte_mp4)
+        check("31g. /sources/ serve a fonte ao player do site",
+              inteiro.status == 200 and len(inteiro.body) == tamanho_fonte)
+        check("31h. e ANUNCIA Range — sem isso o Chrome nem tenta arrastar a barra",
+              inteiro.headers.get("Accept-Ranges") == "bytes")
+        fatia = pedir(base + serve.SOURCES_URL + "abcdefghijk.mp4",
+                      headers={"Range": "bytes=10-19"})
+        with open(fonte_mp4, "rb") as fh:
+            esperado = fh.read()[10:20]
+        check("31i. Range devolve 206 com EXATAMENTE os bytes pedidos",
+              fatia.status == 206 and fatia.body == esperado
+              and fatia.headers.get("Content-Range")
+              == "bytes 10-19/%d" % tamanho_fonte)
+        # `bytes=-N` é como o navegador lê o índice de um MP4 cujo `moov` está no fim. Sem
+        # este ramo, arquivo sem faststart não abre no player.
+        cauda = pedir(base + serve.SOURCES_URL + "abcdefghijk.mp4",
+                      headers={"Range": "bytes=-8"})
+        with open(fonte_mp4, "rb") as fh:
+            fim_esperado = fh.read()[-8:]
+        check("31j. e a forma `bytes=-N` (o índice no fim do MP4) também",
+              cauda.status == 206 and cauda.body == fim_esperado)
+        fora = pedir(base + serve.SOURCES_URL + "abcdefghijk.mp4",
+                     headers={"Range": "bytes=%d-" % (tamanho_fonte + 10)})
+        check("31k. faixa fora do arquivo devolve 416, não um corpo mentiroso",
+              fora.status == 416 and fora.headers.get("Content-Range")
+              == "bytes */%d" % tamanho_fonte)
+        # Travessia: o nome vem da URL, e `basename` é o que impede `/sources/../../x`.
+        check("31l. /sources/ não serve nada de fora da pasta da fonte",
+              pedir(base + serve.SOURCES_URL + "..%2F..%2Findex.html").status == 404
+              or b"<h1>site</h1>" not in pedir(
+                  base + serve.SOURCES_URL + "..%2F..%2Findex.html").body)
+
+        # ---- a legenda de QUALQUER intervalo da fonte, sem baixar trecho --------------
+        # É o que o sidecar escrito pela importação compra: a revisão de legenda e o 9:16
+        # legendado passam a valer para qualquer pedaço do vídeo inteiro.
+        falas_fonte = pedir(base + serve.ROUTE_CAPS, data=json.dumps({
+            "token": "abcdefghijk", "name": "abcdefghijk.mp4", "start": 25.0, "end": 40.0,
+        }).encode(), headers={"Content-Type": "application/json"})
+        bloco_falas = json.loads(falas_fonte.body.decode("utf-8"))
+        check("31m. a legenda de um intervalo da fonte sai do sidecar que a importação gravou",
+              falas_fonte.status == 200 and bloco_falas["state"] == "ok"
+              and len(bloco_falas["cues"]) >= 2
+              and bloco_falas["cues"][0]["start"] == 0.0)
+
+        # ---- o render recusa intervalo impossível ANTES de gastar minutos -------------
+        for rotulo, corpo_render in (
+                ("fim antes do começo", {"start": 10, "end": 5}),
+                ("começo negativo", {"start": -1, "end": 5}),
+                ("passa do fim do vídeo", {"start": 0, "end": 900})):
+            corpo_render["clipToken"] = "abcdefghijk"
+            # `negada`, e NÃO `recusa`: existe uma função `recusa()` no nível do módulo, e
+            # atribuir esse nome aqui a tornaria local de `main()` inteira — a primeira
+            # chamada dela, 1500 linhas acima, morreria com UnboundLocalError. Pego rodando.
+            negada = pedir(base + serve.ROUTE_RENDER,
+                           data=json.dumps(corpo_render).encode(),
+                           headers={"Content-Type": "application/json"})
+            check("31n. o render recusa %s, com motivo (%s)" % (rotulo, negada.status),
+                  negada.status == 400 and negada.codigo_erro == "cut_invalid"
+                  and len(negada.erro) > 10)
     finally:
         serve.close_server(servidor)
 
@@ -1712,6 +1829,128 @@ def main():
           and serve._background_state(serve.BACKGROUND_UNREADABLE)
           == serve.BACKGROUND_UNREADABLE
           and len(set(serve.BACKGROUND_STATES)) == 3)
+
+    # ------------------------------------ 32: a fonte importada, sem servidor nem rede
+    # 32a é o irmão do 21t0 e do 30d, e existe pela MESMA razão: estado que o servidor manda
+    # na resposta e não tem frase do outro lado é um valor que a tela recebe e não sabe
+    # dizer. Aqui dói mais que nos outros — a importação leva minutos, e um estado mudo
+    # deixaria a barra andando sem nada explicando o que está acontecendo.
+    faltando_import = [e for e in serve.IMPORT_STATES
+                       if ('"%s"' % e) not in ops_js and ("'%s'" % e) not in ops_js
+                       and ("%s:" % e) not in ops_js]
+    check("32a. cada estado da importação tem frase no video-ops.js (faltando: %s)"
+          % (faltando_import or "nenhum"), not faltando_import)
+    faltando_etapa = [e for e in serve.IMPORT_STAGES
+                      if ('"%s"' % e) not in ops_js and ("'%s'" % e) not in ops_js
+                      and ("%s:" % e) not in ops_js]
+    check("32b. e cada etapa também (faltando: %s)" % (faltando_etapa or "nenhum"),
+          not faltando_etapa)
+
+    # 32c: `-ss` ANTES do `-i`. Não é estilo: depois do `-i` o FFmpeg decodifica desde o
+    # começo, e num podcast de 3 h um trecho em 2:30:00 custaria duas horas e meia de decode
+    # por exportação. A prova é a ORDEM na lista, construída pela função.
+    args_trecho = serve.clip_args("fonte.mp4", "saida.mp4", 9000.0, 40.0, True)
+    check("32c. clip_args põe -ss ANTES do -i (seek rápido; depois do -i custa horas)",
+          args_trecho.index("-ss") < args_trecho.index("-i")
+          and args_trecho[args_trecho.index("-ss") + 1] == "9000.000"
+          and args_trecho[args_trecho.index("-t") + 1] == "40.000")
+    check("32d. e recodifica (o corte tem de cair no quadro pedido, não no keyframe)",
+          "-c:v" in args_trecho and "libx264" in args_trecho
+          and "copy" not in args_trecho)
+    # Fonte sem áudio existe (vídeo mudo, tela de captura). `-an` em vez de um `-c:a` que
+    # falharia no meio do passe.
+    check("32e. clip_args respeita fonte sem faixa de áudio",
+          "-an" in serve.clip_args("a.mp4", "b.mp4", 0.0, 1.0, False)
+          and "-an" not in args_trecho)
+
+    # 32k-32m: os nomes de UM render. Inline na rota, nenhum dos dois é testável sem rodar o
+    # Remotion (minutos, npx, Chrome headless), e os dois já falharam de verdade.
+    props_a, dest_a = serve.render_paths("/tmp/cache", "abcdefghijk")
+    props_b, dest_b = serve.render_paths("/tmp/cache", "abcdefghijk")
+    # O Remotion decide o container pela EXTENSÃO do destino. Sem `.mp4` ele sai sem gravar
+    # arquivo, e a rota responde "O Remotion falhou: npm notice" — medido, e não aponta para
+    # nada. A extensão vinha por acidente enquanto o token era o nome do arquivo do trecho.
+    check("32k. o destino do render TEM extensão .mp4 (o Remotion a usa para o container)",
+          dest_a.endswith(".mp4") and props_a.endswith(".json"))
+    # O token é o MESMO para todos os cortes da fonte: sem sufixo, dois "Baixar vídeo editado"
+    # do mesmo vídeo escrevem no mesmo props, e o primeiro render usa o trecho do segundo.
+    check("32l. e dois renders do MESMO vídeo não colidem em props nem em destino",
+          props_a != props_b and dest_a != dest_b)
+    # A propriedade é "o nome é UM componente", não a grafia do separador: comparar com
+    # `os.path.normpath` reprovava por `/` contra `\` no Windows, e o guarda estava certo.
+    props_t, dest_t = serve.render_paths(os.path.join("qualquer", "cache"), "../../x")
+    check("32m. token torto não vira caminho (o nome vai a processo e a disco)",
+          os.sep not in os.path.basename(dest_t)
+          and ".." not in os.path.basename(dest_t)
+          and os.path.dirname(dest_t) == os.path.join("qualquer", "cache")
+          and os.path.dirname(props_t) == os.path.join("qualquer", "cache"))
+    # O nome do arquivo GUARDADO não carrega o sufixo aleatório do temporário: ele apareceria
+    # na pasta de cortes do operador. Sai do token mais o intervalo, e sem intervalo não
+    # inventa números.
+    check("32n. o nome do editado sai do token e do intervalo, sem o sufixo do temporário",
+          serve.edited_name("abcdefghijk", {"start": 600.0, "end": 640.0})
+          == "abcdefghijk-600-640-editado.mp4"
+          and serve.edited_name("abcdefghijk", {}) == "abcdefghijk-editado.mp4"
+          and serve.edited_name("abcdefghijk", {"start": 5, "end": 1})
+          == "abcdefghijk-editado.mp4")
+    # E o erro do Remotion diz o que QUEBROU. O `npx` imprime o aviso do npm DEPOIS do erro,
+    # então pegar a última linha entregava "npm notice" — uma sessão de depuração inteira.
+    class _Proc:
+        stderr = ("Error: Could not determine codec\n"
+                  "npm notice\nnpm notice New minor version of npm available!\n").encode()
+        stdout = b""
+    check("32o. a falha do Remotion mostra a linha do ERRO, não o aviso do npm",
+          serve._falha_render(_Proc()) == "Error: Could not determine codec")
+
+    class _Mudo:
+        stderr = b""
+        stdout = b""
+    check("32p. e sem nenhuma linha útil ela diz isso, em vez de inventar",
+          serve._falha_render(_Mudo()) == "sem detalhe")
+
+    # 32f: o sidecar da importação é o que dá legenda e miniatura à fonte. A prova é o
+    # ROUND-TRIP pelo leitor de verdade: escrever num formato que o `_sidecar_captions` não
+    # entende não daria erro nenhum — ele degradaria calado para "sem legenda", e todo corte
+    # sairia sem texto. É a armadilha que este check existe para fechar.
+    fio_src = tempfile.mkdtemp(prefix="fonte-sidecar-")
+    try:
+        serve.write_source_sidecar(fio_src, "abcdefghijk.mp4", {
+            "videoId": "abcdefghijk", "url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "durationSec": 7200.0, "heatmap": [],
+            "cues": [{"start": 1.0, "end": 2.0, "text": "primeira"},
+                     {"start": 3.0, "end": 4.0, "text": "segunda"}],
+            "words": [], "captionLang": "pt-BR", "captionKind": "manual", "note": ""})
+        # Lido pelo MESMO caminho que o /api/video-cut usa.
+        serve._sidecar_dir = lambda: fio_src
+        lido = serve._sidecar_captions(serve._read_most_replayed("abcdefghijk.mp4"))
+        check("32f. o sidecar da importação é lido de volta COM legenda pelo leitor real",
+              lido["available"] is True and len(lido["cues"]) == 2
+              and lido["language"] == "pt-BR" and lido["kind"] == "manual")
+        # Sem legenda o bloco diz POR QUÊ, em vez de vir vazio e calado.
+        serve.write_source_sidecar(fio_src, "bbbbbbbbbbb.mp4", {
+            "videoId": "bbbbbbbbbbb", "url": "u", "durationSec": 1.0, "heatmap": [],
+            "cues": [], "words": [], "captionLang": "", "captionKind": "", "note": ""})
+        sem = serve._sidecar_captions(serve._read_most_replayed("bbbbbbbbbbb.mp4"))
+        check("32g. e vídeo sem legenda vira motivo escrito, não lista vazia calada",
+              sem["available"] is False and sem["reason"] == ytclip.CAPTIONS_NONE)
+        # 32h: meia fonte é fonte AUSENTE. Mídia sem sidecar não pode passar por "pronta" —
+        # passaria, e todo corte sairia sem legenda e sem miniatura, calado.
+        solta = os.path.join(fio_src, "ccccccccccc.mp4")
+        with open(solta, "wb") as fh:
+            fh.write(b"0" * 64)
+        check("32h. mídia sem sidecar NÃO conta como fonte pronta",
+              serve.source_media_on_disk(fio_src, "ccccccccccc") == ("", ""))
+        # E o ramo que ACHA: com os dois arquivos, a fonte é encontrada pelo id.
+        with open(os.path.join(fio_src, "abcdefghijk.mp4"), "wb") as fh:
+            fh.write(b"0" * 64)
+        caminho_achado, nome_achado = serve.source_media_on_disk(fio_src, "abcdefghijk")
+        check("32i. com mídia E sidecar a fonte é achada pelo id do vídeo",
+              nome_achado == "abcdefghijk.mp4" and os.path.isfile(caminho_achado))
+        check("32j. e id que não é do YouTube nunca vira caminho de arquivo",
+              serve.source_media_on_disk(fio_src, "../../etc") == ("", "")
+              and serve.source_media_on_disk(fio_src, "") == ("", ""))
+    finally:
+        shutil.rmtree(fio_src, ignore_errors=True)
 
     # ------------------------------------------------------------ 14: limpeza
     check("14. o temporário é removido no encerramento", not os.path.isdir(temporario))

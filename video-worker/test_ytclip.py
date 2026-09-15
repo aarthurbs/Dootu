@@ -26,7 +26,9 @@ Uso:
 
 import json
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import captions  # noqa: E402
@@ -1053,6 +1055,106 @@ def main():
     # O caminho SEM palavra a palavra nao muda: quem mede a pausa la sempre foi a cue.
     check("23i. sem `words` a grade continua sendo a da cue, com as pausas dela",
           ytclip.sentences_from(cues_pausa) == ytclip.sentences_from(cues_pausa, []))
+
+    # ------------------------------------ 24: progresso REAL da importação do vídeo
+    # A importação leva minutos. Uma barra que só sabe "começou" e "acabou" é
+    # indistinguível de tela travada (BP-008), e é por isso que estas contas existem.
+    # A linha é do NOSSO `--progress-template`: o formato é escolhido aqui, e não por
+    # regex sobre a linha bonita do yt-dlp, que muda entre versões e quebraria calada.
+    check("24a. o template pede os dois números que a barra precisa",
+          "%(progress.downloaded_bytes)s" in ytclip.PROGRESS_TEMPLATE
+          and "total_bytes" in ytclip.PROGRESS_TEMPLATE
+          and ytclip.PROGRESS_TEMPLATE.startswith(ytclip.PROGRESS_TAG))
+    check("24b. parse_progress lê a linha do template",
+          ytclip.parse_progress(ytclip.PROGRESS_TAG + " 1024 4096") == (1024, 4096))
+    # Linha que NÃO é progresso tem de devolver None: é ela que o `_run` guarda na cauda
+    # para a mensagem de erro. Confundir as duas encheria o erro de ruído.
+    check("24c. e devolve None para qualquer outra linha do yt-dlp",
+          ytclip.parse_progress("[download]  4.2% of ~ 1.20GiB") is None
+          and ytclip.parse_progress("") is None
+          and ytclip.parse_progress(None) is None
+          and ytclip.parse_progress(ytclip.PROGRESS_TAG + " 1") is None)
+    # "NA" é o que o yt-dlp escreve quando ainda não sabe o tamanho. Total 0 é resposta
+    # LEGÍTIMA ("não sei ainda"), não erro — e não pode virar divisão por zero (BP-004).
+    check("24d. campo que o yt-dlp não soube preencher vira 0, não exceção",
+          ytclip.parse_progress(ytclip.PROGRESS_TAG + " 512 NA") == (512, 0)
+          and ytclip.parse_progress(ytclip.PROGRESS_TAG + " nan inf") == (0, 0))
+    andamento = ytclip.ImportProgress()
+    andamento.feed(ytclip.PROGRESS_TAG + " 0 NA")
+    check("24e. total desconhecido não divide por zero", andamento.fracao == 0.0)
+    # O yt-dlp baixa vídeo e áudio SEPARADOS: `downloaded_bytes` volta a zero na segunda
+    # faixa. Ligada direto nesse número, a barra iria a 100%, cairia a 0% e voltaria — a
+    # aparência exata de coisa quebrada. A sequência abaixo é essa, e a fração só pode subir.
+    andando = ytclip.ImportProgress()
+    lidas = []
+    for linha in (" 200 1000", " 600 1000", " 1000 1000",   # faixa de vídeo
+                  " 50 200", " 120 200", " 200 200"):       # faixa de áudio
+        andando.feed(ytclip.PROGRESS_TAG + linha)
+        lidas.append(andando.fracao)
+    check("24f. a fração SÓ SOBE entre as duas faixas (%s)"
+          % " ".join("%.2f" % v for v in lidas),
+          all(lidas[i] <= lidas[i + 1] for i in range(len(lidas) - 1)))
+    # Enquanto só UMA faixa apareceu o denominador está incompleto, então 80% é o teto
+    # honesto: o vídeo é 80-95% dos bytes em toda combinação que o seletor de formato pede.
+    # Sem o teto, o fim do vídeo marcava 99% e a barra ficava cheia e parada durante o áudio
+    # inteiro e a junção — ou seja, prometendo pronto e não entregando.
+    check("24g. uma faixa sozinha não passa do teto honesto (%.2f)" % lidas[2],
+          lidas[2] <= ytclip.ImportProgress.TETO_UMA_FAIXA + 1e-9
+          and lidas[2] > 0.5)
+    check("24h. e os 100%% ficam para quem JUNTA as faixas (%.2f)" % lidas[-1],
+          lidas[-1] <= ytclip.ImportProgress.TETO + 1e-9 and lidas[-1] > lidas[2])
+
+    # -------------------------- 24i-24m: as flags do download do vídeo INTEIRO
+    # Os dois caminhos de download (trecho e vídeo inteiro) compartilham UMA lista de
+    # argumentos. Duas listas à mão divergiriam, e o MESMO vídeo entraria no Estúdio com
+    # codec ou resolução diferente dependendo da rota — calado.
+    # A prova é sobre o argv CONSTRUÍDO, capturado de dentro do `fetch_full`, e não sobre o
+    # texto do arquivo: o `ytclip.py` CITA `--exec`, `--netrc-cmd` e `aria2c` nos comentários
+    # que explicam a proibição, então um `not in fonte` reprovaria o arquivo justamente por
+    # documentar a regra. É a armadilha que a regra do worker nomeia — `in arquivo` só prova
+    # que alguém escreveu a palavra.
+    argv_visto = []
+    run_original = ytclip._run
+    try:
+        def _captura(args, timeout, on_line=None):
+            argv_visto.append(list(args))
+            # Devolve o que o chamador espera e deixa ele seguir; quem levanta depois é o
+            # `produced_media`, porque nenhum arquivo foi gravado — e isso não atrapalha:
+            # o argv já foi capturado.
+            return b""
+        ytclip._run = _captura
+        pasta_falsa = tempfile.mkdtemp(prefix="import-argv-")
+        try:
+            # URL com sujeira de propósito: o que vai ao processo tem de ser a canônica,
+            # reconstruída do id VALIDADO — nunca a string colada.
+            ytclip.fetch_full("https://youtu.be/abcdefghijk?si=rastreador&t=90", pasta_falsa)
+        except Exception:
+            pass
+        finally:
+            shutil.rmtree(pasta_falsa, ignore_errors=True)
+    finally:
+        ytclip._run = run_original
+    check("24i. a importação chegou a montar um comando", len(argv_visto) == 1)
+    argv = argv_visto[0] if argv_visto else []
+    check("24j. o cliente do player continua FIXADO (armadilha do 403)",
+          "youtube:player_client=web_embedded,tv,web" in argv)
+    check("24k. o FFmpeg é o do projeto, e a miniatura vem no MESMO comando",
+          "--ffmpeg-location" in argv and worker.FFMPEG in argv
+          and "--write-thumbnail" in argv)
+    check("24l. a URL entregue ao processo é a CANÔNICA, do id validado",
+          argv[-1] == "https://www.youtube.com/watch?v=abcdefghijk"
+          and not any("si=rastreador" in str(a) for a in argv))
+    # A auditoria proíbe estas quatro por escrito.
+    for proibida in ("--exec", "--netrc-cmd", "--cookies-from-browser", "--cookies",
+                     "--downloader", "aria2c"):
+        check("24m. a importação não usa %s" % proibida,
+              not any(proibida == str(a) or proibida in str(a) for a in argv))
+    # E o que a DISTINGUE do download de trecho: o vídeo inteiro não recorta, então não passa
+    # pelas flags de recorte — é a ausência delas que elimina o encode das pontas por trecho.
+    check("24n. o download do vídeo inteiro NÃO recorta (sem download-sections)",
+          "--download-sections" not in argv and "--force-keyframes-at-cuts" not in argv)
+    check("24o. e pede progresso linha a linha, que é o que alimenta a barra",
+          "--newline" in argv and ytclip.PROGRESS_TEMPLATE in argv)
 
     # ---------------------------------------------------------------- relatório
     print("\n--- verificacoes ---")

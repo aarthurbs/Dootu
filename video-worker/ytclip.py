@@ -37,11 +37,13 @@ Lógica pura (`parse_json3`, `candidates` e auxiliares) exportada para test_ytcl
 """
 
 import json
+import collections
 import math
 import os
 import re
 import subprocess
 import sys
+import threading
 import unicodedata
 import urllib.error
 import urllib.request
@@ -81,6 +83,10 @@ ABERTURA_VIDEO_SEC = 30.0
 
 PROBE_TIMEOUT = 120.0
 FETCH_TIMEOUT = 900.0
+# Baixar o vídeo INTEIRO leva muito mais que um trecho: um podcast de 3 h em 1080p passa de
+# 2 GB. 3 h de teto cobre isso numa banda doméstica e ainda mata o download pendurado —
+# botão de calibragem, não número escolhido por gosto.
+IMPORT_TIMEOUT = 10800.0
 CAPTION_TIMEOUT = 45.0
 # Teto do arquivo de legenda: um json3 de podcast de 4 h fica em ~2 MB. Acima de 16 MB não é
 # legenda, é outra coisa — recusar antes de dar json.loads em lixo.
@@ -1425,28 +1431,170 @@ def _ytdlp():
     return found
 
 
-def _run(args, timeout):
+def _run(args, timeout, on_line=None):
     """Chama o yt-dlp com a lista de argumentos que NÓS montamos.
 
     `--ignore-config` está aqui de propósito: sem ele o yt-dlp lê yt-dlp.conf do sistema e
     do usuário, e um arquivo desses poderia reintroduzir justamente o que a auditoria
     proibiu (cookies, aria2c, --exec). A URL nunca é a string colada — é reconstruída a
     partir do id validado, então nada do que o operador cola vira argumento de processo.
+
+    `on_line` liga o modo STREAMING: em vez de esperar o processo acabar, cada linha vai ao
+    chamador na hora. Existe por um motivo só — importar o vídeo inteiro leva minutos, e
+    barra que só sabe "começou" e "acabou" é indistinguível de tela travada (BP-008). Quem
+    não passa `on_line` segue no caminho de antes, byte por byte.
     """
+    base = [_ytdlp(), "--ignore-config", "--no-playlist", "--no-warnings"]
+    if on_line is None:
+        try:
+            proc = subprocess.run(base + args, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise worker.WorkerError("ffmpeg_failed",
+                                     "O yt-dlp passou de %.0fs e foi encerrado." % timeout)
+        except OSError as err:
+            raise worker.WorkerError("job_invalid", "Falha ao chamar o yt-dlp: %s" % err)
+        if proc.returncode != 0:
+            tail = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+            raise worker.WorkerError(
+                "ffmpeg_failed",
+                "O yt-dlp recusou o vídeo: %s" % (tail[-1][:400] if tail else "sem detalhe"))
+        return proc.stdout
+
+    # stderr entra no MESMO cano de propósito: dois canos com um só leitor enchem o buffer do
+    # outro e o processo trava para sempre — modo de falha permanente, pior que espera longa.
+    # A cauda guarda as últimas linhas para a mensagem de erro ter conteúdo.
     try:
-        proc = subprocess.run([_ytdlp(), "--ignore-config", "--no-playlist", "--no-warnings"] + args,
-                              capture_output=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise worker.WorkerError("ffmpeg_failed",
-                                 "O yt-dlp passou de %.0fs e foi encerrado." % timeout)
+        proc = subprocess.Popen(base + args, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, bufsize=1,
+                                universal_newlines=True, errors="replace")
     except OSError as err:
         raise worker.WorkerError("job_invalid", "Falha ao chamar o yt-dlp: %s" % err)
+    cauda = collections.deque(maxlen=8)
+    estourou = []
+
+    def matar():
+        estourou.append(True)
+        proc.kill()
+
+    prazo = threading.Timer(timeout, matar)
+    prazo.daemon = True
+    prazo.start()
+    try:
+        for linha in proc.stdout:
+            linha = linha.rstrip("\r\n")
+            if not linha:
+                continue
+            # Linha de progresso NÃO entra na cauda: são milhares, e elas empurrariam a linha
+            # útil para fora justamente quando o erro precisa ser explicado.
+            if parse_progress(linha) is None:
+                cauda.append(linha)
+            on_line(linha)
+        proc.wait()
+    finally:
+        prazo.cancel()
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    if estourou:
+        raise worker.WorkerError("ffmpeg_failed",
+                                 "O yt-dlp passou de %.0fs e foi encerrado." % timeout)
     if proc.returncode != 0:
-        tail = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
         raise worker.WorkerError(
             "ffmpeg_failed",
-            "O yt-dlp recusou o v\u00eddeo: %s" % (tail[-1][:400] if tail else "sem detalhe"))
-    return proc.stdout
+            "O yt-dlp recusou o vídeo: %s" % (cauda[-1][:400] if cauda else "sem detalhe"))
+    return b""
+
+
+# Prefixo das linhas de progresso. É NOSSO, não do yt-dlp: com `--progress-template` o
+# formato passa a ser escolhido aqui, em vez de sair de um regex sobre a linha bonita
+# ("[download]  4.2% of ~ 1.20GiB at 5.00MiB/s ETA 03:52"), que muda entre versões do
+# programa e quebraria calada.
+PROGRESS_TAG = "PROGRESSO"
+PROGRESS_TEMPLATE = (PROGRESS_TAG
+                     + " %(progress.downloaded_bytes)s"
+                     + " %(progress.total_bytes,progress.total_bytes_estimate)s")
+
+
+def parse_progress(line):
+    """Linha do `--progress-template` -> `(baixado, total)` em bytes, ou None.
+
+    PURA e no nível do módulo para o teste CHAMAR com a linha construída: é ela que separa
+    "42%" de "0%" na tela, e asserir o texto do arquivo só provaria que alguém escreveu o
+    nome do template. Campo que o yt-dlp não soube preencher chega como "NA" e vira 0 —
+    total 0 é resposta legítima ("ainda não sei o tamanho"), não erro.
+    """
+    if not isinstance(line, str) or not line.startswith(PROGRESS_TAG + " "):
+        return None
+    partes = line[len(PROGRESS_TAG) + 1:].split()
+    if len(partes) < 2:
+        return None
+
+    def n(valor):
+        try:
+            bruto = float(valor)
+        except (TypeError, ValueError):
+            return 0
+        if not math.isfinite(bruto) or bruto < 0:
+            return 0
+        return int(bruto)
+
+    return (n(partes[0]), n(partes[1]))
+
+
+class ImportProgress:
+    """Bytes das VÁRIAS faixas do yt-dlp -> uma fração que só sobe e nunca mente.
+
+    O yt-dlp baixa vídeo e áudio em arquivos separados e depois junta: `downloaded_bytes`
+    volta a zero quando a segunda faixa começa, e o total das duas só é conhecido quando a
+    segunda aparece. Uma barra ligada direto nesse número iria a 100% no fim do vídeo,
+    ficaria lá durante o áudio inteiro e depois durante a junção — cheia e parada, que é
+    exatamente a aparência de coisa travada.
+
+    Classe (e não duas linhas dentro do laço) para o teste alimentar a sequência de linhas e
+    conferir a monotonia e os tetos: é a única parte da barra que tem lógica.
+    """
+
+    # Enquanto só UMA faixa apareceu o denominador está incompleto, então a barra não pode
+    # passar disto honestamente. 0,80 não é gosto: em toda combinação que este seletor de
+    # formato pede (1080p H.264 + m4a) o vídeo é 80-95% dos bytes, então a faixa de vídeo
+    # sozinha nunca vale mais de 80% do trabalho. Quando a segunda faixa entra, o total passa
+    # a ser conhecido e o teto sobe.
+    TETO_UMA_FAIXA = 0.80
+    # Os últimos 2% pertencem a quem JUNTA as faixas e valida o arquivo, e essa etapa não
+    # emite progresso nenhum. Prometer 100% antes dela deixaria a barra cheia durante um
+    # minuto de silêncio.
+    TETO = 0.98
+
+    def __init__(self):
+        self.faixas = 0          # quantas faixas já começaram a baixar
+        self.completo = 0        # bytes das faixas JÁ terminadas
+        self.baixado = 0         # bytes da faixa atual
+        self.total_atual = 0     # tamanho estimado da faixa atual
+        self.fracao = 0.0
+
+    def feed(self, line):
+        lido = parse_progress(line)
+        if lido is None:
+            return False
+        baixado, total = lido
+        if self.faixas == 0:
+            self.faixas = 1
+        elif baixado < self.baixado:
+            # Faixa nova: o contador recuou. O tamanho da anterior (o maior que vimos dela)
+            # entra no acumulado — `total_atual` e não `baixado`, porque a última linha de uma
+            # faixa pode chegar antes de ela bater 100%.
+            self.completo += max(self.total_atual, self.baixado)
+            self.total_atual = 0
+            self.faixas += 1
+        self.baixado = baixado
+        self.total_atual = max(self.total_atual, total, baixado)
+        previsto = self.completo + self.total_atual
+        if previsto > 0:
+            teto = self.TETO_UMA_FAIXA if self.faixas < 2 else self.TETO
+            self.fracao = max(self.fracao,
+                              min(teto, (self.completo + self.baixado) / float(previsto)))
+        return True
 
 
 # Storyboard: a folha de miniaturas com TEMPO que o YouTube já publica. Cada `sb*` é uma
@@ -1602,6 +1750,77 @@ def fetch_section(url, start, end, outdir, timeout=FETCH_TIMEOUT):
     return {"path": path, "bytes": os.path.getsize(path), "media": media,
             "inSec": begin, "outSec": finish}
 
+
+# Argumentos que os DOIS caminhos de download compartilham. Existe como função por uma razão
+# dura: duas listas mantidas à mão divergem, e divergir aqui faz o MESMO vídeo entrar no
+# Estúdio com codec ou resolução diferente dependendo da rota — calado. Cada linha tem a
+# medição atrás dela no `fetch_section`, que era o dono original.
+def _download_args(outdir, stem):
+    return [
+        # Por que fixar o cliente (medido, não suposto): o `web_embedded` é o único que
+        # entregou 1080p; `tv`/`web` caem em 360p e ficam como rede de segurança.
+        "--extractor-args", "youtube:player_client=web_embedded,tv,web",
+        # O MESMO binário que o worker.py usa. Sem isto o yt-dlp pega o FFmpeg do PATH, que
+        # na máquina do operador é um nightly — duas versões cortando o mesmo vídeo é fonte
+        # de diferença que ninguém consegue explicar depois.
+        "--ffmpeg-location", worker.FFMPEG,
+        # H.264 primeiro: o AV1 que o YouTube serve em 1080p decodifica devagar no navegador
+        # e no render, e a fonte não ganha nada em qualidade sendo AV1. Aqui isso pesa AINDA
+        # mais que no trecho: é este arquivo que o player interno do site vai tocar.
+        "-f", "bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/"
+              "bv*[height<=1080]+ba/b[height<=1080]/b",
+        "--merge-output-format", "mp4",
+        # A miniatura do vídeo, no MESMO comando: ela vira o fundo do 9:16 no lugar da tarja
+        # desfocada. Sai da lista `thumbnails` do dump que o extractor já fez.
+        "--write-thumbnail",
+        "-o", os.path.join(outdir, stem + ".%(ext)s"),
+    ]
+
+
+def fetch_full(url, outdir, timeout=IMPORT_TIMEOUT, on_progress=None):
+    """Baixa o vídeo INTEIRO, que passa a ser a mídia de trabalho do Estúdio.
+
+    Gêmeo do `fetch_section` menos as duas flags de recorte, e a ausência delas é a mudança
+    de arquitetura: sem `--download-sections`/`--force-keyframes-at-cuts` não existe mais o
+    ENCODE 1 que recodificava as pontas de cada trecho. O stream do YouTube é só remuxado em
+    mp4, e cada corte passa a sair de um encode ÚNICO, feito aqui no Estúdio a partir deste
+    arquivo. (A medição de 2026-09-08 dizia que aquele encode era praticamente transparente
+    — 47,5 dB PSNR — e que por isso não valia mexer nele; ela não proibia deixar de PRECISAR
+    dele, que é o que esta rota faz.)
+
+    Todo o resto — cliente fixado, seletor de formato, FFmpeg do projeto, miniatura no mesmo
+    comando — vem do `_download_args`, compartilhado, e não de uma segunda lista.
+
+    `on_progress` recebe uma fração de 0 a 1 que só sobe (ver `ImportProgress`). Sem ela o
+    download é idêntico, só mudo.
+    """
+    vid = video_id(url)
+    os.makedirs(outdir, exist_ok=True)
+    stem = vid
+    # NÃO apaga o que já está lá, ao contrário do `fetch_section`: quem decide se vale
+    # rebaixar é a rota (`serve._handle_import`), que sabe se o arquivo do disco serve. Aqui
+    # apagar cegamente jogaria fora um vídeo de 2 GB que a sessão anterior trouxe.
+    andamento = ImportProgress()
+    ultimo = [-1.0]
+
+    def linha(texto):
+        if not andamento.feed(texto) or on_progress is None:
+            return
+        # Só avisa quando o número MUDA em um ponto percentual: o yt-dlp emite progresso
+        # várias vezes por segundo, e cada aviso pega o lock do estado da importação.
+        if andamento.fracao - ultimo[0] >= 0.01:
+            ultimo[0] = andamento.fracao
+            on_progress(andamento.fracao)
+
+    _run(["--newline", "--progress-template", PROGRESS_TEMPLATE]
+         + _download_args(outdir, stem)
+         + ["--", "https://www.youtube.com/watch?v=" + vid],
+         timeout, on_line=linha)
+    path = produced_media(outdir, stem)
+    # O mesmo portão do upload local: arquivo vazio ou sem faixa de vídeo morre aqui, não no
+    # meio do primeiro corte.
+    media = worker.validate_input(path)
+    return {"path": path, "bytes": os.path.getsize(path), "media": media}
 
 def produced_media(outdir, stem):
     """Qual dos arquivos gravados com este stem é o VÍDEO.

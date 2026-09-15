@@ -82,21 +82,34 @@ PT-BR — *conteúdo forte → corte certo → comunicação clara → edição 
 **nunca** "efeito, efeito, efeito". Proibido por escrito: meme, emoji, texto em movimento
 constante, zoom agressivo, shake, música alta, cor neon, e **qualquer efeito disparado só
 porque o tempo passou**.
+**A fonte é o VÍDEO INTEIRO importado (decisão do usuário, 2026-09-15).** Colar a URL +
+declarar o direito + `Importar vídeo` baixa o original completo uma vez (`/api/yt-import`,
+com progresso real em `/api/yt-import-state`); ele toca num `<video>` do próprio site
+(`/sources/…`, servido com Range) e **todo** corte sai desse arquivo — trecho cru pelo
+`/api/video-cut` e editado pelo `/api/remotion-render`, os dois com `start`/`end` dentro da
+fonte. **Reverte explicitamente o "só o trecho escolhido é baixado".** Nada de iframe do
+YouTube na tela de edição. Mudar a borda de um corte invalida o que foi exportado dele e
+**nunca** a fonte. Regras próprias em `.claude/rules/estudio-ui.md` e `estudio-video-worker.md`.
 **Direitos autorais (inviolável):** analisar metadados/legenda é livre; **baixar mídia passa
-por portão de declaração explícita**, conferido duas vezes e válido por URL. Nunca remover o
-portão. Nunca `--exec`, `--netrc-cmd`, cookies de navegador ou `aria2c` no yt-dlp.
-**Dupla compressão do caminho YouTube — MEDIDA em 2026-09-08 e DESCARTADA.** O ENCODE 1 do
-yt-dlp (`--force-keyframes-at-cuts`) é `libx264 crf=23 preset=medium` e custa **47,5 dB PSNR /
-0,993 SSIM** contra o stream copy do mesmo trecho: praticamente transparente. `-crf 18` compra
-+2,4 dB por **+78% de arquivo**. Decisão: **não mexer** — nem a opção B (tirar a flag) nem a C
-(CRF menor). Não reabrir sem número novo. Medições em `docs/02-Execution/PLANO-3-dupla-compressao.md` §8,
-inclusive a armadilha de alinhamento de quadro que vale 17 dB.
+por portão de declaração explícita**, conferido duas vezes e válido por URL — agora o portão
+guarda a IMPORTAÇÃO (é ela que baixa), e a declaração, sendo por sessão, é o que religa a
+fonte já no disco ao ser marcada. Nunca remover o portão. Nunca `--exec`, `--netrc-cmd`,
+cookies de navegador ou `aria2c` no yt-dlp.
+**Dupla compressão do caminho YouTube — MEDIDA em 2026-09-08 e DESCARTADA; hoje o assunto
+ACABOU.** O ENCODE 1 do yt-dlp (`--force-keyframes-at-cuts`) era `libx264 crf=23
+preset=medium` e custava **47,5 dB PSNR / 0,993 SSIM** contra o stream copy do mesmo trecho —
+praticamente transparente, e por isso a decisão foi não mexer. A importação do vídeo inteiro
+não usa aquela flag (não recorta nada), então esse encode **deixou de existir** no caminho
+normal: cada corte sai de um encode único, feito aqui. A medição não foi revogada — ela dizia
+"não vale mexer nele", e não "ele tem de continuar existindo". Números em
+`docs/02-Execution/PLANO-3-dupla-compressao.md` §8, inclusive a armadilha de alinhamento de
+quadro que vale 17 dB.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**322**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**90**) · `test-video-ops-dom.js` (**141**) · `test-video-results.js` (**46**) — **1782 verificações nas dez, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**354**) · `test_ytclip.py` (**254**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**98**) · `test-video-ops-dom.js` (**165**) · `test-video-results.js` (**46**) — **1866 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

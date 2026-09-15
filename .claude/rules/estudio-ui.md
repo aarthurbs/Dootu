@@ -24,6 +24,16 @@ A Central vazia aponta para o YouTube. A edição e a revisão de legendas dos t
 do YouTube permanecem. Dados salvos não são apagados nem migrados nesta mudança.
 Os helpers do fluxo local descritos abaixo permanecem internos, sem tela acessível.
 
+## A FONTE é o vídeo INTEIRO (decisão do usuário, 2026-09-15)
+A tela `youtube` deixou de baixar trecho por trecho. O fluxo é: colar a URL → declarar o
+direito → **`Importar vídeo`** → o original completo desce uma vez e passa a ser a mídia de
+trabalho. A partir dela: o player interno toca a duração inteira, `Marcar trecho daqui` cria
+corte em qualquer ponto, e os dois exports (cru e editado) saem do MESMO arquivo. **Não
+recriar o caminho antigo** ("só o trecho escolhido é baixado"), nem reabrir o `/api/yt-fetch`
+no fluxo normal — a rota fica no servidor, com teste próprio, mas o botão não a chama mais.
+O rótulo do botão principal é `Importar vídeo`, não `Analisar`: a análise continua rodando
+(em paralelo, e ela não baixa mídia), mas já não é o que o primeiro clique faz.
+
 ## Bancada de duas colunas (>=1100px): a media query olha a JANELA, não a COLUNA
 Nos passos 2 e 3, `.vop-intake-work` vira grade de duas colunas — prévia à esquerda,
 ajustes à direita. A coluna da direita fica com **~683px** numa janela de 1440px, e é aí
@@ -50,7 +60,24 @@ usuário não é papel de um refactor de tela.
   **Carregar só no Passo 1** — passos 2 e 3 sem vídeo mostram `needVideoHTML()`,
   **nunca** um seletor de arquivo.
 - **`YT`** = estado de SESSÃO (morre com a aba). Trocar a URL derruba sugestões,
-  a declaração de direitos e as correções de legenda (`ytUrlWrite` → `capDrop`).
+  a declaração de direitos, as correções de legenda (`ytUrlWrite` → `capDrop`) **e a fonte**
+  (`srcReset`).
+- **`SRC`** = a FONTE importada: o vídeo inteiro (sessão). `{videoId, state, stage, percent,
+  error, token, name, url, bytes, durationSec, width, height, hasAudio}`. O ARQUIVO no disco
+  é a verdade durável — `SRC` é só o que a tela precisa, e o servidor o redescobre pelo disco
+  (`/api/yt-import-state`) depois de um recarregamento. `SRC.token` é o **id do vídeo**, e
+  isso é escolhido: ele passa no `TOKEN_RE` que o `/api/video-cut` exige e é ESTÁVEL, então o
+  mesmo original serve dois cortes seguidos sem subir nem baixar um byte.
+  - `IMPORT_STATES`/`IMPORT_STAGES` são **espelho do `serve.py`** e cada valor tem frase
+    (`IMPORT_MSG`/`IMPORT_STAGE_MSG`) — os checks 32a/32b do `test_serve` LEEM este arquivo.
+  - **`SRC_SEQ` é a guarda da corrida.** Colar outra URL no meio de uma importação sobe a
+    sequência; `srcApply` descarta resposta de sequência velha, de outro `videoId`, ou de um
+    id que já não é o da URL na tela. Sem isso o vídeo antigo chegaria depois e assumiria a
+    tela do recém-pedido — o pedido proíbe isso por escrito.
+  - **O portão de direitos é conferido DE NOVO no `srcApply`.** A declaração pode cair durante
+    os minutos do download; caindo, a fonte NÃO entra na sessão e o motivo é dito. O arquivo
+    fica no disco (apagar dado do operador não é papel desta tela), e re-declarar o religa na
+    hora — é o mesmo caminho do projeto reaberto, no `onRootChange` do `[data-yt-rights]`.
 - **`pp_video_clips_v1`** (`LIB_VERSION 1`) = a ÚNICA coisa persistida.
   `libAdd()` é o **ponto único** de registro, chamado pelos dois caminhos de
   download; `libEntry` recusa intervalo impossível e arquivo sem nome.
@@ -109,10 +136,28 @@ trechos exigia rolar a página.
   ao lado da sidebar do site, e medir a viewport erra a conta. Medido: 1198px → 3 colunas de
   376px · 757px → 2 de 351px · 458px → 1. Sem suporte a container query, o padrão de uma
   coluna continua valendo.
-- **Um player, num diálogo.** `ytPreviewHTML` monta UM `<iframe>` e só quando a prévia está
-  aberta — a grade tem zero player (medido). `Esc` fecha a prévia e o menu de baixar, por um
-  ouvinte no DOCUMENTO: com o foco dentro do iframe do YouTube, um ouvinte na raiz nunca
-  receberia a tecla.
+- **UM player, e ele é do SITE (decisão do usuário, 2026-09-15).** O `<iframe>` do YouTube
+  saiu das DUAS pontas — o diálogo de prévia (`ytPreviewHTML`, `YT.preview`, `.yt-modal*`) e
+  a moldura da tela de detalhe (`.yt-detail-player`) foram apagados. No lugar, `srcPanelHTML`
+  monta **um** `<video data-src-video src="/sources/…" controls>` no ALTO da tela, acima da
+  grade E da tela de detalhe, e as três coisas falam com ele: `Prévia` (`srcSeek`) arrasta e
+  toca, abrir um trecho posiciona no começo dele, e `Marcar trecho daqui` lê o `currentTime`.
+  Dois players do mesmo arquivo de 2 GB custariam dois decodes e discordariam sobre onde o
+  operador está olhando. `Esc` fecha só o menu de baixar — não há mais diálogo.
+  - **`srcAdopt` preserva o nó `<video>` entre renders, e isto NÃO é otimização.** O
+    `render()` troca o `innerHTML` inteiro; um player recriado perde posição, volume e buffer,
+    e num arquivo de 2 GB isso quer dizer rebaixar tudo e voltar ao segundo zero a cada
+    clique em "Baixar". A marcação DECLARA o player (assim ele é testável) e o `srcAdopt`
+    troca o nó recém-criado pelo vivo quando a URL é a mesma. O detach e o reattach acontecem
+    na **mesma tarefa síncrona** — a especificação só pausa a mídia depois de esperar um
+    *stable state* e conferir se o elemento continua fora do documento, e ele já voltou. Fora
+    da mesma tarefa isto não funciona.
+  - **A barra de progresso da importação anda SEM re-render** (`srcRefresh`): reescrever a
+    tela a cada segundo tiraria o foco de quem digita a URL (BP-001) e remontaria o player. O
+    re-render fica para a TRANSIÇÃO de estado, que é quando a tela muda de cara.
+  - **`.vop-cand-mask` PRECISA de `pointer-events: none`** — por cima de um `<video controls>`
+    sem isso os botões de play, volume e a barra de tempo param de aceitar clique, ou seja a
+    máscara tiraria justamente a navegação que esta tela existe para dar.
 - **Miniatura = quadro DO TRECHO, pelo storyboard do YouTube.** `serve` entrega
   `storyboard` (`{sheets, rows, columns, fps}`) e o `sbFrame` recorta o quadro de 35% dentro
   do intervalo com `width/height` em % e `transform: translate()`. Nenhum byte de vídeo é
@@ -122,10 +167,24 @@ trechos exigia rolar a página.
     na mesma sessão mantém a folha; vídeo diferente (ou página recarregada) cai na capa
     **rotulada** `Imagem do vídeo`, e imagem que falha vira `Prévia indisponível`. Capa
     fingindo ser quadro do trecho é o defeito que os rótulos existem para não ter.
-- **`Baixar` é um menu de dois destinos com nome**: `Baixar trecho original` (recorte cru) e
-  `Baixar vídeo editado` (9:16 do Remotion). "Baixar" sozinho não diz qual arquivo sai, e
-  entregar o antigo sob esse rótulo é o defeito. Sem trecho no disco, o editado fica
-  **desabilitado com o motivo escrito**.
+- **`Baixar` é um menu de dois destinos com nome**: `Baixar trecho original` (recorte cru,
+  pelo `/api/video-cut` com `profile=horizontal`) e `Baixar vídeo editado` (9:16 do Remotion).
+  "Baixar" sozinho não diz qual arquivo sai, e entregar o antigo sob esse rótulo é o defeito.
+  Os DOIS saem da fonte importada, e o único pré-requisito dos dois é `srcReady()` — o
+  editado **não** depende mais de baixar o trecho antes. Sem fonte, os dois ficam
+  **desabilitados com o motivo escrito**, e o motivo fala de IMPORTAR.
+- **`clipToken`/`clipFilename`/`clipBytes` mudaram de significado.** Eram "o MP4 deste trecho
+  está no disco" (e era isso que destravava o render); hoje são o registro do que foi
+  **exportado** deste trecho. `clipBoundaryChanged` continua descartando os três — e a FONTE
+  nunca vai junto. **`clipFilename` NÃO viaja no corpo do `/api/remotion-render`**: ele era a
+  rede que restaurava o arquivo do trecho quando o token expirava, e mandado junto hoje faria
+  um token de fonte expirado renderizar o **próprio arquivo exportado** como se fosse a
+  fonte. A rede certa passou a ser o `/api/yt-import`, que redescobre a fonte no disco.
+- **`validateProjectClips`/`persistProjectClipFilename` foram APAGADAS** — respondiam "o MP4
+  deste trecho está no disco?" com uma chamada ao `/api/clip-status` POR TRECHO. A pergunta
+  virou "a fonte está pronta?", e quem responde é o `srcRestore`, com UMA chamada. A rota
+  `/api/clip-status` fica no servidor (tem teste próprio e não custa nada parada); o que saiu
+  foi o chamador.
 - **`Remotion` não aparece na interface** — é detalhe de implementação. O botão diz
   "Baixar vídeo editado". Check no `test-video-ops-dom.js`.
 - **Depois de analisar, a tela FICA no hub.** Ia para "Meus projetos", o que punha um clique
@@ -135,24 +194,36 @@ trechos exigia rolar a página.
 ## O intervalo resolvido é SEGUNDO INTEIRO, e há UM dono
 `ytclip.candidates` entrega `inSec`/`outSec` já em segundo inteiro (piso no começo, teto no
 fim — os dois lados ALARGAM para dentro do silêncio, nunca comem fala). Não é preguiça: o
-nome do arquivo baixado é `<id>-<início>-<fim>.mp4` com inteiros, o `/api/yt-fetch` recebe
-`num(inSec)` (que **arredonda**), o `?start=` do player é inteiro e o `/api/clip-status` acha
-o arquivo pelo mesmo par. Com fração, o detector prometia 2071,35 e o export entregava 2071
-— borda diferente da calculada, calada. Foi o mesmo `num()` que fez os botões de ajuste de
-**meio** segundo não fazerem nada: o passo é de **1 s**.
+nome do arquivo exportado leva os inteiros, a query do `/api/video-cut` recebe `num(inSec)`
+(que **arredonda**) e o `edit_key` da legenda corrigida acha a correção pelo mesmo par. Com
+fração, o detector prometia 2071,35 e o export entregava 2071 — borda diferente da calculada,
+calada. Foi o mesmo `num()` que fez os botões de ajuste de **meio** segundo não fazerem nada:
+o passo é de **1 s**. O botão `daqui` segue a MESMA regra, com os dois lados alargando:
+`Math.floor` no começo, `Math.ceil` no fim.
 
-- **Mudar a borda invalida a mídia** (`clipBoundaryChanged`): token, nome do arquivo,
-  tamanho, `clipCues` (que estavam rebaseadas no começo ANTIGO) e o painel de legenda saem
-  juntos, e `rev` sobe. O **`id` NÃO muda** — projeto salvo continua abrindo. `ytApplyTrim`
-  é exportada e testada nos dois ramos, com e sem arquivo baixado (BP-014).
+- **Mudar a borda invalida o EXPORTADO, nunca a fonte** (`clipBoundaryChanged`): token, nome
+  do arquivo, tamanho, `clipCues` (que estavam rebaseadas no começo ANTIGO) e o painel de
+  legenda saem juntos, e `rev` sobe. O **`id` NÃO muda** — projeto salvo continua abrindo. E
+  `SRC` não é tocado: é o pedido em pessoa ("mudar um corte pode invalidar a versão exportada
+  dele, mas não pode invalidar nem remover o vídeo importado"). `ytApplyTrim` é exportada e
+  testada nos dois ramos, com e sem arquivo exportado (BP-014).
+- **A legenda do trecho vem do sidecar da FONTE, na hora** (`srcCuesLoad` → `/api/clip-captions`
+  com `{token, name, start, end}`). Antes ela viajava dentro do `/api/yt-fetch`, ou seja não
+  existia sem baixar o trecho. A chamada é feita ao ABRIR o trecho e ao mudar a borda, e a
+  resposta é descartada se `clip.rev` mudou no caminho — texto de um intervalo em cima de
+  outro é o defeito que o `capOf` já guardava pelo par de tempos.
 - **`boundary` diz de onde vem a borda** e a tela escreve isso: `palavra` (instante da
   palavra), `fala` (legenda sem tempo por palavra), `audiencia` (sem legenda) ou `manual`
   (ajustada por você). Afirmar conferência que não houve é o que o pedido proíbe.
 
 ## Fiação (o que já quebrou calado)
-- **`renderBody(clip, comLegenda)` é função pura exportada** — o corpo do POST
+- **`renderBody(clip, comLegenda, fonte)` é função pura exportada** — o corpo do POST
   montado inline dentro do `fetch` deixou `title: ''` cravado, e o card do título
   inteiro (33 verificações verdes) **nunca chegou à tela**. Família do BP-014.
+  - **`start`/`end` e o token da fonte andam num ÚNICO ramo `if (daFonte)`.** Mandar o token
+    da fonte sem o intervalo faz o servidor renderizar o vídeo INTEIRO — duas horas de
+    podcast no lugar de um corte de 40 s, descobertas depois de horas de render. Separá-los
+    em dois `if` é abrir a porta para exatamente isso.
 - **`projectsPersist()` tem guarda `if (!PROJECTS) return false;`** — gravar nulo
   antes do `init` APAGARIA os projetos salvos.
 - **BP-014:** função que sanitiza/migra/carrega dado PERSISTIDO
