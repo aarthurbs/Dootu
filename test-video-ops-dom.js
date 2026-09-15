@@ -10,6 +10,7 @@ const path = require('path');
 
 const BS = String.fromCharCode(92);
 const MODULO = './video-ops.js';
+const RESULTADOS = './video-results.js';
 
 function fakeEl(sel) {
   const el = {
@@ -62,6 +63,11 @@ function bancada(dadosSalvos) {
   global.navigator = { clipboard: { writeText() { return Promise.resolve(); } } };
   global.confirm = () => true;
 
+  /* Mesma ordem do `index.html`: o `video-results.js` se registra em `window.videoResults`
+     ANTES do Estúdio montar. Carregar aqui é o que torna a aba Resultados alcançável nesta
+     bancada — e o cenário que o APAGA logo abaixo prova o outro ramo. */
+  delete require.cache[require.resolve(RESULTADOS)];
+  require(RESULTADOS);
   delete require.cache[require.resolve(MODULO)];
   require(MODULO);
   return {
@@ -98,15 +104,21 @@ function ok(nome, valor) {
 }
 
 async function main() {
-  /* ----------------------------------------------------- a barra tem 5 telas, e só 5 */
+  /* ----------------------------------------------------- somente as três telas ativas */
   let b = bancada();
   ok('init renderiza sem estourar', b.html().length > 500);
-  ok('Passo 1 abre por padrão', /Comece pelo vídeo/.test(b.html()));
-  ok('Passo 1 é a tela que carrega o arquivo', /data-intake-input/.test(b.html()));
-  ['overview', 'cuts', 'review', 'central', 'youtube'].forEach(t => {
+  ok('Central abre por padrão', /data-tab="central" aria-pressed="true"/.test(b.html()));
+  ok('a tela inicial não oferece o fluxo removido', !/data-intake-input|Passo [123]/.test(b.html()));
+  const navegacao = /<nav class="vop-flow"[^>]*>([\s\S]*?)<\/nav>/.exec(b.html())[1];
+  // Resultados entrou em 2026-09-14 (decisão do usuário). O guard continua fechado: a
+  // lista é EXAUSTIVA, então as rotas apagadas (`overview`, `cuts`, `review`) seguem
+  // barradas — só a tela autorizada foi somada.
+  ok('a barra contém somente Central, Meus projetos, YouTube e Resultados, nessa ordem',
+    [...navegacao.matchAll(/data-tab="([^"]+)"/g)].map(m => m[1]).join(',') === 'central,projects,youtube,resultados');
+  ['central', 'projects', 'youtube', 'resultados'].forEach(t => {
     ok('a barra tem a tela ' + t, b.html().indexOf('data-tab="' + t + '"') > 0);
   });
-  ['sources', 'queue', 'creators', 'accounts', 'reports'].forEach(t => {
+  ['overview', 'cuts', 'review', 'sources', 'queue', 'creators', 'accounts', 'reports'].forEach(t => {
     ok('a tela removida ' + t + ' não voltou', b.html().indexOf('data-tab="' + t + '"') < 0);
   });
   ['Material', 'Posts', 'Direitos', 'Contas', 'Relatórios'].forEach(rotulo => {
@@ -115,13 +127,12 @@ async function main() {
   ok('a Central aparece no cabeçalho com a contagem', /Central · 0 clip/.test(b.html()));
   ok('o badge da navegação conta os clips guardados', String(b.badge.textContent) === '0');
 
-  /* ------------------------------------------- passos 2 e 3 sem vídeo: nada de seletor */
-  b.aba('cuts');
-  ok('Passo 2 sem vídeo manda voltar ao Passo 1', /Carregue o vídeo no Passo 1/.test(b.html()));
-  ok('Passo 2 sem vídeo NÃO oferece seletor de arquivo', !/data-intake-input/.test(b.html()));
-  b.aba('review');
-  ok('Passo 3 sem vídeo manda voltar ao Passo 1', /Carregue o vídeo no Passo 1/.test(b.html()));
-  ok('Passo 3 sem vídeo NÃO oferece seletor de arquivo', !/data-intake-input/.test(b.html()));
+  /* ------------------------------------------- rotas antigas não reabrem o fluxo */
+  ['overview', 'cuts', 'review', 'desconhecida'].forEach(t => {
+    const antes = b.html();
+    b.aba(t);
+    ok('a rota removida ou inválida ' + t + ' é ignorada', b.html() === antes);
+  });
 
   /* --------------------------------------------------------------- Central vazia */
   b.aba('central');
@@ -488,16 +499,42 @@ async function main() {
   await tick(); await tick(); await tick();
   ok('helper fora do ar não derruba a tela', b.html().length > 500);
 
+  /* ------------------------------------- Resultados: a delegação para o módulo vizinho
+     A tela mora no `video-results.js`. Aqui prova-se a FIAÇÃO, não a lógica dela (que tem
+     suíte própria): a aba monta, o clique `res-*` chega ao módulo pela delegação da raiz, e
+     a ausência do arquivo não derruba o Estúdio. */
+  b = bancada();
+  b.aba('resultados');
+  ok('a aba Resultados monta a tela do módulo vizinho',
+    b.html().indexOf('Nenhuma publicação registrada') > 0);
+  ok('e a tela nova não trouxe de volta o pipeline de publicação apagado',
+    !/Aprovar|Drive|publicationPackage|data-act="post/.test(b.html()));
+  b.clique({ act: 'res-new' });
+  ok('o clique res-* é entregue ao módulo pela delegação da raiz',
+    b.html().indexOf('Registrar uma publicação') > 0);
+  b.clique({ act: 'res-cancel' });
+  ok('e voltar também', b.html().indexOf('Nenhuma publicação registrada') > 0);
+
+  // A bancada registra o módulo no `window` novo que ela cria, então apagar tem de ser
+  // DEPOIS dela — apagar antes só seria desfeito pelo require seguinte.
+  b = bancada();
+  delete global.window.videoResults;
+  b.aba('resultados');
+  ok('sem o video-results.js a aba DIZ o motivo em vez de ficar vazia (BP-008)',
+    b.html().indexOf('não carregou') > 0 && b.html().indexOf('video-results.js') > 0);
+  b.aba('central');
+  ok('e o resto do Estúdio continua funcionando sem ele', b.html().length > 500);
+
   /* -------------------------------------------------- a dica muda com a tela atual */
   b = bancada();
   const dicas = {};
-  ['overview', 'cuts', 'review', 'central', 'youtube'].forEach(t => {
+  ['central', 'projects', 'youtube', 'resultados'].forEach(t => {
     b.aba(t);
     const achou = /class="vop-flow-hint">([^<]+)</.exec(b.html());
     dicas[t] = achou ? achou[1] : '';
     ok('a tela ' + t + ' tem dica escrita', dicas[t].length > 20);
   });
-  ok('cada tela tem a sua dica', new Set(Object.values(dicas)).size === 5);
+  ok('cada tela tem a sua dica', new Set(Object.values(dicas)).size === 4);
 
   console.log(provas + ' provas OK — DOM do Estúdio de Vídeos (' + path.basename(__filename) + ')');
 }

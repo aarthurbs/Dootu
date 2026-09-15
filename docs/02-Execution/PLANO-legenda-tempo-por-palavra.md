@@ -1,5 +1,15 @@
 # Plano pronto: legenda por tempo de PALAVRA
 
+> **Estado (conferido em 2026-09-14): ENTREGUE em 2026-08-28/31, com UMA porta aberta.**
+> O tempo por palavra entrou por `ytclip.parse_json3_words` → `captions.cues_from_words`
+> (`tOffsetMs` em `ytclip.py`, checks em `test_ytclip.py`), e o karaokê por palavra acende no
+> `studio/src/Clip.jsx`. **`parse_json3` ficou byte a byte igual de propósito** — o
+> `candidates()` mede a pausa naquela grade.
+> **Ainda ABERTO e não decidido:** trocar a fonte da legenda por **transcrição local
+> (Whisper)**. Não rodou aqui, não foi medido, e implica dependência nova num projeto que é
+> stdlib no Python e Vanilla JS sem npm. Ver `../01-Wiki/archive/HISTORICO-estudio-video.md`
+> (l. 136, 146 e 147) e o item correspondente em `PENDENCIAS.md`.
+
 Escrito em 2026-08-28 para ser **disparado numa sessão nova**, quando o crédito voltar. O
 trabalho todo está em `.claude/workflows/legenda-tempo-por-palavra.js`, que é auto-contido:
 não depende de nenhuma conversa anterior.

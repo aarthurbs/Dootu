@@ -33,7 +33,8 @@ $suites = @(
   @{ rotulo = 'test_helper.py';        cmd = 'py';   args = @('-3.12', 'baixador/local-helper/test_helper.py') },
   @{ rotulo = 'studio/test-preset.mjs';cmd = 'node'; args = @('studio/test-preset.mjs') },
   @{ rotulo = 'test-video-ops.js';     cmd = 'node'; args = @('test-video-ops.js') },
-  @{ rotulo = 'test-video-ops-dom.js'; cmd = 'node'; args = @('test-video-ops-dom.js') }
+  @{ rotulo = 'test-video-ops-dom.js'; cmd = 'node'; args = @('test-video-ops-dom.js') },
+  @{ rotulo = 'test-video-results.js';cmd = 'node'; args = @('test-video-results.js') }
 )
 
 $total = 0

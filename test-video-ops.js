@@ -1,6 +1,6 @@
 // Provas da lógica pura do Estúdio de Vídeos (video-ops.js) — sem DOM e sem rede.
 //
-// O Estúdio tem cinco telas: 1 Vídeo, 2 Cortes, 3 Clips, Central e YouTube. O pipeline de
+// O Estúdio tem três telas: Central, Meus projetos e YouTube. O pipeline de
 // publicação (contas, material, direitos, posts, relatórios) saiu em 2026-08-21, e com ele
 // saíram as provas de aprovação/variante/CSV/Drive. O que sobrou é o que ainda existe:
 // tempo, marcação, nome de arquivo, comando do FFmpeg, o registro da Central e o portão de

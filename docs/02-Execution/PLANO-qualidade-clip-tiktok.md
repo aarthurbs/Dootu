@@ -1,5 +1,11 @@
 # PLANO — qualidade do clip 9:16 para postar no TikTok
 
+> **Estado (conferido em 2026-09-14): ENTREGUE em 2026-09-03.** Não é trabalho ativo.
+> `ZONA_UI_PCT`, `THUMB_LUZ`, `CAPTION_STATES` e `AUDIO_NORM_FAILED` estão no código
+> (`captions.py`, `serve.py`, `worker.py`, `studio/src/preset.js`). Os números e as medições
+> viraram contrato em `../03-Decisions/CONTRATO-qualidade-clip.md`. Fechamento em
+> `../01-Wiki/archive/HISTORICO-estudio-video.md` (l. 249) — "o defeito não era um: eram seis".
+
 **Data:** 2026-09-03
 **Decisão do usuário:** os clips que saem do Estúdio não estão com qualidade boa o suficiente para postar.
 **Escopo aprovado:** seis frentes numa entrega só.

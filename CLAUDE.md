@@ -1,7 +1,7 @@
 # Contexto do Projeto
 Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localStorage`): Painel do Empreendedor e Estúdio de Vídeos, mais widgets pessoais (placar NBA/Copa ao vivo). Módulos REMOVIDOS: **Amazon FBA** (2026-06-29), **Precificação**, **Inventário Amazon** e **Shooting Range** (2026-08-17), e **Prompts salvos**, **Planilha de Faturador**, **Radar** e **Fluxos** (2026-09-08) - ver Domínio do Negócio. O backend full-stack (Supabase/SP-API) está planejado, mas PAUSADO.
 
-## Arquitetura alvo (ver ARQUITETURA.md)
+## Arquitetura alvo (ver `docs/01-Wiki/ARQUITETURA.md`)
 - Frontend: site Vanilla JS atual (`index.html`) — NÃO reescrever; evoluir incrementalmente.
 - Backend: Supabase (Postgres + Auth + Edge Functions + RLS).
 - Integração: Amazon SP-API, acessada SOMENTE por Edge Functions (Deno). O navegador nunca fala com a Amazon.
@@ -18,25 +18,26 @@ Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localSto
 Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado sob demanda:
 - `.claude/rules/*.md` — regras ATIVAS por caminho, com `paths` no frontmatter. Carregam
   quando você toca o arquivo correspondente, não na partida.
-- `docs/archive/HISTORICO-*.md` — trabalho CONCLUÍDO: decisões datadas, armadilhas MEDIDAS
+- `docs/01-Wiki/archive/HISTORICO-*.md` — trabalho CONCLUÍDO: decisões datadas, armadilhas MEDIDAS
   ("não re-descobrir"), revisões adversariais. **Não são importados de propósito** (import
   consome contexto de partida). Grep neles antes de mexer num número ou numa guarda.
-- Backup íntegro do CLAUDE.md anterior (177.891 chars): `docs/archive/CLAUDE.md.backup-2026-09-04`.
+- Backup íntegro do CLAUDE.md anterior (177.891 chars): `docs/01-Wiki/archive/CLAUDE.md.backup-2026-09-04`.
 
 | Vai mexer em | Regra ativa | Histórico |
 |---|---|---|
 | `video-worker/**` (FFmpeg, ASS, yt-dlp, rotas) | `.claude/rules/estudio-video-worker.md` | `HISTORICO-estudio-video.md` |
 | `studio/**` (Remotion, preset, card) | `.claude/rules/estudio-remotion.md` | `HISTORICO-estudio-video.md` |
 | `video-ops.js` / `.css` (tela do Estúdio) | `.claude/rules/estudio-ui.md` | `HISTORICO-estudio-video.md` |
+| `video-results.js` (Resultados dos cortes) | `.claude/rules/estudio-resultados.md` | — |
 | `baixador/**` (extensão + helper) | `.claude/rules/baixador.md` | `HISTORICO-estudio-video.md` |
-| `cloud/**`, `web/**` (lançamento Fase 1) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
+| `web/**` (lançamento Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
 | `index.html`, `empreendedor.js` | `.claude/rules/modulos-index-html.md` | — |
 
 # Domínio do Negócio (Multi-marketplace)
 - **Módulos ATIVOS** (nenhum é código morto — BP-007): Central (home) · Painel do Empreendedor ·
   Estúdio de Vídeos · widgets pessoais (placar NBA/Copa). Detalhes de cada um nas regras por caminho.
 - **Módulos REMOVIDOS — não recriar nem referenciar** (inventário completo em
-  `docs/archive/HISTORICO-modulos-removidos.md`):
+  `docs/01-Wiki/archive/HISTORICO-modulos-removidos.md`):
   - **Prompts salvos, Planilha de Faturador, Radar e Fluxos** (2026-09-08, decisão do usuário —
     simplificação do site antes da migração para o Obsidian). Não voltam. Tokens que saíram:
     - Prompts: `pp_prompts_v1` · `pp_projects_v1` · `#cards-grid` · `#toolbar` · `#empty-state` ·
@@ -65,10 +66,17 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
   - **Shooting Range** (2026-08-17): `SRCore` · `shootingRangeSetActive` · `pp_shooting_range_v1`.
     **`docs/shooting-range/` e `vendor/three.min.js` FICAM** — são insumo de plano não iniciado, não código morto.
 - **Auditoria de performance 2026-06-30**: concluída e aplicada; virou BP-005 e BP-006.
-  Registro em `docs/archive/HISTORICO-performance-2026-06-30.md`.
+  Registro em `docs/01-Wiki/archive/HISTORICO-performance-2026-06-30.md`.
 
 # Estúdio de Vídeos (regra de topo)
-Cinco telas: `1 Vídeo` › `2 Cortes` › `3 Revisão`, mais `Central` e `YouTube`.
+Quatro telas: `Central` (inicial), `Meus projetos`, `YouTube` e `Resultados`. As etapas
+`1 Vídeo`, `2 Cortes` e `3 Revisão` saíram da navegação em 2026-09-14 por decisão do
+usuário. Não reabrir essas rotas; a edição dos trechos do YouTube e os dados salvos permanecem.
+**`Resultados dos cortes` (2026-09-14, decisão do usuário):** `video-results.js`, chave
+própria `pp_video_results_v1`, registro manual de publicação e de medição para descobrir
+que formato rende mais. Esta autorização **não** reabre o pipeline de publicação apagado em
+2026-08-21 (contas, Drive, CSV, aprovação por hash) — é área de ANÁLISE do que já foi
+publicado à mão. Regras próprias em `.claude/rules/estudio-resultados.md`.
 **Direção editorial (decisão do usuário):** cortes de podcast de negócios/empreendedorismo em
 PT-BR — *conteúdo forte → corte certo → comunicação clara → edição discreta → autoridade*,
 **nunca** "efeito, efeito, efeito". Proibido por escrito: meme, emoji, texto em movimento
@@ -81,14 +89,14 @@ portão. Nunca `--exec`, `--netrc-cmd`, cookies de navegador ou `aria2c` no yt-d
 yt-dlp (`--force-keyframes-at-cuts`) é `libx264 crf=23 preset=medium` e custa **47,5 dB PSNR /
 0,993 SSIM** contra o stream copy do mesmo trecho: praticamente transparente. `-crf 18` compra
 +2,4 dB por **+78% de arquivo**. Decisão: **não mexer** — nem a opção B (tirar a flag) nem a C
-(CRF menor). Não reabrir sem número novo. Medições em `docs/PLANO-3-dupla-compressao.md` §8,
+(CRF menor). Não reabrir sem número novo. Medições em `docs/02-Execution/PLANO-3-dupla-compressao.md` §8,
 inclusive a armadilha de alinhamento de quadro que vale 17 dB.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
-**Rode `.\provas.ps1`.** Ele roda as nove suítes, soma, e **confere o total contra a linha
+**Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**322**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**90**) · `test-video-ops-dom.js` (**133**) — **1728 verificações nas nove, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**322**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**90**) · `test-video-ops-dom.js` (**141**) · `test-video-results.js` (**46**) — **1782 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

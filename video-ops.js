@@ -1,10 +1,8 @@
 /* Estúdio de Vídeos — do vídeo longo ao MP4 pronto para postar.
 
-   O módulo tem CINCO telas e nada além disso:
-     1 Vídeo   — carrega o original desta sessão (arquivo local).
-     2 Cortes  — marca os trechos no mesmo vídeo (nome + prioridade).
-     3 Revisão — a lista dos cortes e o ⬇ que gera o MP4 de verdade.
-     Central   — os clips JÁ baixados, agrupados por vídeo. É a única coisa persistida.
+   A navegação tem três telas:
+     Central   — os clips JÁ baixados, agrupados por vídeo.
+     Meus projetos — vídeos analisados e seus trechos sugeridos.
      YouTube   — cola a URL, o detector sugere trechos, baixa só o trecho e edita no Remotion.
 
    O pipeline de publicação (contas, material de terceiro, direitos, posts, relatórios,
@@ -185,7 +183,7 @@
   /* Estados possíveis de um projeto. */
   var PROJECT_STATUS = { analyzing: 'analyzing', ready: 'ready', error: 'error' };
   var PROJECT_STATUS_LABEL = { analyzing: 'Analisando...', ready: 'Pronto', error: 'Erro na análise' };
-  var TAB = 'overview';
+  var TAB = 'central';
   var TOAST = null;
   var BROKEN_RAW = '';
   var uidN = 0;
@@ -1514,8 +1512,8 @@
   function centralHTML() {
     if (!LIB.clips.length) {
       return emptyHTML('Nenhum clip baixado ainda',
-        'A Central guarda os MP4 que você já baixou, agrupados pelo vídeo de origem. Baixe um clip no Passo 3 (ou na tela YouTube) e ele aparece aqui — mesmo depois de fechar o site.',
-        'tab', 'Ir para o Passo 1', 'data-tab="overview"');
+        'A Central guarda os MP4 que você já baixou, agrupados pelo vídeo de origem. Baixe um clip na tela YouTube e ele aparece aqui — mesmo depois de fechar o site.',
+        'tab', 'Ir para o YouTube', 'data-tab="youtube"');
     }
     var groups = libGroups(LIB.clips);
     return '<section class="vop-section">'
@@ -1965,8 +1963,7 @@
             : (YT.state === 'ready'
               ? '<div class="yt-empty"><h3>Nenhum trecho passou nos critérios</h3>'
                 + '<p>Este vídeo não rendeu trecho que comece numa frase inteira e feche a ideia. '
-                + 'Tente outro vídeo — ou marque o trecho na mão pelo Passo 1.</p>'
-                + '<button class="vop-btn" type="button" data-act="tab" data-tab="overview">Marcar na mão</button></div>'
+                + 'Tente analisar outro vídeo.</p></div>'
               : ''))))
       + '<small class="vop-mark-note">O vídeo editado vai para a Central, com o endereço do arquivo no seu computador.</small>'
       + '</section>'
@@ -2981,32 +2978,42 @@
   }
 
   /* --- Barra de telas e render ------------------------------------------------------
-     O fluxo é o trabalho do dia (um vídeo, seus cortes, os clips). A Central, Projetos e o YouTube
-     ficam ao lado, em escala menor: uma é o histórico, outra são os projetos, a outra é a porta de entrada. */
+     Central, projetos salvos e análise do YouTube são as únicas telas disponíveis. */
   var FLOW_HINT = {
-    overview: 'Passo 1 — carregue o vídeo original. Só isto: os cortes vêm no passo seguinte.',
-    cuts: 'Passo 2 — marque os trechos no mesmo vídeo e dê nome e prioridade a cada corte.',
-    review: 'Passo 3 — seus clips: ajuste o título e a urgência de cada um e baixe o vídeo.',
     central: 'Os clips que você já baixou, agrupados por vídeo. Aqui você baixa de novo.',
     projects: 'Seus projetos de análise: cada vídeo do YouTube analisado vira um projeto com seus trechos sugeridos.',
-    youtube: 'Cole a URL do YouTube: a análise sugere trechos e só o trecho escolhido é baixado.'
+    youtube: 'Cole a URL do YouTube: a análise sugere trechos e só o trecho escolhido é baixado.',
+    resultados: 'O que aconteceu depois de publicar: registre cada publicação, anote as métricas com data e veja quais formatos rendem mais.'
   };
-  function tabButtonHTML(tab, step) {
+  /* A tela Resultados vive no `video-results.js` — módulo próprio, chave própria
+     (`pp_video_results_v1`). Estas duas funções são o ÚNICO ponto de contato: se o arquivo
+     não carregar, a aba DIZ o motivo em vez de renderizar vazio (BP-008), e o resto do
+     Estúdio continua funcionando. */
+  function resultsAPI() {
+    return (typeof window !== 'undefined' && window.videoResults) ? window.videoResults : null;
+  }
+  function resultadosHTML() {
+    var api = resultsAPI();
+    if (!api) {
+      return emptyHTML('A tela de Resultados não carregou',
+        'O arquivo video-results.js não foi encontrado nesta página. Recarregue; se continuar assim, confira se a tag <script src="video-results.js"> ainda está no index.html.',
+        'tab', 'Voltar para a Central', 'data-act="tab" data-tab="central"');
+    }
+    return api.html(LIB ? LIB.clips : []);
+  }
+  function tabButtonHTML(tab) {
     return '<button type="button" data-act="tab" data-tab="' + tab[0] + '"'
       + ' aria-pressed="' + (TAB === tab[0]) + '" class="' + (TAB === tab[0] ? 'active' : '') + '">'
-      + (step ? '<b aria-hidden="true">' + step + '</b>' : '') + esc(tab[1])
+      + esc(tab[1])
       + (tab[2] !== '' ? '<span>' + tab[2] + '</span>' : '') + '</button>';
   }
   function tabsHTML() {
-    var fluxo = [['overview', 'Vídeo', ''], ['cuts', 'Cortes', INTAKE.cuts.length || ''],
-      ['review', 'Revisão', INTAKE.cuts.length || '']];
     var projetosCount = PROJECTS && PROJECTS.projects ? PROJECTS.projects.length : 0;
-    var lado = [['central', 'Central', LIB.clips.length || ''], ['projects', 'Meus projetos', projetosCount || ''], ['youtube', 'YouTube', YT.candidates.length || '']];
+    var api = resultsAPI();
+    var publicacoes = api ? api.count() : 0;
+    var tabs = [['central', 'Central', LIB.clips.length || ''], ['projects', 'Meus projetos', projetosCount || ''], ['youtube', 'YouTube', YT.candidates.length || ''], ['resultados', 'Resultados', publicacoes || '']];
     return '<nav class="vop-flow" aria-label="Telas do estúdio">'
-      + '<div class="vop-flow-steps">' + fluxo.map(function (tab, i) {
-        return (i ? '<i class="vop-flow-sep" aria-hidden="true">›</i>' : '') + tabButtonHTML(tab, i + 1);
-      }).join('') + '</div>'
-      + '<div class="vop-flow-more">' + lado.map(function (tab) { return tabButtonHTML(tab, 0); }).join('') + '</div>'
+      + '<div class="vop-flow-steps">' + tabs.map(tabButtonHTML).join('') + '</div>'
       + '</nav>'
       + '<p class="vop-flow-hint">' + esc(FLOW_HINT[TAB] || '') + '</p>';
   }
@@ -3036,12 +3043,11 @@
       return;
     }
     var body = '';
-    if (TAB === 'cuts') body = cutsStepHTML();
-    else if (TAB === 'review') body = reviewStepHTML();
-    else if (TAB === 'central') body = centralHTML();
+    if (!Object.prototype.hasOwnProperty.call(FLOW_HINT, TAB)) TAB = 'central';
+    if (TAB === 'central') body = centralHTML();
     else if (TAB === 'projects') body = projectsHTML();
     else if (TAB === 'youtube') body = ytStepHTML();
-    else body = videoStepHTML();
+    else if (TAB === 'resultados') body = resultadosHTML();
     root.innerHTML = headerHTML() + tabsHTML() + '<main class="vop-body">' + body + '</main>';
     bindIntake();
     refreshBadge();
@@ -3175,6 +3181,11 @@
   }
   function onRootChange(event) {
     /* <select> dispara change; o input de nome também cai aqui no blur. Idempotente. */
+    if (event.target.matches('[data-res-filter]')) {
+      var resApi = resultsAPI();
+      if (resApi && resApi.field(event.target)) renderKeepingScroll();
+      return;
+    }
     if (event.target.matches('[data-cut-field]')) { cutFieldWrite(event.target); return; }
     if (event.target.matches('[data-clip-field]')) { clipFieldWrite(event.target); return; }
     if (event.target.matches('[data-cap-field]')) { capCueWrite(event.target); return; }
@@ -3217,7 +3228,19 @@
     var button = event.target.closest('[data-act]');
     if (!button) return;
     var action = button.dataset.act;
-    if (action === 'tab') { TAB = button.dataset.tab; render(); }
+    /* Tudo que começa em `res-` é da tela Resultados. O módulo decide o que fazer e só diz
+       se precisa repintar — quem repinta é aqui, dono do `#video-ops-root`: dois módulos
+       escrevendo no mesmo innerHTML acabariam com um apagando o outro. */
+    if (action.indexOf('res-') === 0) {
+      var resApi = resultsAPI();
+      if (resApi && resApi.act(action, button)) renderKeepingScroll();
+      return;
+    }
+    if (action === 'tab') {
+      if (!Object.prototype.hasOwnProperty.call(FLOW_HINT, button.dataset.tab)) return;
+      TAB = button.dataset.tab;
+      render();
+    }
     else if (action === 'open-project') {
       var projectId = button.dataset.projectId;
       if (projectId) openProject(projectId);

@@ -1,5 +1,13 @@
 # PLANO 1 — as 4 tags de cor no caminho Remotion
 
+> **Estado (conferido em 2026-09-14): ENTREGUE em 2026-09-04.** Não é trabalho ativo.
+> Prova no código, não na palavra: `worker.COR_BSF` (`worker.py:127`), a guarda
+> `videoCodec == "h264"` (`worker.py:637`), `worker.finish_video` (`worker.py:609`) e
+> `serve._finish_video` (`serve.py:1660`) existem; os checks `16n`–`16x` de
+> `test_worker.py` cobrem P1, P2, P3, P4, P6, P7 e P8 rodando `ffprobe` em arquivo real.
+> O §0.3 de `../03-Decisions/CONTRATO-qualidade-clip.md` já está marcado "CORRIGIDO".
+> Fechamento registrado em `../01-Wiki/archive/HISTORICO-estudio-video.md` (l. 305).
+
 **Ordem recomendada:** este é o **primeiro** dos três. É o menor, o de maior confiança e o
 único cuja solução já está **medida funcionando**. Não depende dos Planos 2 e 3.
 

@@ -1,5 +1,10 @@
 # PLANO 2 — `X-Clip-Background`: o último ponto sem estado visível (BP-008)
 
+> **Estado (conferido em 2026-09-14): CP1–CP5 ENTREGUES em 2026-09-04; CP6 BLOQUEADO.**
+> `serve.source_scale` existe (`serve.py:676`) com check `28h` em `test_serve.py`; o que falta
+> é conferi-lo contra uma fonte REAL baixada, o que precisa de rede e passa pelo portão de
+> direitos. Ver `PENDENCIAS.md`, "Bloqueadas".
+
 **Ordem recomendada:** o **segundo** dos três. Independente do Plano 1 e do Plano 3 — se
 quiser, pode ser o primeiro. Não toque nos outros dois na mesma sessão.
 

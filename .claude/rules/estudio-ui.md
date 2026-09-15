@@ -3,19 +3,26 @@ paths:
   - "video-ops.js"
   - "video-ops.css"
   - "test-video-ops*.js"
-description: Regras ativas da tela do Estúdio de Vídeos (5 telas, INTAKE, Central de Clips).
+description: Regras ativas da tela do Estúdio de Vídeos (Central, Meus projetos, YouTube).
 ---
 
 # Estúdio de Vídeos — tela (`video-ops.js` / `.css`) — regras ATIVAS
 
 Histórico e medições: `docs/01-Wiki/archive/HISTORICO-estudio-video.md`.
 
-## As CINCO telas, e nada além (decisão do usuário, 2026-08-21)
+## As quatro telas ativas (decisão do usuário, 2026-09-14)
 `data-view="video-ops"` / `#video-ops-root` / CSS externo `video-ops.css`.
-Fluxo `1 Vídeo` (`overview`) › `2 Cortes` (`cuts`) › `3 Revisão` (`review`), mais
-`Central` (`central`) e `YouTube` (`youtube`) em escala menor. `FLOW_HINT` = uma
-frase por tela. **O fluxo acaba no Passo 3** — depois de baixar não existe passo.
-O rótulo do passo 3 é **Revisão** desde 2026-09-09 (o id da aba sempre foi `review`).
+`Central` (`central`, tela inicial), `Meus projetos` (`projects`), `YouTube` (`youtube`) e
+`Resultados` (`resultados`).
+`FLOW_HINT` define as telas permitidas e uma frase por tela. As rotas `overview`,
+`cuts` e `review` não são mais acessíveis, inclusive por ações antigas de navegação.
+`Resultados` é a ÚNICA tela que não mora neste arquivo: ela vive no `video-results.js`, e o
+contrato entre os dois está em `.claude/rules/estudio-resultados.md`. Daqui saem cinco
+linhas de fiação (dica, aba, ramo do `render`, `res-*` no clique, `[data-res-filter]` na
+mudança) e nada mais — módulo ausente cai numa tela que DIZ o motivo, sem derrubar o resto.
+A Central vazia aponta para o YouTube. A edição e a revisão de legendas dos trechos
+do YouTube permanecem. Dados salvos não são apagados nem migrados nesta mudança.
+Os helpers do fluxo local descritos abaixo permanecem internos, sem tela acessível.
 
 ## Bancada de duas colunas (>=1100px): a media query olha a JANELA, não a COLUNA
 Nos passos 2 e 3, `.vop-intake-work` vira grade de duas colunas — prévia à esquerda,
