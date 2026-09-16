@@ -56,13 +56,25 @@ from heatmap import (  # noqa: E402  algoritmo unico, compartilhado com o baixad
 
 # ---------------------------------------------------------------- limites do corte
 MIN_CLIP_SEC = 15.0
-MAX_CLIP_SEC = 90.0
-TARGET_CLIP_SEC = 45.0
+# Teto do que o operador VE no card, e promessa do produto: corte de no maximo 1 minuto
+# (regra do usuario, 2026-09-16). Era 90 s, e MEDIDO na fixture `json3-rolante.json`
+# (49 frases reais de legenda rolante, `_window` chamada em cada uma): 13 das 41 janelas
+# passavam de 60 s, a maior com 72,5 s. Ideia que nao fecha aqui dentro e DESCARTADA,
+# nunca aparada no teto -- corte aparado termina com a fala no ar, que e exatamente o
+# defeito que a entrega de 2026-09-09 removeu.
+MAX_CLIP_SEC = 60.0
+TARGET_CLIP_SEC = 35.0
+# Teto da FALA, e e ele que o laco do `_window` consulta. O intervalo ENTREGUE ganha o
+# respiro do fim e sai em segundo inteiro (`floor` no comeco, `ceil` no fim), e os tres
+# ALARGAM: ate 1 s de cada lado do arredondamento mais `RESPIRO_DEPOIS_SEC`. Sem este
+# desconto o card mostraria 1:01 num sistema que promete 1 minuto -- teto que o numero da
+# tela desmente nao e teto, e promessa quebrada.
+MAX_FALA_SEC = MAX_CLIP_SEC - 3.0
 # Teto SUAVE da história. Regra do usuário: "A strong 25-second idea can become one clip.
 # A complete 70-second story can become another clip. Do not force every moment into the
 # same duration." Passando disto, o próximo ponto final já serve de fecho — o teto duro
 # (MAX_CLIP_SEC) continua sendo o limite absoluto, não a mira.
-STORY_CLIP_SEC = 70.0
+STORY_CLIP_SEC = 45.0
 # Silêncio que separa uma ideia da seguinte. Abaixo disso o ponto final é só respiração no
 # meio do raciocínio, não o fim dele.
 CLOSE_PAUSE_SEC = 0.6
@@ -365,7 +377,7 @@ CATEGORY_LEXICON = {
     "money": _terms(
         "faturamento", "faturei", "fatura", "lucro", "margem", "caixa", "fluxo de caixa",
         "investimento", "investir", "prejuízo", "dívida", "dívidas", "custo", "custos",
-        "receita", "capital", "juros", "patrimônio", "milhão", "milhões",
+        "receita", "capital", "juros", "patrimônio", "milhão", "milhões", "dinheiro",
         "revenue", "profit", "cash flow", "investment", "debt"),
     "failure": _terms(
         "errei", "errou", "fracasso", "fracassei", "quebrei", "quebrou", "perdi tudo",
@@ -534,20 +546,42 @@ TROCA_POR_MIN = 2.6
 FALA_MIN_PALAVRAS = 12
 ABERTURA_MIN_PALAVRAS = 4
 
-# Os cinco fatores editoriais e o teto do sinal de popularidade. Somam 88 + 12 = 100, e
+# --- Assunto: o trecho é SOBRE alguma coisa, e isso aparece no COMEÇO?
+# Relatado em 2026-09-16: "está ficando muito fora do assunto" e "pegando por cima do
+# assunto". Os cinco fatores de antes são todos ESTRUTURAIS — abre em frase inteira, fecha
+# em frase inteira, não depende do que veio antes — então trecho impecavelmente formado e
+# sobre coisa nenhuma passava com nota alta. Este é o único fator que olha O QUE foi dito.
+#
+# Nenhuma evidência nova é inventada: o assunto sai do `classify_segment` (léxico) e as
+# marcas de gancho do `hook_hits`, que já existem. O que muda é ONDE se cobra — na
+# ABERTURA, não em qualquer ponto do trecho. Assunto que só aparece no segundo 40 é
+# exatamente o corte que "pega por cima do assunto": quem chega decide nos primeiros
+# segundos, e é lá que o tema tem de estar.
+ASSUNTO_FRASES_ABERTURA = 2
+# Piso do gancho na abertura. 12 é o peso de UMA marca forte sozinha em `HOOK_PATTERNS`
+# (pergunta direta, afirmação forte); abaixo disso só sobrou "explicação" (8), que é
+# conectivo de qualquer conversa e não anuncia assunto nenhum.
+ASSUNTO_GANCHO_MIN = 12
+
+# Os seis fatores editoriais e o teto do sinal de popularidade. Somam 88 + 12 = 100, e
 # essa divisão é a regra do pedido em número: "Do not allow replay popularity to
 # compensate for a missing answer, truncated conclusion, or unusable transcript."
 # Audiência entra como EMPURRÃO (12 pontos no máximo), nunca como resgate — e os três
-# fatores de veto (abertura, independência, fecho) reprovam ANTES de somar nota.
+# fatores de veto (abertura, independência, assunto, fecho) reprovam ANTES de somar nota.
 FATORES = (
-    ("abertura", 20, "Abertura"),
-    ("independencia", 18, "Independência"),
-    ("desenvolvimento", 18, "Desenvolvimento"),
-    ("fecho", 20, "Fecho"),
-    ("confiabilidade", 12, "Confiabilidade"),
+    ("abertura", 18, "Abertura"),
+    ("independencia", 15, "Independência"),
+    ("assunto", 16, "Assunto"),
+    ("desenvolvimento", 13, "Desenvolvimento"),
+    ("fecho", 18, "Fecho"),
+    ("confiabilidade", 8, "Confiabilidade"),
 )
 INTERESSE_PESO = 12
-VETO = ("abertura", "independencia", "fecho")
+# `assunto` entra no VETO pelo mesmo motivo dos outros três: é falta que nenhuma nota
+# resgata. Os 16 pontos saíram de quem sobrava — `confiabilidade` (12 -> 8) mede a
+# qualidade da BORDA, não a do conteúdo, e era o maior peso do conjunto que não responde
+# "este corte vale a pena?". A soma segue 88 + 12 = 100.
+VETO = ("abertura", "independencia", "assunto", "fecho")
 # Rótulo de qualidade. O card mostra a PALAVRA, nunca o número: "Remove misleading
 # precision from the default card presentation... must not be displayed as a probability
 # of success." O número continua existindo para ORDENAR e vem com `factors` atrás, que é
@@ -568,6 +602,49 @@ def _palavras_de(texto):
     """Quantas palavras FALADAS o texto tem (sem `>>`, sem `[risadas]`). Pura."""
     limpo = NAO_FALA_RE.sub(" ", FALANTE_RE.sub(" ", str(texto or "")))
     return len([w for w in limpo.split() if any(ch.isalnum() for ch in w)])
+
+
+def _assunto_de(janela):
+    """Janela -> (valor 0..1, frase que o explica). Pura, sem rede, sem promessa.
+
+    Não mede desempenho: mede se há assunto RECONHECÍVEL e se ele aparece no começo. Zero
+    REPROVA (o `assunto` está no `VETO`), e a frase diz qual das duas faltas ocorreu —
+    "não dá para dizer sobre o que é" e "o assunto só aparece depois do começo" são
+    defeitos diferentes e levam o operador a lugares diferentes.
+    """
+    fatia = janela.get("frases") or []
+    texto = janela.get("clean") or janela.get("text") or ""
+    if not fatia or not texto.strip():
+        # Sem transcrição não há o que ler. Não é reprovação — a borda de audiência é
+        # medida, só não é a da fala: meio valor e a frase dizendo que ninguém conferiu.
+        # Afirmar assunto que não se leu é a "measurement I did not make" que o pedido proíbe.
+        return 0.5, "Assunto não conferido: este vídeo não entregou legenda."
+    abertura = " ".join((f.get("clean") or f.get("text") or "")
+                        for f in fatia[:ASSUNTO_FRASES_ABERTURA])
+    tema = classify_segment(texto)["category"]
+    tema_abertura = classify_segment(abertura)["category"]
+    gancho, marcas = hook_hits(abertura)
+    if not tema and gancho < ASSUNTO_GANCHO_MIN:
+        return 0.0, ("Não dá para dizer sobre o que é: sem pergunta, número, afirmação "
+                     "forte nem assunto reconhecível na fala.")
+    if not tema_abertura and gancho < ASSUNTO_GANCHO_MIN:
+        return 0.0, ("O assunto (%s) só aparece depois do começo — quem chega agora não "
+                     "sabe do que se trata." % (CATEGORY_LABELS.get(tema) or tema))
+    # As seis categorias FORTES carregam um corte sozinhas; as outras sete são contexto.
+    forte = tema in STRONG_CATEGORIES
+    marcado = gancho >= ASSUNTO_GANCHO_MIN
+    if forte and marcado:
+        valor = 1.0
+    elif forte or (tema_abertura and marcado):
+        valor = 0.85
+    elif tema_abertura:
+        valor = 0.7
+    else:
+        valor = 0.6
+    rotulo = CATEGORY_LABELS.get(tema) if tema else ""
+    frase = "%s na abertura%s." % (rotulo or "Assunto reconhecível",
+                                   (" (%s)" % marcas[0]) if marcas else "")
+    return valor, frase
 
 
 def _juntar(pedacos):
@@ -797,7 +874,7 @@ def _window(cues, anchor, total, stops=(), words=None):
     # sentido numa frase anterior ("Mas isso mudou tudo"). Perder três segundos custa menos
     # que entregar corte que só faz sentido para quem ouviu o episódio inteiro.
     primeira = indice
-    orcamento = MAX_CLIP_SEC / 3
+    orcamento = MAX_FALA_SEC / 3
     while primeira > 0 and not frases[primeira].get("hardStart"):
         if frases[indice]["start"] - frases[primeira - 1]["start"] > orcamento:
             break
@@ -818,7 +895,7 @@ def _window(cues, anchor, total, stops=(), words=None):
     fechou = False
     for pos in range(primeira, len(frases)):
         frase = frases[pos]
-        if frase["end"] - inicio_fala > MAX_CLIP_SEC:
+        if frase["end"] - inicio_fala > MAX_FALA_SEC:
             break
         ultima = pos
         span = frase["end"] - inicio_fala
@@ -860,8 +937,10 @@ def _window(cues, anchor, total, stops=(), words=None):
 def avaliar(janela, interesse=0.0):
     """Janela -> {'score','quality','factors','reject'}. Pura, interpretável, sem rede.
 
-    Os cinco fatores são os do pedido, na ordem dele: abertura, independência,
-    desenvolvimento, fecho e confiabilidade. `interesse` (audiência/capítulo, 0 a 1) entra
+    Os seis fatores são os do pedido, na ordem dele: abertura, independência, assunto,
+    desenvolvimento, fecho e confiabilidade. `assunto` entrou em 2026-09-16 e é o único
+    que lê O QUE foi dito — os outros cinco medem a FORMA, e trecho bem formado sobre
+    coisa nenhuma passava por todos eles. `interesse` (audiência/capítulo, 0 a 1) entra
     por último e vale no MÁXIMO INTERESSE_PESO pontos — e os três vetos rodam ANTES de
     somar, então pico de audiência não resgata trecho incoerente. Cada fator sai com a
     frase que o explica: nota sem decomposição é precisão inventada.
@@ -925,7 +1004,10 @@ def avaliar(janela, interesse=0.0):
     else:
         valores["independencia"] = 1.0 if nao_fala == 0 and trocas <= 1.0 else 0.75
         notas.append(("independencia", "Se sustenta sem o resto do episódio."))
-    # 3. Desenvolvimento: entrega alguma coisa depois da abertura?
+    # 3. Assunto: dá para dizer sobre o que é o corte, logo no começo?
+    valores["assunto"], nota_assunto = _assunto_de(janela)
+    notas.append(("assunto", nota_assunto))
+    # 4. Desenvolvimento: entrega alguma coisa depois da abertura?
     if palavras < FALA_MIN_PALAVRAS or len(fatia) < 2:
         valores["desenvolvimento"] = 0.25 if palavras else 0.0
         notas.append(("desenvolvimento", "Pouca fala dentro do trecho (%d palavras)." % palavras))
@@ -933,7 +1015,7 @@ def avaliar(janela, interesse=0.0):
         densidade = palavras / max(span / 10.0, 0.1)
         valores["desenvolvimento"] = max(0.4, min(1.0, densidade / 22.0))
         notas.append(("desenvolvimento", "%d palavras em %d frases." % (palavras, len(fatia))))
-    # 4. Fecho: a última frase termina o raciocínio?
+    # 5. Fecho: a última frase termina o raciocínio?
     if not janela.get("fecho"):
         valores["fecho"] = 0.0
         notas.append(("fecho", "Termina no meio da frase — a fala continua depois do corte."))
@@ -949,7 +1031,7 @@ def avaliar(janela, interesse=0.0):
         respirou = fatia[-1]["pauseAfter"] >= CLOSE_PAUSE_SEC
         valores["fecho"] = 1.0 if respirou else 0.7
         notas.append(("fecho", "Fecha a frase%s." % (" e cai numa pausa" if respirou else "")))
-    # 5. Confiabilidade: a evidência de tempo é medida ou estimada?
+    # 6. Confiabilidade: a evidência de tempo é medida ou estimada?
     if not fatia:
         valores["confiabilidade"] = 0.0
         notas.append(("confiabilidade",
@@ -965,7 +1047,7 @@ def avaliar(janela, interesse=0.0):
     bruto = sum(valores[nome] * peso for nome, peso, _ in FATORES)
     bruto += min(1.0, max(0.0, float(interesse))) * INTERESSE_PESO
     score = int(round(max(0.0, min(100.0, bruto))))
-    # Rótulo pelo PERFIL dos cinco fatores editoriais — `interesse` fica fora, então
+    # Rótulo pelo PERFIL dos seis fatores editoriais — `interesse` fica fora, então
     # audiência não promove ninguém de faixa. Reprovado já saiu antes daqui.
     editoriais = [valores.get(nome, 0.0) for nome, _, _ in FATORES]
     piso_real = min(editoriais) if editoriais else 0.0
@@ -1153,7 +1235,9 @@ def _interesse_de(item, total):
 REPROVA_LABEL = {
     "abertura": "começavam no meio da ideia",
     "independencia": "não se entendiam sozinhos",
+    "assunto": "não diziam a que vinham no começo",
     "fecho": "terminavam no meio da frase",
+    "duracao": "passavam de um minuto",
 }
 
 
@@ -1321,6 +1405,13 @@ def _candidates(info, limit=MAX_CANDIDATES):
         if total:
             end = min(end, float(math.ceil(total)))
         if end - start < MIN_CLIP_SEC:
+            continue
+        # Rede do teto, não caminho normal: o `_window` já para em `MAX_FALA_SEC` para o
+        # respiro e o arredondamento caberem. Se alguma borda ainda estourar, o trecho SAI
+        # da lista e vira linha no resumo — a decisão de 2026-09-16 é descartar, nunca
+        # aparar no teto, porque corte aparado termina com a fala no ar.
+        if end - start > MAX_CLIP_SEC:
+            reprovados["duracao"] = reprovados.get("duracao", 0) + 1
             continue
         merged = None
         for chosen in picked:

@@ -1513,10 +1513,182 @@ def main():
     # criou o `ancoraLegenda`. E o teto de pagina tem de sair do estilo RESOLVIDO -- cortar a
     # pagina com o teto do classico e desenha-la a 72px em caixa alta e a linha estourando a
     # coluna de 820px, sem erro nenhum.
-    check("26zc4. a composicao resolve o estilo pelo gate e corta a pagina com o teto DELE",
+    check("26zc4. a composicao resolve estilo E ajuste manual, e corta a pagina com o teto DELE",
           "legendaStyle" in clip_jsx
-          and "const aparencia = legendaPreset(legendaStyle);" in clip_jsx
+          and "const aparencia = resolveLegenda(legendaStyle, edit);" in clip_jsx
           and "toCaptionPages(cues, tetoDaPagina(aparencia))" in clip_jsx)
+
+    # --------------------------------------------- 33. o ajuste MANUAL do corte (edit)
+    # PARIDADE dos conjuntos novos nas TRES copias, pela mesma razao do 26y/26z/28n: nao ha
+    # import possivel entre um ES module, este servidor stdlib e o <script> do site, e
+    # divergir faz a tela oferecer um valor que a rota recusa -- calada.
+    serve_py = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "serve.py"),
+                    encoding="utf-8").read()
+
+    def _lista(m):
+        return tuple(x.strip().strip("'") for x in m.group(1).split(",") if x.strip())
+
+    m_fon = re.search(r"export const LEGENDA_FONTES = \[([^\]]*)\]", preset_js)
+    m_cor = re.search(r"export const LEGENDA_CORES = \[([^\]]*)\]", preset_js)
+    m_ali = re.search(r"export const LEGENDA_ALINHAMENTOS = \[([^\]]*)\]", preset_js)
+    check("33a. os tres conjuntos do ajuste manual existem no preset.js",
+          bool(m_fon and m_cor and m_ali))
+    check("33a2. a copia do servidor bate com o preset.js, na mesma ordem",
+          (serve.LEGENDA_FONTES, serve.LEGENDA_CORES, serve.LEGENDA_ALINHAMENTOS)
+          == (_lista(m_fon), _lista(m_cor), _lista(m_ali)))
+    m_fon_ops = re.search(r"var LEGENDA_FONTES = \[([^\]]*)\]", ops_js)
+    m_cor_ops = re.search(r"var LEGENDA_CORES = \[([^\]]*)\]", ops_js)
+    m_ali_ops = re.search(r"var LEGENDA_ALINHAMENTOS = \[([^\]]*)\]", ops_js)
+    check("33a3. e a copia da tela tambem, nos tres",
+          bool(m_fon_ops and m_cor_ops and m_ali_ops)
+          and (_lista(m_fon_ops), _lista(m_cor_ops), _lista(m_ali_ops))
+          == (serve.LEGENDA_FONTES, serve.LEGENDA_CORES, serve.LEGENDA_ALINHAMENTOS))
+    # A faixa de cada numero tem de ser a MESMA nos tres: grampear em 96 aqui e em 120 la
+    # faria a tela prometer um corpo que o .ass nunca desenha.
+    m_faixas = re.search(r"var ranges = \{([^}]*)\}", ops_js)
+    check("33b. as faixas numericas do site batem com as do servidor",
+          bool(m_faixas)
+          and {m.group(1): (int(m.group(2)), int(m.group(3)))
+               for m in re.finditer(r"(\w+): \[(-?\d+), (-?\d+)\]", m_faixas.group(1))}
+          == serve.EDIT_FAIXAS)
+    # A fonte do caminho ASS e a do Remotion tem de ser a MESMA familia: o `impacto` pedindo
+    # Montserrat num renderizador e outra coisa no outro e o corte saindo diferente.
+    check("33c. cada familia do captions tem a mesma id no preset.js",
+          all(("familia: '%s'" % fid) in preset_js for fid in captions_mod.LEGENDA_FONTES))
+    # O classico declara `fonte: TOKENS.legendaFonte` e o impacto um literal, entao o check
+    # resolve o token antes de comparar -- exigir literal nos dois obrigaria o preset.js a
+    # repetir um numero que ele ja tem num lugar so.
+    m_token_fonte = re.search(r"legendaFonte: (\d+)", preset_js)
+    fontes_preset = set(int(x) for x in re.findall(r"\n    fonte: (\d+)," , preset_js))
+    if m_token_fonte:
+        fontes_preset.add(int(m_token_fonte.group(1)))
+    check("33c2. e o corpo de cada estilo tem par no preset.js",
+          bool(m_token_fonte)
+          and all(e["tamanho"] in fontes_preset
+                  for e in captions_mod.LEGENDA_ESTILOS.values()))
+    # O avanco medido: um numero por familia+caixa, e ele decide quantos caracteres cabem na
+    # linha. Divergir faz um renderizador paginar mais curto que o outro, sem erro nenhum.
+    check("33c3. os quatro avancos do captions sao os do preset.js",
+          all(str(v) in preset_js for v in captions_mod.AVANCOS.values()))
+    # A tabela que a TELA usa para mostrar o valor automatico de cada controle. Divergindo do
+    # preset, o slider mente sobre o que vai sair -- e encostar nele pula um valor que
+    # ninguem pediu (a razao de a tabela existir).
+    m_auto = re.search(r"var LEGENDA_AUTO = \{([\s\S]*?)\n  \};", ops_js)
+    check("33d. a tabela de valores automaticos da tela existe e cobre os dois estilos",
+          bool(m_auto) and all(("%s: {" % e) in m_auto.group(1) for e in serve.LEGENDA_STYLES))
+    check("33d2. e o corpo, a familia e a caixa dela batem com o registro do captions",
+          bool(m_auto) and all(
+              ("familia: '%s'" % e["familia"]) in m_auto.group(1)
+              and ("tamanho: %d" % e["tamanho"]) in m_auto.group(1)
+              and ("caixaAlta: %s" % ("true" if e["caixa_alta"] else "false"))
+              in m_auto.group(1)
+              for e in captions_mod.LEGENDA_ESTILOS.values()))
+    # O fps do still sai do MESMO numero da composicao: com 30 aqui e 60 la o "meio do corte"
+    # viraria o primeiro quarto, e a previa mostraria o card do titulo em vez da legenda.
+    m_fps = re.search(r"fps: (\d+)", preset_js)
+    check("33e. o STILL_FPS e o fps da composicao",
+          bool(m_fps) and serve.STILL_FPS == int(m_fps.group(1)))
+
+    # `edit_of`: o validador do ajuste manual. Os DOIS ramos (campo presente e ausente),
+    # porque o ramo que quebra e o do operador que JA ajustou -- BP-014.
+    VAZIO = {"v": 1, "legenda": {}, "enquadramento": {}}
+    check("33f. ausente, malformado ou de versao desconhecida = automatico",
+          all(serve.edit_of(v) == VAZIO for v in
+              (None, {}, [], "x", "", "   ", "{nao eh json", 7, {"v": 2},
+               {"v": 1, "legenda": [], "enquadramento": []},
+               {"v": "1", "legenda": {"tamanho": 70}})))
+    completo = {"v": 1, "legenda": {
+        "style": "impacto", "familia": "montserrat", "tamanho": 84, "caixaAlta": False,
+        "cor": "destaqueGanho", "destaqueCor": "destaquePerda", "largura": 600,
+        "alinhamento": "left", "posicaoPct": 72}, "enquadramento": {"reframe": "crop45"}}
+    check("33f2. todo override valido sobrevive, e a entrada nao e mutada",
+          serve.edit_of(json.loads(json.dumps(completo))) == completo)
+    check("33f3. a MESMA funcao le o JSON que a query do download rapido traz",
+          serve.edit_of(json.dumps(completo)) == completo)
+    check("33f4. valor fora do conjunto, tipo errado e cor livre caem no automatico",
+          serve.edit_of({"v": 1, "legenda": {
+              "style": "Impacto (caixa alta)", "familia": "Montserrat", "cor": "#ff00ff",
+              "destaqueCor": None, "alinhamento": "justify", "tamanho": "84",
+              "caixaAlta": 1, "largura": [600]},
+              "enquadramento": {"reframe": "horizontal"}}) == VAZIO)
+    check("33f5. numero fora da faixa e GRAMPEADO (a tela ja limita; aqui nao se recusa)",
+          serve.edit_of({"v": 1, "legenda": {"tamanho": 1000, "largura": 1,
+                                             "posicaoPct": -5}})["legenda"]
+          == {"tamanho": 96, "largura": 360, "posicaoPct": 0})
+    # `caixaAlta: False` e ESCOLHA, nao ausencia: um truthy a perderia e o estilo voltaria
+    # sozinho para caixa alta, calado. Mesma familia do `if override is not None`.
+    check("33f6. caixaAlta False e posicaoPct 0 sobrevivem (nao sao 'vazio')",
+          serve.edit_of({"v": 1, "legenda": {"caixaAlta": False,
+                                             "posicaoPct": 0}})["legenda"]
+          == {"caixaAlta": False, "posicaoPct": 0})
+    check("33f7. a query do download rapido chega validada no CutRequest",
+          serve.parse_cut_query(
+              "token=abc123&start=0&end=20&edit="
+              + urllib.parse.quote(json.dumps(completo))).edit
+          == completo
+          and serve.parse_cut_query("token=abc123&start=0&end=20").edit == VAZIO)
+
+    # Os props. O que importa e o EFEITO: a composicao recebe o ajuste, o estilo resolvido
+    # muda, o enquadramento manual ganha, e a ancora vertical passa pelo dono unico.
+    props_auto = serve.render_props(fundo_dir, "vid-0-5.mp4", {"durationSec": 20.0}, {})
+    check("33g. corte sem ajuste manda o modelo VAZIO (a composicao sempre tem o que ler)",
+          props_auto["edit"] == VAZIO
+          and props_auto["legendaBase"] == captions_mod.margem_inferior(
+              worker.OUT_H, props_auto["videoAltura"]))
+    props_man = serve.render_props(fundo_dir, "vid-0-5.mp4", {"durationSec": 20.0},
+                                   {"edit": completo})
+    check("33g2. o ajuste chega inteiro a composicao, e o `style` dele vence o do corpo",
+          props_man["edit"] == completo and props_man["legendaStyle"] == "impacto")
+    check("33g3. o enquadramento manual vence o `reframe` cru do corpo",
+          serve.render_props(fundo_dir, "vid-0-5.mp4", {"durationSec": 20.0},
+                             {"reframe": "blur", "edit": completo})["reframe"] == "crop45")
+    # O valor pode chegar aos props e morrer na serializacao -- e o props-<token>.json e o
+    # que o Remotion le de verdade.
+    check("33g4. e sobrevive ao props-<token>.json que o render le",
+          json.loads(json.dumps(props_man))["edit"] == completo)
+    # A ancora: a tela manda INTENCAO, o Python faz a conta. Uma formula equivalente em JS e
+    # o defeito que ja escreveu a legenda 61 px ABAIXO da imagem.
+    check("33g5. `posicaoPct` vira `legendaBase` pelo `captions.margem_inferior`, e so por ele",
+          props_man["legendaBase"] == captions_mod.margem_inferior(
+              worker.OUT_H, props_man["videoAltura"], 72)
+          and props_man["legendaBase"] != props_auto["legendaBase"])
+    check("33g6. e a tela NAO tem copia dessa formula (nem RODAPE_PCT, nem ZONA_UI_PCT)",
+          "RODAPE_PCT" not in ops_js and "ZONA_UI_PCT" not in ops_js)
+
+    # O quadro real (`/api/remotion-still`). A rota chama `npx` e Chrome; o que se prova aqui
+    # sao as funcoes PURAS que decidem qual quadro sai e se ele ja esta no disco.
+    check("33h. o still cai no MEIO do corte, nunca nos 4s do card do titulo",
+          serve.still_frame(20) == 300 and serve.still_frame(20) > 4 * serve.STILL_FPS)
+    check("33h2. duracao torta, zero ou negativa cai no quadro 0 em vez de levantar",
+          all(serve.still_frame(v) == 0 for v in
+              (None, 0, -3, "x", float("nan"), float("inf"), 0.01)))
+    check("33h3. e o quadro escolhido existe SEMPRE dentro da composicao",
+          all(0 <= serve.still_frame(d) < max(1, int(round(d * serve.STILL_FPS)))
+              for d in (0.04, 0.5, 1, 7.3, 20, 180)))
+    # Cache por CONTEUDO: reapertar sem mexer em nada e de graca, e mexer em qualquer
+    # controle da outro arquivo. Por token, o quadro velho seria servido depois de trocar a
+    # fonte da legenda -- previa MENTINDO, que e pior que previa ausente.
+    check("33i. o nome do still e o hash dos props, estavel a ordem das chaves",
+          serve.still_path("/f", props_man) == serve.still_path(
+              "/f", dict(reversed(list(props_man.items()))))
+          and serve.still_path("/f", props_man).endswith(".png"))
+    check("33i2. e qualquer mudanca nos props muda o arquivo",
+          serve.still_path("/f", props_man) != serve.still_path("/f", props_auto)
+          and serve.still_path("/f", props_man) != serve.still_path(
+              "/f", dict(props_man, legendaBase=props_man["legendaBase"] + 1)))
+    check("33i3. a rota do still esta no dicionario de POST e nao colide com a do render",
+          serve.ROUTE_STILL != serve.ROUTE_RENDER
+          and "ROUTE_STILL: self._handle_still" in serve_py)
+
+    # O caminho ASS. Ele recebe o ajuste e diz o que NAO reproduz -- e a tela precisa ter as
+    # frases, senao o operador compara dois arquivos e acha que um deles quebrou (BP-008).
+    check("33j. o download rapido veste o ajuste manual (o `estilo` chega ao to_ass)",
+          "estilo=estilo" in serve_py and "captions.estilo_ass(" in serve_py)
+    m_ass_ops = re.search(r"var ASS_NAO_REPRODUZ = \[([\s\S]*?)\];", ops_js)
+    check("33j2. e cada limitacao declarada do ASS tem par na lista da tela",
+          bool(m_ass_ops)
+          and len(captions_mod.ASS_NAO_REPRODUZ)
+          == len(re.findall(r"'[^']+'", m_ass_ops.group(1))))
     # Legenda CORRIGIDA na tela nao tem tempo por palavra e nao pode inventar um: o operador
     # reescreveu o texto, e a grade antiga descreve outras palavras. Fica estatica, de propo-
     # sito -- se um dia alguem "consertar" isto, o karaoke passa a acender palavra errada.

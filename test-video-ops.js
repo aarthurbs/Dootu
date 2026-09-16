@@ -1196,4 +1196,147 @@ ok('ytApplyTrim descarta o video exportado e NAO mexe no video importado', () =>
   ops.srcReset();
 });
 
+ok('editOf ausente ou malformado mantém automático sem migrar o clip', () => {
+  for (const edit of [undefined, null, [], 'x', { v: 2 }, { v: 1, legenda: [], enquadramento: [] }]) {
+    const clip = { legendaStyle: 'impacto', reframe: 'crop45', edit };
+    const before = JSON.stringify(clip);
+    assert.deepStrictEqual(ops.editOf(clip), { v: 1, legenda: {}, enquadramento: {} });
+    assert.strictEqual(ops.legendaStyleOf(clip), 'impacto');
+    assert.strictEqual(ops.reframeOf(clip), 'crop45');
+    assert.strictEqual(ops.renderBody(clip, true).edit, undefined);
+    assert.strictEqual(JSON.stringify(clip), before);
+  }
+});
+ok('editOf valida escolhas, booleano falso e limites sem aceitar strings numéricas', () => {
+  const clip = { edit: { v: 1, legenda: { style: 'impacto', familia: 'montserrat',
+    tamanho: 999, largura: 10, posicaoPct: 200, caixaAlta: false,
+    cor: 'texto', destaqueCor: '#ff00ff', alinhamento: 'left' }, enquadramento: { reframe: 'crop11' } } };
+  assert.deepStrictEqual(ops.editOf(clip), { v: 1, legenda: { style: 'impacto', familia: 'montserrat',
+    cor: 'texto', alinhamento: 'left', caixaAlta: false, tamanho: 96, largura: 360, posicaoPct: 100 },
+    enquadramento: { reframe: 'crop11' } });
+  assert.deepStrictEqual(ops.editOf({ edit: { v: 1, legenda: { tamanho: '58', largura: Infinity,
+    posicaoPct: NaN, familia: 'Inter', caixaAlta: 'false' } } }).legenda, {});
+});
+ok('edit manual chega ao export e reset por campo preserva os outros controles', () => {
+  const clip = { legendaStyle: 'classico', reframe: 'blur' };
+  ops.editFieldWrite(clip, 'legenda', 'style', 'impacto');
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', 72);
+  ops.editFieldWrite(clip, 'enquadramento', 'reframe', 'crop45');
+  const body = ops.renderBody(clip, true);
+  assert.strictEqual(body.legendaStyle, 'impacto');
+  assert.strictEqual(body.reframe, 'crop45');
+  assert.strictEqual(body.edit.legenda.tamanho, 72);
+  ops.editFieldWrite(clip, 'legenda', 'style', null);
+  assert.strictEqual(ops.legendaStyleOf(clip), 'classico');
+  assert.strictEqual(clip.edit.legenda.tamanho, 72);
+  assert.strictEqual(ops.editFieldWrite(clip, 'unknown', 'x', 3), false);
+});
+ok('trim e armazenamento preservam ajuste manual com e sem artefato exportado', () => {
+  for (const exported of [false, true]) {
+    const clip = { id: 'edited', inSec: 10, outSec: 30, edit: { v: 1,
+      legenda: { caixaAlta: false, posicaoPct: 60 }, enquadramento: { reframe: 'crop11' } } };
+    if (exported) Object.assign(clip, { clipToken: 'old', clipFilename: 'old.mp4', clipBytes: 99 });
+    const before = JSON.stringify(clip.edit);
+    assert.strictEqual(ops.ytApplyTrim(clip, 11, 31, 120), '');
+    assert.strictEqual(JSON.stringify(clip.edit), before);
+    const project = ops.projectsSanitize({ projects: [{ id: 'p', videoId: 'abcdefghijk', candidates: [clip] }] });
+    assert.strictEqual(JSON.stringify(project.projects[0].candidates[0].edit), before);
+  }
+});
+
+/* --- o painel MANUAL da legenda ------------------------------------------------------
+   O que estes checks cobram é a distinção que o BP-008 exige: um controle automático e um
+   controle escolhido à mão não podem parecer a mesma coisa, e o slider tem de mostrar o
+   número que o automático usaria — senão encostar nele pula um valor que ninguém pediu. */
+ok('legendaValor mostra o automático do ESTILO, e marca o que é manual', () => {
+  const classico = { id: 'c' };
+  const impacto = { id: 'i', legendaStyle: 'impacto' };
+  assert.deepStrictEqual(ops.legendaValor(classico, 'tamanho'), { valor: 58, manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'tamanho'), { valor: 72, manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'familia'), { valor: 'montserrat', manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'caixaAlta'), { valor: true, manual: false });
+  /* Os que não dependem do estilo vêm da tabela comum; a posição vertical NASCE nula porque
+     a âncora automática é calculada no servidor e uma fórmula equivalente aqui é proibida. */
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'largura'), { valor: 820, manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'alinhamento'), { valor: 'center', manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'posicaoPct'), { valor: null, manual: false });
+});
+ok('um override marca só o SEU controle, e caixaAlta false conta como escolha', () => {
+  const clip = { id: 'c', legendaStyle: 'impacto' };
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', 90);
+  assert.deepStrictEqual(ops.legendaValor(clip, 'tamanho'), { valor: 90, manual: true });
+  assert.deepStrictEqual(ops.legendaValor(clip, 'largura'), { valor: 820, manual: false });
+  ops.editFieldWrite(clip, 'legenda', 'caixaAlta', false);
+  assert.deepStrictEqual(ops.legendaValor(clip, 'caixaAlta'), { valor: false, manual: true });
+  assert.strictEqual(ops.legendaManuais(clip), 2);
+  ops.editFieldWrite(clip, 'enquadramento', 'reframe', 'crop45');
+  assert.strictEqual(ops.legendaManuais(clip), 3);
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', null);
+  assert.deepStrictEqual(ops.legendaValor(clip, 'tamanho'), { valor: 72, manual: false });
+  assert.strictEqual(ops.legendaManuais(clip), 2);
+});
+ok('a tabela de automáticos cobre os dois estilos e só o que a tela mostra', () => {
+  assert.deepStrictEqual(Object.keys(ops.LEGENDA_AUTO).sort(), ops.LEGENDA_STYLES.slice().sort());
+  for (const estilo of ops.LEGENDA_STYLES) {
+    const a = ops.LEGENDA_AUTO[estilo];
+    assert.ok(ops.LEGENDA_FONTES.indexOf(a.familia) >= 0);
+    assert.ok(ops.LEGENDA_CORES.indexOf(a.destaqueCor) >= 0);
+    assert.strictEqual(typeof a.caixaAlta, 'boolean');
+    assert.ok(a.tamanho >= 32 && a.tamanho <= 96);
+  }
+  /* Nenhuma chave dos dois lados pode faltar: um controle sem automático mostraria
+     `undefined` no slider, que é pior que mostrar o número errado. */
+  assert.deepStrictEqual(Object.keys(ops.LEGENDA_AUTO_COMUM).sort(),
+    ['alinhamento', 'cor', 'largura', 'posicaoPct']);
+  assert.ok(ops.LEGENDA_CORES.every(c => /^#[0-9A-F]{6}$/.test(ops.LEGENDA_COR_HEX[c])));
+});
+ok('o painel marca a linha ajustada e desabilita o "auto" que não tem o que desfazer', () => {
+  const clip = { id: 'abc', legendaStyle: 'classico' };
+  const limpo = ops.legendaPanelHTML(clip);
+  assert.ok(limpo.indexOf('Tudo automático') > 0, 'o ramo que NÃO age também fala (BP-008)');
+  assert.strictEqual((limpo.match(/data-manual="1"/g) || []).length, 0);
+  /* Um botão por linha, todos desabilitados quando nada foi ajustado. */
+  assert.strictEqual((limpo.match(/data-act="leg-auto"/g) || []).length,
+    (limpo.match(/data-leg-row=/g) || []).length);
+  assert.strictEqual((limpo.match(/disabled/g) || []).length,
+    (limpo.match(/data-leg-row=/g) || []).length);
+  ops.editFieldWrite(clip, 'legenda', 'cor', 'destaque');
+  const sujo = ops.legendaPanelHTML(clip);
+  assert.ok(sujo.indexOf('1 controle ajustado') > 0);
+  assert.strictEqual((sujo.match(/data-manual="1"/g) || []).length, 1);
+  assert.ok(sujo.indexOf('data-leg-row="cor" data-manual="1"') > 0);
+});
+ok('a posição vertical só vira slider depois que o operador assume o controle', () => {
+  const clip = { id: 'p' };
+  const auto = ops.legendaPanelHTML(clip);
+  assert.ok(auto.indexOf('data-act="leg-posicao"') > 0);
+  assert.ok(auto.indexOf('automática — o servidor ancora dentro da imagem') > 0);
+  assert.ok(auto.indexOf('data-leg-field="posicaoPct"') < 0, 'sem slider enquanto é automática');
+  ops.editFieldWrite(clip, 'legenda', 'posicaoPct', 62);
+  const manual = ops.legendaPanelHTML(clip);
+  assert.ok(manual.indexOf('data-leg-field="posicaoPct"') > 0);
+  assert.ok(manual.indexOf('data-act="leg-posicao"') < 0);
+});
+ok('a prévia veste o resolvido e só passa NÚMEROS do quadro (ela não pagina)', () => {
+  const clip = { id: 'v', legendaStyle: 'impacto',
+    clipCues: [{ start: 0, end: 2, text: 'A maioria não vai conseguir' }] };
+  const html = ops.legendaPreviewHTML(clip);
+  assert.ok(html.indexOf('--leg-fonte:72;') > 0 && html.indexOf('--leg-col:820;') > 0);
+  assert.ok(html.indexOf('data-familia="montserrat"') > 0);
+  assert.ok(html.indexOf('data-caixa="1"') > 0 && html.indexOf('data-auto="1"') > 0);
+  assert.ok(html.indexOf('A maioria não vai conseguir') > 0, 'mostra a fala REAL do trecho');
+  /* Sem `px` nas custom properties: o CSS multiplica o número pelo tamanho de UM pixel do
+     quadro, e `calc(px * px)` seria inválido — a conversão mora num lugar só. */
+  assert.ok(!/--leg-(fonte|col):\d+px/.test(html));
+  ops.editFieldWrite(clip, 'legenda', 'posicaoPct', 40);
+  const movida = ops.legendaPreviewHTML(clip);
+  assert.ok(movida.indexOf('--leg-pos:40%') > 0 && movida.indexOf('data-auto="0"') > 0);
+  /* Trecho sem fala usa amostra em vez de caixa vazia — ramo que não age também fala. */
+  assert.ok(ops.legendaPreviewHTML({ id: 'x' }).indexOf('Assim fica a legenda') > 0);
+});
+ok('o caminho ASS declara na tela o que ele não reproduz', () => {
+  assert.ok(Array.isArray(ops.ASS_NAO_REPRODUZ) && ops.ASS_NAO_REPRODUZ.length >= 3);
+  assert.ok(ops.ASS_NAO_REPRODUZ.every(f => typeof f === 'string' && f.trim().length > 10));
+});
+
 console.log(provas + ' provas OK — lógica pura do Estúdio de Vídeos');

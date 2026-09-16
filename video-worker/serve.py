@@ -23,6 +23,7 @@ import argparse
 import atexit
 import contextlib
 import functools
+import hashlib
 import io
 import json
 import math
@@ -56,6 +57,19 @@ ROUTE_FETCH = "/api/yt-fetch"
 # continua sem npm (CLAUDE.md). Esta rota é a única ponte entre os dois, e ela chama um
 # processo — não importa nada do Node para dentro do Python.
 ROUTE_RENDER = "/api/remotion-render"
+# O QUADRO REAL de um corte, para conferir a legenda antes de esperar um render de minutos.
+# Mesma composicao, MESMOS props (`render_props`, dono unico) e `npx remotion still` em vez
+# de `render`: um segundo montador de props deixaria a conferencia concordar com ela mesma e
+# discordar do MP4 -- que e o unico defeito que uma previa pode ter.
+ROUTE_STILL = "/api/remotion-still"
+# Espelho do `TOKENS.fps` do preset.js (o `test_serve` compara os dois lendo o arquivo).
+# Serve para UMA coisa: achar o quadro do MEIO do corte. O meio, e nao o primeiro quadro,
+# porque o primeiro cai dentro dos 4 s do card do titulo -- a previa sairia mostrando a
+# placa e nao a legenda, que e justamente o que se foi conferir.
+STILL_FPS = 30
+# Um still e um quadro so: minutos de orcamento nao fazem sentido aqui, e um teto curto e o
+# que impede a previa de virar uma espera indistinguivel do render inteiro.
+STILL_TIMEOUT = 180.0
 ROUTE_MR = "/api/most-replayed"  # le o que o baixador local ja gravou; nao analisa nada
 # Revisao da legenda ANTES do render final. Le as falas do MESMO sidecar (nenhuma chamada
 # nova ao yt-dlp, nenhum byte de rede) e guarda a correcao que o operador digitou.
@@ -236,6 +250,9 @@ class CutRequest(NamedTuple):
     # gravou — e portanto de onde sai a legenda. Fica CRU de propósito: quem endurece é o
     # _read_most_replayed, que já recusa basename diferente, ".." e caminho fora da pasta.
     name: str = ""
+    # O ajuste MANUAL do corte, JÁ validado pelo `edit_of` (a query traz o JSON). `None` é
+    # o automático de sempre — e é o que todo download feito antes desta entrega manda.
+    edit: Optional[dict] = None
 
     @property
     def duration(self) -> float:
@@ -283,8 +300,11 @@ def parse_cut_query(raw_query: str, max_seconds: float = DEFAULT_MAX_SECONDS) ->
     output = worker.safe_component(_one(params, "output"), fallback="corte.mp4", max_len=120)
     if not output.lower().endswith(".mp4"):
         output += ".mp4"
+    # O ajuste manual viaja como UM parâmetro JSON, e não como oito campos soltos: é a
+    # MESMA forma que o corpo do POST do Remotion manda, validada pela MESMA função. Dois
+    # formatos para o mesmo modelo dariam dois lugares para ele divergir.
     return CutRequest(token=token, profile=profile, start=start, end=end, output=output,
-                      name=_one(params, "name"))
+                      name=_one(params, "name"), edit=edit_of(_one(params, "edit")))
 
 
 # --------------------------------------------------------------------------- render
@@ -409,8 +429,62 @@ def title_card_style(valor):
 # salvo antes deste seletor nao manda a chave e tem de sair exatamente como sempre saiu.
 # Aqui NAO existe o "nenhum" do card -- legenda desligada ja e o preset `limpo` da
 # composicao, e um segundo jeito de desligar a mesma coisa seria dois donos para a decisao.
-LEGENDA_STYLES = ("classico", "impacto")
-LEGENDA_PADRAO = "classico"
+# DERIVADOS do `captions`, nunca escritos a mao (a mesma disciplina do `PROFILES`, que sai
+# do `worker.REFRAMES`): o registro de estilos mora la porque e quem monta o .ass, e uma
+# segunda lista aqui seria mais um lugar para divergir calado.
+LEGENDA_STYLES = tuple(captions.LEGENDA_ESTILOS)
+LEGENDA_PADRAO = captions.LEGENDA_PADRAO
+# Os conjuntos FECHADOS do ajuste manual, pela mesma regra e do mesmo dono. O `test_serve`
+# compara os tres espelhos (preset.js -> aqui -> video-ops.js) lendo os arquivos.
+LEGENDA_FONTES = tuple(captions.LEGENDA_FONTES)
+LEGENDA_CORES = tuple(captions.CORES)
+LEGENDA_ALINHAMENTOS = tuple(captions.ALINHAMENTOS)
+# Faixa de cada numero que o operador arrasta. Espelha o `ranges` do `editOf` no preset.js
+# e no video-ops.js -- fora dela o valor e GRAMPEADO, nunca recusado: a tela ja limita os
+# controles, entao um numero fora da faixa e dado velho ou adulterado, e grampear mantem o
+# corte saindo em vez de derrubar o render por causa de um slider.
+EDIT_FAIXAS = {"tamanho": (32, 96), "largura": (360, 1000), "posicaoPct": (0, 100)}
+
+
+def edit_of(valor):
+    """Ajuste MANUAL do corte (dict do POST ou JSON da query) -> modelo validado. PURA.
+
+    Terceira copia do validador (`preset.js` e o dono, `video-ops.js` e a da tela), pela
+    razao de sempre: nao ha import possivel entre um ES module e este servidor stdlib.
+
+    Nada aqui levanta e nada aqui e obrigatorio: ausente, malformado, de versao
+    desconhecida ou com campo de tipo errado devolve o modelo VAZIO, que significa
+    "automatico" -- e automatico e exatamente o que todo corte salvo antes desta entrega
+    manda, e tem de sair como sempre saiu.
+    """
+    vazio = {"v": 1, "legenda": {}, "enquadramento": {}}
+    if isinstance(valor, str):
+        try:
+            valor = json.loads(valor) if valor.strip() else None
+        except ValueError:
+            return vazio
+    if not isinstance(valor, dict) or valor.get("v") != 1:
+        return vazio
+    out = {"v": 1, "legenda": {}, "enquadramento": {}}
+    legenda = valor.get("legenda")
+    if isinstance(legenda, dict):
+        for chave, conjunto in (("style", LEGENDA_STYLES), ("familia", LEGENDA_FONTES),
+                                ("cor", LEGENDA_CORES), ("destaqueCor", LEGENDA_CORES),
+                                ("alinhamento", LEGENDA_ALINHAMENTOS)):
+            if legenda.get(chave) in conjunto:
+                out["legenda"][chave] = legenda[chave]
+        # `isinstance(x, bool)` e NAO um truthy: `caixaAlta: false` e uma escolha do
+        # operador ("este estilo em caixa baixa"), nao a ausencia de escolha.
+        if isinstance(legenda.get("caixaAlta"), bool):
+            out["legenda"]["caixaAlta"] = legenda["caixaAlta"]
+        for chave, (minimo, maximo) in EDIT_FAIXAS.items():
+            numero = captions.limite(legenda.get(chave), None, minimo, maximo)
+            if numero is not None:
+                out["legenda"][chave] = numero
+    quadro = valor.get("enquadramento")
+    if isinstance(quadro, dict) and quadro.get("reframe") in worker.REFRAMES:
+        out["enquadramento"]["reframe"] = quadro["reframe"]
+    return out
 
 
 def legenda_style(valor):
@@ -442,7 +516,15 @@ def render_props(folder, clip_name, media, body):
     # O fallback 608 (16:9) fica: o outro fallback possível — "o vídeo preenche o quadro" —
     # jogaria a base do texto para y 1651, FORA da imagem, e errar a proporção por pouco é
     # muito melhor que isso.
-    reframe = reframe_profile(body.get("reframe"))
+    # O ajuste MANUAL, validado UMA vez e usado por todos os props que dependem dele. A
+    # composicao recebe o objeto inteiro (`resolveLegenda` la dentro veste a tipografia); a
+    # ancora vertical NAO sai daqui em JavaScript nenhum -- so a intencao viaja, e quem a
+    # transforma em pixel continua sendo o `captions.margem_inferior`.
+    edit = edit_of(body.get("edit"))
+    manual = edit["legenda"]
+    # O enquadramento manual ganha do `reframe` cru do corpo pelo mesmo motivo do estilo: o
+    # operador trocou na tela, e o corpo pode ser de um POST antigo repetido.
+    reframe = reframe_profile(edit["enquadramento"].get("reframe") or body.get("reframe"))
     altura = video_box(reframe, media) or int(round(worker.OUT_W * 9 / 16))
     # O nome do fundo E o desfecho, do MESMO dono. O estado viaja nos props porque a rota já
     # lê props para decidir coisa sua (`durationSec` -> render_budget); a composição ignora a
@@ -473,7 +555,11 @@ def render_props(folder, clip_name, media, body):
         # Sobe junto com o vídeo: no 1:1 e no 4:5 o vídeo é mais alto, então a base do texto
         # sobe com ele e nunca encosta na faixa de botões do TikTok (o teto ZONA_UI_PCT só
         # morde no perfil `crop`, de quadro cheio). Conferido: 1215 / 1414 / 1527.
-        "legendaBase": captions.margem_inferior(worker.OUT_H, altura),
+        # `posicaoPct` e a INTENCAO que o operador arrastou na previa, e ela entra AQUI, na
+        # unica funcao que sabe virar pixel -- que e tambem quem grampeia contra a zona de
+        # botoes do TikTok. Ausente = a ancora automatica de sempre.
+        "legendaBase": captions.margem_inferior(worker.OUT_H, altura,
+                                                manual.get("posicaoPct")),
         # Altura de UMA tarja. A miniatura entra no tamanho dela, repetida em cima e
         # embaixo, em vez de UMA esticada cobrindo o quadro. Sai do `worker.band_height`, o
         # MESMO dono que o filtro do FFmpeg usa — dois cálculos independentes fariam o
@@ -509,7 +595,11 @@ def render_props(folder, clip_name, media, body):
         # do titleCardStyle: o corpo do POST e entrada. Desconhecido/ausente cai no
         # "classico", que e a legenda que todo corte ja renderiza -- trecho salvo antes deste
         # seletor nao manda a chave e tem de sair como sempre saiu, nao no estilo novo.
-        "legendaStyle": legenda_style(body.get("legendaStyle")),
+        "legendaStyle": legenda_style(manual.get("style") or body.get("legendaStyle")),
+        # O ajuste manual INTEIRO, validado. O `Clip.jsx` o resolve com `resolveLegenda`,
+        # que e o MESMO dono da tipografia que o teto de pagina usa -- resolver duas vezes
+        # deixaria a pagina ser cortada com um corpo e desenhada com outro.
+        "edit": edit,
         "preset": "limpo" if body.get("preset") == "limpo" else "legenda",
         # Só o slug: a categoria escolhe a cor do destaque na composição e nada mais.
         "category": re.sub(r"[^a-z_]", "", str(body.get("category") or "").lower())[:40],
@@ -768,6 +858,41 @@ def render_paths(folder: str, token: str) -> Tuple[str, str]:
             os.path.join(folder, "edit-%s-%s.mp4" % (base, marca)))
 
 
+def still_frame(duration_sec) -> int:
+    """Duracao do corte -> o quadro do MEIO dele. PURA e no nivel do modulo.
+
+    O MEIO, e nao o comeco: os primeiros 4 s sao o card do titulo, entao um still no quadro
+    0 mostraria a placa e nao a legenda -- ou seja, a previa nao responderia a pergunta que
+    a fez existir. Duracao torta, zero ou negativa cai no quadro 0, que sempre existe:
+    levantar aqui derrubaria a conferencia por causa de uma leitura ruim de duracao.
+    """
+    try:
+        segundos = float(duration_sec)
+    except (TypeError, ValueError):
+        return 0
+    if segundos != segundos or segundos in (float("inf"), float("-inf")) or segundos <= 0:
+        return 0
+    total = max(1, int(round(segundos * STILL_FPS)))
+    return min(total - 1, total // 2)
+
+
+def still_path(folder: str, props: dict) -> str:
+    """Caminho do PNG de UM conjunto de props. O nome E o hash dos props.
+
+    Cache por CONTEUDO, e nao por token: reapertar o botao sem mexer em nada tem de ser de
+    graca, e mexer em qualquer controle tem de dar outro arquivo. Um nome por token faria o
+    quadro antigo ser servido depois de trocar a fonte da legenda -- previa mentindo, que e
+    pior que previa ausente.
+
+    `sort_keys` porque dicionario com a mesma informacao em outra ordem e o MESMO quadro: sem
+    isso o cache erraria para mais (renderiza de novo), o que e so lento, mas tambem tornaria
+    o teste do cache nao-deterministico.
+    """
+    assinatura = json.dumps(props, sort_keys=True, ensure_ascii=False, default=str)
+    return os.path.join(folder, "still-%s.png"
+                        % hashlib.sha1(assinatura.encode("utf-8")).hexdigest()[:16])
+
+
 def edited_name(token: str, body: dict) -> str:
     """Nome do MP4 editado que a rota guarda em disco (`_keep`).
 
@@ -1024,7 +1149,7 @@ def _background_state(valor):
     return valor if valor in BACKGROUND_STATES else BACKGROUND_UNREADABLE
 
 
-def cut_captions(name, start, end, video_h=None, override=None):
+def cut_captions(name, start, end, video_h=None, override=None, edit=None):
     """Nome do original + intervalo -> (documento ASS, estado). NUNCA levanta.
 
     Legenda e opcional em todo ramo: o 9:16 tem de sair mesmo sem ela. Por isso os estados
@@ -1043,7 +1168,14 @@ def cut_captions(name, start, end, video_h=None, override=None):
 
     `video_h` e a altura do video visivel no quadro; vai direto ao `captions.to_ass`, que
     ancora a legenda dentro da imagem.
+
+    `edit` e o ajuste MANUAL (ja validado pelo `edit_of`). O que o ASS consegue vestir esta
+    no `captions.estilo_ass`; o que ele NAO reproduz esta no `captions.ASS_NAO_REPRODUZ` e
+    a tela mostra a lista ao lado do botao deste caminho (BP-008) -- um renderizador que
+    entrega outra coisa CALADO e exatamente o defeito que estes checks existem para matar.
     """
+    manual = (edit or {}).get("legenda") if isinstance(edit, dict) else None
+    estilo = captions.estilo_ass(legenda_style((manual or {}).get("style")), manual)
     # `is not None`, NUNCA `if override:`. Uma correcao que ficou VAZIA (o operador apagou o
     # texto de todas as falas, que e como se remove legenda inventada pelo YouTube) e um
     # pedido explicito de "sem legenda". Com o teste de verdade, lista vazia caia no ramo do
@@ -1052,13 +1184,14 @@ def cut_captions(name, start, end, video_h=None, override=None):
     if override is not None:
         try:
             recorte = ytclip.cues_for_range(override, 0.0, float(end) - float(start))
-            documento = captions.to_ass(recorte, video_h=video_h)
+            documento = captions.to_ass(recorte, video_h=video_h, estilo=estilo)
         except Exception as err:
             print("[CAPTIONS_EXTRACTION_FAILED] legenda corrigida: %s" % err, file=sys.stderr)
             return "", ytclip.CAPTIONS_FAILED
         if not documento:
             return "", CAPTIONS_EDITED_EMPTY
-        return documento, "burned" if captions.font_available() else "burned-sem-inter"
+        return documento, ("burned" if captions.font_available(estilo["arquivo"])
+                           else "burned-sem-inter")
     if not str(name or "").strip():
         return "", ytclip.CAPTIONS_NONE
     try:
@@ -1075,7 +1208,7 @@ def cut_captions(name, start, end, video_h=None, override=None):
         # Palavra quando o sidecar tem (v4), cue grossa quando nao tem: a preferencia mora
         # no `cues_for_range`, que e a fronteira unica de cue de clipe.
         recorte = ytclip.cues_for_range(bloco["cues"], start, end, bloco["words"])
-        documento = captions.to_ass(recorte, video_h=video_h)
+        documento = captions.to_ass(recorte, video_h=video_h, estilo=estilo)
     except Exception as err:
         print("[CAPTIONS_EXTRACTION_FAILED] %s: %s" % (name, err), file=sys.stderr)
         return "", ytclip.CAPTIONS_FAILED
@@ -1083,7 +1216,8 @@ def cut_captions(name, start, end, video_h=None, override=None):
         return "", CAPTIONS_OUT_OF_RANGE
     # O libass troca a fonte ausente por Arial sem reclamar. Se a Inter nao esta instalada, a
     # legenda entra -- mas em OUTRA tipografia, e isso e dito em vez de passar calado.
-    return documento, "burned" if captions.font_available() else "burned-sem-inter"
+    return documento, ("burned" if captions.font_available(estilo["arquivo"])
+                       else "burned-sem-inter")
 
 
 def _most_replayed_safe(heatmap, video_id):
@@ -1309,6 +1443,7 @@ class CutHandler(SimpleHTTPRequestHandler):
             ROUTE_PROBE: self._handle_probe,
             ROUTE_FETCH: self._handle_fetch,
             ROUTE_RENDER: self._handle_render,
+            ROUTE_STILL: self._handle_still,
             ROUTE_MR: self._handle_most_replayed,
             ROUTE_CAPS: self._handle_clip_captions,
             ROUTE_CLIP_STATUS: self._handle_clip_status,
@@ -1880,7 +2015,42 @@ class CutHandler(SimpleHTTPRequestHandler):
             "path": got["path"],
         })
 
-    def _handle_render(self) -> None:
+    def _send_still(self, path: str, props: dict) -> None:
+        """O PNG do quadro real, mais os numeros que a TELA nao pode calcular sozinha.
+
+        `X-Clip-Legenda-Base` e a ancora que o `captions.margem_inferior` resolveu para este
+        corte: e a unica forma de a tela saber onde a legenda automatica cai sem repetir a
+        formula em JavaScript -- que e proibido, e por um defeito ja pago (a legenda saiu
+        61 px abaixo da imagem). `X-Clip-Video-Altura` fecha o par, porque a ancora so faz
+        sentido contra a altura do video visivel.
+        """
+        with open(path, "rb") as handle:
+            dados = handle.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(dados)))
+        # `no-store`: o navegador nunca deve reusar este PNG por conta propria -- quem
+        # decide se o quadro ainda vale e o cache por hash de props, no servidor.
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Clip-Legenda-Base", str(props.get("legendaBase", "")))
+        self.send_header("X-Clip-Video-Altura", str(props.get("videoAltura", "")))
+        # Sem `X-Clip-Background` aqui de proposito: o `_deliver_video` e o emissor UNICO
+        # daquele estado (check 30e), e num STILL a pergunta nem se coloca -- o operador esta
+        # OLHANDO o fundo que saiu.
+        self.end_headers()
+        self.wfile.write(dados)
+
+    def _handle_still(self) -> None:
+        """O QUADRO REAL deste corte, em PNG. Mesma composicao, MESMOS props do MP4.
+
+        Existe porque a previa em CSS do site e uma aproximacao declarada da tipografia: ela
+        nao sabe onde o `captions.margem_inferior` ancora a legenda nem como a composicao
+        quebra a pagina. Esta rota responde essas duas perguntas com o renderizador de
+        verdade, num quadro, em vez de minutos de render.
+        """
+        self._handle_render(still=True)
+
+    def _handle_render(self, still: bool = False) -> None:
         """Manda o trecho aprovado para o Remotion e devolve o MP4 editado.
 
         Divisão de responsabilidade (o pedido do usuário é explícito nisto): a DESCOBERTA
@@ -1967,29 +2137,63 @@ class CutHandler(SimpleHTTPRequestHandler):
         # da trava de render, e o primeiro renderizava o trecho do segundo — arquivo errado,
         # nada errado na tela. Mesma razão e mesma família do sufixo do `.ass`.
         props_path, dest = render_paths(self.cache.folder, token)
-        temporarios += [props_path, dest]
+        if still:
+            # Cache por CONTEUDO dos props: reapertar sem mexer em nada nao paga um render.
+            # O PNG NAO entra em `temporarios` -- e o cache, e apaga-lo no `finally` faria o
+            # botao custar o mesmo toda vez.
+            dest = still_path(self.cache.folder, props)
+            if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+                for sobra in temporarios:
+                    remove_quietly(sobra)
+                self._send_still(dest, props)
+                return
+            temporarios += [props_path]
+        else:
+            temporarios += [props_path, dest]
         with open(props_path, "w", encoding="utf-8") as handle:
             json.dump(props, handle, ensure_ascii=False)
         # O teto acompanha o tamanho do clipe: com um número fixo, todo trecho acima de
         # ~48 s morria no meio do render e o operador só via a espera acabar sem arquivo.
-        limite = render_budget(props["durationSec"], self.render_timeout)
+        limite = STILL_TIMEOUT if still else render_budget(props["durationSec"],
+                                                            self.render_timeout)
+        if still:
+            args = [npx, "remotion", "still", STUDIO_ENTRY, STUDIO_COMPOSITION, dest,
+                    "--props=" + props_path,
+                    "--public-dir=" + self.cache.folder,
+                    "--frame=" + str(still_frame(props["durationSec"])),
+                    "--image-format=png",
+                    "--log=error"]
+        else:
+            args = [npx, "remotion", "render", STUDIO_ENTRY, STUDIO_COMPOSITION, dest,
+                    "--props=" + props_path,
+                    "--public-dir=" + self.cache.folder,
+                    "--color-space=" + RENDER_COLOR_SPACE,
+                    "--image-format=" + RENDER_IMAGE_FORMAT,
+                    "--jpeg-quality=" + str(RENDER_JPEG_QUALITY),
+                    "--log=error"]
         try:
             with self._render_slot():
-                proc = subprocess.run(
-                    [npx, "remotion", "render", STUDIO_ENTRY, STUDIO_COMPOSITION, dest,
-                     "--props=" + props_path,
-                     "--public-dir=" + self.cache.folder,
-                     "--color-space=" + RENDER_COLOR_SPACE,
-                     "--image-format=" + RENDER_IMAGE_FORMAT,
-                     "--jpeg-quality=" + str(RENDER_JPEG_QUALITY),
-                     "--log=error"],
-                    cwd=STUDIO_DIR, capture_output=True, timeout=limite)
+                proc = subprocess.run(args, cwd=STUDIO_DIR, capture_output=True,
+                                      timeout=limite)
             if proc.returncode != 0 or not os.path.exists(dest):
+                # O still apaga o proprio arquivo vazio: um PNG de 0 byte no cache faria a
+                # proxima chamada servir o fracasso de graca, para sempre.
+                if still:
+                    remove_quietly(dest)
                 raise worker.WorkerError(
                     "ffmpeg_failed", "O Remotion falhou: %s" % _falha_render(proc))
-            self._send_video(dest, edited_name(token, body),
-                             background_state=props["backgroundState"])
+            if still:
+                self._send_still(dest, props)
+            else:
+                self._send_video(dest, edited_name(token, body),
+                                 background_state=props["backgroundState"])
         except subprocess.TimeoutExpired:
+            if still:
+                remove_quietly(dest)
+                raise worker.WorkerError(
+                    "ffmpeg_failed",
+                    "O quadro real passou de %.0fs e foi encerrado. O Chrome do Remotion "
+                    "pode estar abrindo pela primeira vez; tente de novo." % limite)
             raise worker.WorkerError(
                 "ffmpeg_failed",
                 "O render passou de %.0f min e foi encerrado. Este trecho tem %.0fs; "
@@ -2057,7 +2261,7 @@ class CutHandler(SimpleHTTPRequestHandler):
             # dimensionar a tarja onde a miniatura entra. Uma leitura, um número.
             altura_video = video_box(req.profile, media)
             documento, legenda = cut_captions(req.name, req.start, req.end,
-                                              altura_video, corrigida)
+                                              altura_video, corrigida, req.edit)
             banda = worker.band_height(altura_video)
             caminho_fundo = cut_background(req.name) or ""
             fundo = caminho_fundo if caminho_fundo and background_ok(caminho_fundo) else None

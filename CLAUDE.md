@@ -104,12 +104,25 @@ normal: cada corte sai de um encode único, feito aqui. A medição não foi rev
 "não vale mexer nele", e não "ele tem de continuar existindo". Números em
 `docs/02-Execution/PLANO-3-dupla-compressao.md` §8, inclusive a armadilha de alinhamento de
 quadro que vale 17 dB.
+**Editor MANUAL da legenda (2026-09-16, decisão do usuário):** o estilo continua sendo a
+escolha de PARTIDA, e o operador ajusta por cima dele fonte, corpo, caixa, cor do texto,
+cor do destaque, largura da coluna, alinhamento e posição vertical — cada controle com
+"voltar ao automático" e com marcador visível de que foi ajustado. Modelo versionado
+`clip.edit = { v: 1, legenda, enquadramento }` **na chave de projeto que já existe**, sem
+nova chave de `localStorage` e sem migração: corte salvo antes disto abre e exporta
+idêntico. O estilo `impacto` passou de **Archivo Black para Montserrat ExtraBold** (800) na
+mesma entrega, nos DOIS renderizadores — é a única mudança visual deliberada em clip
+antigo, e ela vale porque foi pedida por escrito. Duas prévias, e a tela diz qual é qual:
+CSS instantânea (aproximação da tipografia, sem repaginar) e `/api/remotion-still`, o quadro
+real com os MESMOS props do MP4. **A âncora vertical continua com um dono só** —
+`captions.margem_inferior`; a tela manda INTENÇÃO (`posicaoPct`), nunca pixel. Regras
+próprias em `.claude/rules/estudio-ui.md`, `estudio-remotion.md` e `estudio-video-worker.md`.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**354**) · `test_ytclip.py` (**254**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**366**) · `test-video-ops.js` (**98**) · `test-video-ops-dom.js` (**165**) · `test-video-results.js` (**46**) — **1866 verificações nas dez, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**184**) · `test_serve.py` (**385**) · `test_ytclip.py` (**273**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**379**) · `test-video-ops.js` (**109**) · `test-video-ops-dom.js` (**189**) · `test-video-results.js` (**46**) — **1994 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

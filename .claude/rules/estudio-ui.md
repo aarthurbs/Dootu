@@ -232,6 +232,54 @@ o passo é de **1 s**. O botão `daqui` segue a MESMA regra, com os dois lados a
   emergência) e TEM de casar com o `worker.build_filter` — checks 26p/26q leem os
   arquivos. Ele não cobre o ramo da miniatura (precisa de 2ª entrada, não cabe num `-vf`).
 
+## Editor MANUAL da legenda (decisão do usuário, 2026-09-16)
+O estilo (`classico`/`impacto`) é a escolha de PARTIDA; o painel `.vop-leg` é o que o
+operador muda por cima dele, um campo de cada vez. Modelo versionado **na chave que já
+existe**: `clip.edit = { v: 1, legenda: {...}, enquadramento: {...} }` — **sem chave nova
+de `localStorage`**, sem migração, e clip salvo antes disto abre e exporta idêntico.
+
+- **`editOf` é o validador, e é ele que grava.** Nada entra cru: `editFieldWrite` escreve
+  sempre passando pelo `editOf`, e `null` no valor é o gesto de "voltar ao automático" —
+  a chave some, em vez de virar chave morta no disco. Terceira cópia (preset.js é o dono,
+  `serve.edit_of` é a do servidor); as faixas numéricas e os conjuntos fechados
+  (`LEGENDA_FONTES` · `LEGENDA_CORES` · `LEGENDA_ALINHAMENTOS`) são **literais** lidos por
+  regex pelo `test_serve` (checks 33a–33b).
+- **`Math.round` no grampo dos números.** O espelho em Python grampeia com
+  `int(round(...))`; sem isso um corpo 72,5 valeria 72,5 na tela e 72 no `.ass`, e os dois
+  renderizadores desenhariam tamanhos diferentes do MESMO ajuste.
+- **O automático tem de aparecer como NÚMERO** (`LEGENDA_AUTO`, BP-008): um slider parado
+  em 58 enquanto o estilo é `impacto` (72) mente sobre o que vai sair, e encostar nele pula
+  14px que ninguém pediu. A tabela é conferida contra o `preset.js` (check 33d2).
+- **Automático e manual nunca podem parecer a mesma coisa.** A linha ajustada acende
+  `data-manual="1"` (borda que já ocupa lugar — acender não empurra o layout) e o botão
+  `auto` dela sai do `disabled`. A faixa de estado fala nos DOIS ramos, inclusive
+  "Tudo automático".
+- **A posição vertical NASCE sem número, de propósito.** A âncora automática é calculada
+  em Python (`captions.margem_inferior`) a partir do enquadramento; uma fórmula equivalente
+  em JS é o defeito que já escreveu a legenda 61px ABAIXO da imagem. Enquanto é automática
+  a linha DIZ isso; ao assumir, o slider parte de um número redondo da tela
+  (`LEGENDA_POSICAO_PARTIDA`, 75) e o ajuste fino se faz olhando o quadro real. **Nunca**
+  trazer `RODAPE_PCT`/`ZONA_UI_PCT` para cá — o check 33g6 reprova.
+- **`input` desenha, `change` grava.** O slider dispara `input` a cada pixel do arrasto: a
+  prévia acompanha em tempo real e o `localStorage` só é tocado ao soltar. E a escrita
+  **não re-renderiza** (o slider morreria no meio do arrasto — parente do BP-001); quem
+  re-renderiza é só o `auto` e o "Posicionar à mão", porque a linha troca de FORMA.
+
+### As duas prévias, e a tela diz qual é qual
+- **Camada A — CSS, instantânea.** Overlay `.vop-leg-prev` sobre o player da FONTE que já
+  existe (nunca um segundo `<video>` de 2 GB). Ela prova fonte, corpo, caixa, cor, coluna e
+  alinhamento, e **não** a quebra de página: essa tem um dono só (`toCaptionPages` /
+  `to_pages`) e não ganha uma quarta implementação. Números vão em pixels do QUADRO
+  (1080×1920) como custom properties **sem unidade**, e o CSS os multiplica por
+  `--px: calc(100cqh / 1920)` — unidade de container, não `scale()` calculado em JS.
+- **Camada B — o quadro real, sob demanda.** `/api/remotion-still` roda `npx remotion still`
+  com os props que o `render_props` monta para o MP4 (um dono só), no quadro do MEIO do
+  corte — o começo cai dentro dos 4s do card do título. Cache por hash dos props, então
+  reapertar sem mexer em nada é de graça. Todo desfecho fala (BP-008): pedindo, pronto (com
+  a âncora que o servidor resolveu, lida do `X-Clip-Legenda-Base`) e falhou com o motivo.
+- **O download rápido (FFmpeg/ASS) avisa o que não reproduz**, ao lado do próprio botão:
+  `ASS_NAO_REPRODUZ` espelha `captions.ASS_NAO_REPRODUZ` (check 33j2).
+
 ## Validação
 `node test-video-ops.js` · `node test-video-ops-dom.js` — ou `.\provas.ps1`.
 `node test-video-ops-rec.js` fica **fora** do `provas.ps1`: rode-o à mão ao mexer na

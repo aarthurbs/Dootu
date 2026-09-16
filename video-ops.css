@@ -2028,3 +2028,238 @@
   .res-pat-facts { grid-template-columns: 1fr; gap: 2px; }
   .res-pat-facts dd { margin-bottom: 7px; }
 }
+
+/* --- Painel MANUAL da legenda ---------------------------------------------------------
+   Mesma família visual do `.vop-cardstyle`: radio nativo escondido, `:checked` no label,
+   zero JS de estado visual. O que é NOVO aqui é o marcador de override — valor automático
+   e valor escolhido à mão nunca podem parecer a mesma coisa (BP-008). */
+#view-video-ops .vop-leg {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  /* Container query, e não media query de viewport: este painel mora na coluna lateral do
+     detalhe, ao lado da barra do site — a largura da JANELA não diz nada sobre a largura
+     que ele tem de fato. */
+  container-type: inline-size;
+  container-name: legpainel;
+}
+#view-video-ops .vop-leg-state {
+  margin: 0 0 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+#view-video-ops .vop-leg-state[data-tone="manual"] { color: var(--text); font-weight: 650; }
+#view-video-ops .vop-leg-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 7px;
+  border-radius: 8px;
+  /* A borda ESQUERDA é o marcador de override: ela ocupa lugar sempre (transparente no
+     automático), então acender não empurra a linha nem um pixel. */
+  border-left: 2px solid transparent;
+  transition: background-color 160ms var(--vop-ease-out), border-color 160ms var(--vop-ease-out);
+}
+#view-video-ops .vop-leg-row[data-manual="1"] {
+  border-left-color: var(--accent, #D9A441);
+  background: color-mix(in srgb, var(--accent, #D9A441) 7%, transparent);
+}
+#view-video-ops .vop-leg-lab {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-dim);
+  letter-spacing: .02em;
+}
+#view-video-ops .vop-leg-row[data-manual="1"] .vop-leg-lab { color: var(--text); }
+#view-video-ops .vop-leg-ctl { min-width: 0; }
+
+/* Segmento: a MESMA armadilha medida do `.vop-cardstyle` — o radio é `position: absolute`,
+   então precisa de um ancestral POSICIONADO. Sem ele o bloco containing vira o documento,
+   focar o radio rola o `.layout` (que tem overflow oculto e conteúdo maior que ele) e a
+   tela ganha uma faixa morta de rolagem. Não remover o `position: relative`. */
+#view-video-ops .vop-leg-seg {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+#view-video-ops .vop-leg-seg input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+#view-video-ops .vop-leg-seg label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 160ms var(--vop-ease-out), color 160ms var(--vop-ease-out),
+    border-color 160ms var(--vop-ease-out), transform 140ms var(--vop-ease-out);
+}
+#view-video-ops .vop-leg-seg label:active { transform: scale(.97); }
+#view-video-ops .vop-leg-seg input:checked + label {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+#view-video-ops .vop-leg-seg input:focus-visible + label {
+  outline: 2px solid var(--accent, #D9A441);
+  outline-offset: 1px;
+}
+/* A bolinha de cor. O rótulo em TEXTO fica ao lado dela de propósito: cor sozinha não é
+   rótulo acessível, e "âmbar" e "verde-claro" são indistinguíveis para parte das pessoas. */
+#view-video-ops .vop-leg-seg label[style*="--sw"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sw);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .35);
+  flex: none;
+}
+
+#view-video-ops .vop-leg-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#view-video-ops .vop-leg-range input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent, #D9A441);
+}
+#view-video-ops .vop-leg-range output {
+  min-width: 42px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+#view-video-ops .vop-leg-auto-note {
+  flex: 1 1 auto;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+/* "auto" DESABILITADO continua na tela: um botão que aparece e some muda a largura da
+   linha no meio do ajuste, e é o movimento que o olho persegue em vez do controle. */
+#view-video-ops .vop-leg-auto {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 160ms var(--vop-ease-out), color 160ms var(--vop-ease-out),
+    border-color 160ms var(--vop-ease-out), opacity 160ms var(--vop-ease-out),
+    transform 140ms var(--vop-ease-out);
+}
+#view-video-ops .vop-leg-auto:active { transform: scale(.97); }
+#view-video-ops .vop-leg-auto[disabled] { opacity: .32; cursor: default; }
+#view-video-ops .vop-leg-auto[disabled]:active { transform: none; }
+/* Coluna estreita (o painel vive ao lado da barra do site): o rótulo sobe para cima do
+   controle em vez de espremer os dois. Container query — a largura da JANELA não diz nada
+   sobre a largura deste painel. */
+@container legpainel (max-width: 330px) {
+  #view-video-ops .vop-leg-row { grid-template-columns: minmax(0, 1fr) auto; }
+  #view-video-ops .vop-leg-lab { grid-column: 1 / -1; }
+}
+#view-video-ops .vop-leg-ass {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* --- Prévia da tipografia (camada A) --------------------------------------------------
+   APROXIMAÇÃO declarada: prova fonte, corpo, caixa, cor, coluna e alinhamento, e NÃO a
+   quebra de página — essa tem um dono só (`toCaptionPages` / `to_pages`) e não ganha uma
+   quarta implementação aqui. O quadro de verdade é a camada B (`/api/remotion-still`). */
+#view-video-ops .yt-src-stage { container-type: size; container-name: palco; }
+#view-video-ops .vop-leg-prev {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* UM pixel do quadro de saída (1080x1920) medido na altura do palco. Unidade de
+     container em vez de um `scale()` calculado em JS: o navegador refaz a conta sozinho
+     quando a janela muda, e não sobra número de escala para divergir. */
+  --px: calc(100cqh / 1920);
+}
+#view-video-ops .vop-leg-prev > span {
+  position: absolute;
+  left: 50%;
+  /* A BASE do texto fica em `--leg-pos` % da altura do quadro, contada do topo — a mesma
+     convenção que o `posicaoPct` manda ao servidor. A página cresce para CIMA, como no
+     Alignment 2 do ASS e no `bottom` da composição. */
+  bottom: calc(100% - var(--leg-pos));
+  transform: translateX(-50%);
+  width: calc(var(--leg-col) * var(--px));
+  font-size: calc(var(--leg-fonte) * var(--px));
+  line-height: 1.15;
+  font-weight: 800;
+  color: var(--leg-cor);
+  /* Sombra de LEITURA, não efeito: sem ela o branco some sobre camisa clara. Sem brilho
+     colorido e sem contorno — a assinatura do editor automático que a direção evita. */
+  text-shadow: 0 3px 14px rgba(0, 0, 0, .82);
+  overflow-wrap: break-word;
+}
+#view-video-ops .vop-leg-prev[data-familia="montserrat"] > span {
+  font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+}
+#view-video-ops .vop-leg-prev[data-familia="inter"] > span {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+#view-video-ops .vop-leg-prev[data-caixa="1"] > span { text-transform: uppercase; }
+#view-video-ops .vop-leg-prev[data-align="left"] > span { text-align: left; }
+#view-video-ops .vop-leg-prev[data-align="center"] > span { text-align: center; }
+#view-video-ops .vop-leg-prev[data-align="right"] > span { text-align: right; }
+/* Posição AUTOMÁTICA: o número aqui é o de partida da TELA, não a âncora do servidor (que
+   é calculada em Python). Marcar isso é o que impede a prévia de ser lida como promessa —
+   o quadro real responde essa pergunta (BP-008). */
+#view-video-ops .vop-leg-prev[data-auto="1"] > span { opacity: .82; }
+#view-video-ops .vop-leg-prev-nota {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+#view-video-ops .vop-leg-still { display: grid; gap: 6px; margin-top: 4px; }
+#view-video-ops .vop-leg-still-msg {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+/* O quadro real em 1080x1920 cabe na coluna pela LARGURA; a altura acompanha. `display:
+   block` mata a folga de linha-base que deixaria uma faixa clara sob a imagem. */
+#view-video-ops .vop-leg-still-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}

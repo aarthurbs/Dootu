@@ -677,9 +677,14 @@ def _place_font(pasta):
     engolir devolveria o corte em Arial CALADO -- o defeito que a fonte empacotada existe
     para matar.
     """
-    origem = os.path.join(captions.FONTE_DIR, captions.FONTE_ARQUIVO)
-    if os.path.isfile(origem):
-        shutil.copyfile(origem, os.path.join(pasta, captions.FONTE_ARQUIVO))
+    # TODAS as fontes do registro, e nao so a do estilo padrao: o `fontsdir=.` do filtro
+    # aponta para a PASTA, e escolher o arquivo aqui exigiria carregar o estilo resolvido do
+    # corte ate dentro do worker. Sao ~800 KB por corte contra megabytes de video, e a
+    # alternativa era o estilo `impacto` cair em Arial CALADO.
+    for fonte in sorted({f["arquivo"] for f in captions.LEGENDA_FONTES.values()}):
+        origem = os.path.join(captions.FONTE_DIR, fonte)
+        if os.path.isfile(origem):
+            shutil.copyfile(origem, os.path.join(pasta, fonte))
 
 
 def render_cut(src, dest, start, duration, reframe, has_audio, timeout=None, ass_file=None,

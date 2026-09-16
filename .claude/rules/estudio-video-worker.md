@@ -136,12 +136,36 @@ ausência = "esta rota não tem o que dizer". Checks 18p/30e.
 - Alvo de saída: `yuv420p` · `tv` · `bt709` (as três coincidindo, o FFmpeg imprime
   `bt709` uma vez só — essa é a assinatura de sucesso).
 
-## Fonte
-`video-worker/fonts/Inter-Bold.ttf` viaja no repo (SIL OFL). `worker._place_font`
-copia para AO LADO do `.ass` e o filtro usa **`fontsdir=.`** — caminho absoluto do
-Windows exigiria escapar `\` e `:` dentro do `filter_complex`. Arquivo ausente
-**não levanta** (é o estado `burned-sem-inter`); falha de CÓPIA levanta.
-**O libass NÃO falha quando não acha a fonte — ele troca calado para Arial.**
+## Fonte e estilo do `.ass`
+`video-worker/fonts/` viaja no repo com as DUAS fontes e as duas licenças (SIL OFL):
+`Inter-Bold.ttf` (estilo `classico`) e `Montserrat-ExtraBold.ttf` (estilo `impacto`,
+desde 2026-09-16). `worker._place_font` copia **todas** as fontes do registro para AO
+LADO do `.ass` e o filtro usa **`fontsdir=.`** — caminho absoluto do Windows exigiria
+escapar `\` e `:` dentro do `filter_complex`. Escolher o arquivo dentro do worker
+exigiria carregar o estilo resolvido até lá; são ~800 KB por corte contra megabytes de
+vídeo. Arquivo ausente **não levanta** (é o estado `burned-sem-inter`); falha de CÓPIA
+levanta. **O libass NÃO falha quando não acha a fonte — ele troca calado para Arial.**
+
+- **O libass casa pela FAMÍLIA DECLARADA, não pelo nome do arquivo.** O
+  `Montserrat-ExtraBold.ttf` se declara `Montserrat ExtraBold`, e pedir `Montserrat`
+  cairia em Arial calado — por isso `captions.LEGENDA_FONTES` guarda o nome declarado e
+  o check 13b6 LÊ a tabela `name` do arquivo.
+- **`negrito` é por ARQUIVO, não por estilo.** A Inter-Bold declara família `Inter` e
+  precisa do `(Inter, 700)`; a Montserrat-ExtraBold já traz o peso no desenho, e pedir
+  negrito dela faz o libass SINTETIZAR por cima — engrossamento borrado que só aparece
+  olhando o frame.
+- **`captions.estilo_ass(style, manual)` é a dona única da tradução preset→ASS**, e
+  `FONTE` / `FONTE_ARQUIVO` / `NEGRITO` / `FONTE_TAMANHO` são DERIVADOS do estilo padrão
+  (não escritos à mão). Entrada desconhecida cai no `classico`, byte a byte o documento
+  que este módulo sempre gerou — provado pelo check 13h.
+- **O teto de caracteres vem do ESTILO** (`chars_por_linha`, espelho do
+  `charsPorLinhaLegenda`), nunca mais do `MAX_CHARS_LINHA` fixo: paginar com 25 e
+  desenhar a 72px em caixa alta é a linha estourando a coluna, sem erro nenhum.
+- **A caixa alta é aplicada ao TEXTO.** O ASS não tem `text-transform`; o
+  `textTransform: uppercase` do `Clip.jsx` é CSS e não viaja.
+- **O que o ASS NÃO reproduz está declarado em `captions.ASS_NAO_REPRODUZ`** e a TELA
+  mostra as frases ao lado do botão que usa esse caminho (BP-008). O check 33j2 conta os
+  dois lados.
 
 ## Prazos (botões de calibragem)
 `RENDER_SEC_PER_CLIP_SEC` (guarda o DOBRO do medido) · `DEFAULT_RENDER_TIMEOUT` é

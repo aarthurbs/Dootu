@@ -461,6 +461,77 @@ async function main() {
   ok('e o botão do Remotion também', html.indexOf('data-act="yt-render"') > 0);
   ok('o botao de render nao expoe o nome do renderizador ao operador',
     html.indexOf('Remotion') < 0);
+
+  // O painel MANUAL da legenda. O que se cobra aqui e o que o `node --check` nao pega: que
+  // o construtor roda de verdade dentro do render, que TODO controle chega a tela e que um
+  // automatico nao e desenhado igual a um ajuste (BP-008).
+  ok('o painel manual da legenda aparece na tela de detalhe',
+    html.indexOf('class="vop-leg"') > 0 && html.indexOf('data-leg-state') > 0);
+  ok('e ele diz, sem ajuste nenhum, que esta tudo automatico',
+    html.indexOf('Tudo automático') > 0 && html.indexOf('data-manual="1"') < 0);
+  ['familia', 'tamanho', 'caixaAlta', 'cor', 'destaqueCor', 'largura', 'alinhamento',
+    'posicaoPct'].forEach(chave => {
+    ok('o controle ' + chave + ' esta na tela',
+      html.indexOf('data-leg-row="' + chave + '"') > 0);
+  });
+  ok('cada controle tem o seu proprio botao de voltar ao automatico',
+    (html.match(/data-act="leg-auto"/g) || []).length === 8);
+  // Radio NATIVO, como o resto da tela: o `:checked` desenha o estado e nao ha JS de estado
+  // visual para dessincronizar do dado.
+  ok('os segmentos sao radios nativos, com o valor de hoje ja marcado',
+    /data-leg-field="familia"[^>]*value="inter"[^>]*checked/.test(html));
+  ok('o corpo mostra o numero que o automatico usaria, e nao um zero',
+    /data-leg-field="tamanho"[^>]*value="58"/.test(html)
+    || /value="58"[^>]*data-leg-field="tamanho"/.test(html));
+  ok('a paleta das cores e FECHADA (cinco tokens, nunca uma roda de cor)',
+    (html.match(/data-leg-field="cor"/g) || []).length === 5
+    && html.indexOf('type="color"') < 0);
+  ok('o quadro real e oferecido, e a previa em CSS se declara aproximacao',
+    html.indexOf('data-act="leg-still"') > 0 && /aproxima/.test(html));
+  ok('e o download rapido avisa, ao lado do proprio botao, o que ele nao reproduz',
+    html.indexOf('vop-leg-ass') > 0 && html.indexOf('</strong> reproduz') > 0);
+
+  // Ajustar um controle marca a LINHA dele, e so ela. A escrita NAO re-renderiza (o slider
+  // morreria no meio do arrasto), entao o teste reabre a tela para ver o HTML novo -- que e
+  // tambem a prova de que o ajuste sobreviveu ao armazenamento.
+  b.muda('[data-leg-field]', { dataset: { legField: 'tamanho', id: clipId }, value: '84' });
+  b.clique({ act: 'yt-back' });
+  b.clique({ act: 'yt-open', id: clipId });
+  html = b.html();
+  ok('ajustar o corpo marca a linha como manual, e so ela',
+    html.indexOf('data-leg-row="tamanho" data-manual="1"') > 0
+    && (html.match(/data-manual="1"/g) || []).length === 1);
+  ok('e a faixa de estado passa a contar o ajuste',
+    html.indexOf('1 controle ajustado') > 0);
+  ok('o controle passa a mostrar o valor escolhido, nao o do estilo',
+    /data-leg-field="tamanho"[^>]*aria-label/.test(html) && html.indexOf('value="84"') > 0);
+  b.clique({ act: 'leg-auto', id: clipId, key: 'tamanho' });
+  html = b.html();
+  ok('o botao auto devolve o controle ao automatico',
+    html.indexOf('data-manual="1"') < 0 && html.indexOf('Tudo automático') > 0);
+  b.clique({ act: 'leg-posicao', id: clipId });
+  html = b.html();
+  ok('assumir a posicao vertical troca o aviso por um slider',
+    html.indexOf('data-leg-field="posicaoPct"') > 0
+    && html.indexOf('data-act="leg-posicao"') < 0);
+  b.clique({ act: 'leg-auto', id: clipId, key: 'posicaoPct' });
+  html = b.html();
+  ok('e voltar ao automatico devolve o aviso no lugar do slider',
+    html.indexOf('data-act="leg-posicao"') > 0
+    && html.indexOf('data-leg-field="posicaoPct"') < 0);
+  // Trocar o ESTILO tem de repintar o painel: ele mostra o numero que o automatico usaria,
+  // e quem decide esse numero e o estilo. Sem isto o slider fica no corpo do estilo anterior
+  // -- automacao mentindo sobre o que vai sair (BP-008 ao contrario).
+  b.muda('[data-clip-field]', { dataset: { clipField: 'legendaStyle', id: clipId },
+    value: 'impacto' });
+  html = b.html();
+  ok('trocar o estilo repinta o painel com os automaticos do estilo novo',
+    html.indexOf('value="72"') > 0 && html.indexOf('value="58"') < 0);
+  ok('e o radio da familia acompanha, sem virar ajuste manual',
+    /data-leg-field="familia"[^>]*value="montserrat"[^>]*checked/.test(html)
+    && html.indexOf('Tudo automático') > 0);
+  b.muda('[data-clip-field]', { dataset: { clipField: 'legendaStyle', id: clipId },
+    value: 'classico' });
   b.clique({ act: 'yt-cap', id: clipId });
   html = b.html();
   ok('abrir a legenda mostra as falas do trecho', html.indexOf('data-cap-panel') > 0);

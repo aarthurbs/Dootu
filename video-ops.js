@@ -77,8 +77,247 @@
      `classico` — a legenda que TODO corte já renderiza hoje, então clip antigo continua
      saindo igual. */
   function legendaStyleOf(clip) {
-    var valor = clip && clip.legendaStyle;
+    var valor = editOf(clip).legenda.style || (clip && clip.legendaStyle);
     return LEGENDA_STYLES.indexOf(valor) >= 0 ? valor : LEGENDA_PADRAO;
+  }
+
+  /* Espelhos literais do preset.js. Só overrides válidos entram no modelo; ausência
+     continua automática. Ler um projeto não migra nem regrava seus clips. */
+  var LEGENDA_FONTES = ['inter', 'montserrat'];
+  var LEGENDA_CORES = ['texto', 'destaque', 'destaqueGanho', 'destaquePerda', 'palavraCor'];
+  var LEGENDA_ALINHAMENTOS = ['left', 'center', 'right'];
+  function editOf(clip) {
+    var out = { v: 1, legenda: {}, enquadramento: {} };
+    var edit = clip && clip.edit;
+    if (!edit || edit.v !== 1 || Array.isArray(edit)) return out;
+    var legenda = edit.legenda;
+    if (legenda && typeof legenda === 'object' && !Array.isArray(legenda)) {
+      var sets = { style: LEGENDA_STYLES, familia: LEGENDA_FONTES,
+        cor: LEGENDA_CORES, destaqueCor: LEGENDA_CORES, alinhamento: LEGENDA_ALINHAMENTOS };
+      Object.keys(sets).forEach(function (key) {
+        if (sets[key].indexOf(legenda[key]) >= 0) out.legenda[key] = legenda[key];
+      });
+      if (typeof legenda.caixaAlta === 'boolean') out.legenda.caixaAlta = legenda.caixaAlta;
+      var ranges = { tamanho: [32, 96], largura: [360, 1000], posicaoPct: [0, 100] };
+      Object.keys(ranges).forEach(function (key) {
+        var value = legenda[key];
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          /* Math.round porque o espelho em Python grampeia com int(round(...)): sem ele
+             um corpo 72.5 viraria 72.5 na tela e 72 no .ass, e os dois renderizadores
+             desenhariam tamanhos diferentes do MESMO ajuste, calados. */
+          out.legenda[key] = Math.round(
+            Math.min(ranges[key][1], Math.max(ranges[key][0], value)));
+        }
+      });
+    }
+    var quadro = edit.enquadramento;
+    if (quadro && !Array.isArray(quadro) && REFRAMES.indexOf(quadro.reframe) >= 0) {
+      out.enquadramento.reframe = quadro.reframe;
+    }
+    return out;
+  }
+  /* null restaura o automático de UM controle. O chamador persiste no projeto existente. */
+  function editFieldWrite(clip, section, field, value) {
+    if (!clip || ['legenda', 'enquadramento'].indexOf(section) < 0) return false;
+    var edit = editOf(clip);
+    if (value === null) delete edit[section][field];
+    else edit[section][field] = value;
+    clip.edit = editOf({ edit: edit });
+    return true;
+  }
+
+  /* --- painel MANUAL da legenda -------------------------------------------------------
+     O estilo (`classico`/`impacto`) continua sendo a escolha de PARTIDA; estes controles
+     são o que o operador muda por cima dele, um campo de cada vez. Só o que a tela mostra
+     é espelhado aqui — entrelinha, sombra e avanço não têm controle e não têm por que
+     existir numa quinta cópia.
+
+     `LEGENDA_AUTO` é o que cada estilo dá SOZINHO, e existe por causa do BP-008: um slider
+     parado em 58 enquanto o estilo é `impacto` (72) mentiria sobre o que vai sair, e
+     encostar nele pularia 14 px que ninguém pediu. Com o valor certo à mostra, mexer é
+     ajuste; sem ele, é surpresa. O `test_serve` compara esta tabela com o `preset.js`. */
+  var LEGENDA_AUTO = {
+    classico: { familia: 'inter', tamanho: 58, caixaAlta: false, destaqueCor: 'palavraCor' },
+    impacto: { familia: 'montserrat', tamanho: 72, caixaAlta: true, destaqueCor: 'destaque' }
+  };
+  /* Os que não dependem do estilo: os dois presets têm a MESMA coluna, a mesma cor de texto
+     e o mesmo alinhamento. `posicaoPct` é `null` porque a âncora automática é calculada em
+     Python (`captions.margem_inferior`) a partir do enquadramento — e uma fórmula
+     equivalente aqui é justamente o defeito que aquela função existe para impedir. */
+  var LEGENDA_AUTO_COMUM = { cor: 'texto', largura: 820, alinhamento: 'center', posicaoPct: null };
+  /* Percentual de partida quando o operador decide posicionar à mão. É um número REDONDO
+     escolhido pela tela, e não a âncora automática disfarçada: 75% do quadro é onde a
+     legenda cai na maioria dos enquadramentos, e o ajuste fino se faz olhando o quadro
+     real. Deixar o controle começar "no lugar certo" exigiria a fórmula do Python aqui. */
+  var LEGENDA_POSICAO_PARTIDA = 75;
+  var LEGENDA_FONTE_LABELS = { inter: 'Inter', montserrat: 'Montserrat' };
+  var LEGENDA_ALINHA_LABELS = { left: 'Esquerda', center: 'Centro', right: 'Direita' };
+  /* Paleta FECHADA do projeto (o `TOKENS` do preset.js), nunca uma roda de cor: a direção
+     editorial proíbe neon, e um seletor livre é um convite a ele. O hexadecimal está aqui
+     porque a bolinha do controle precisa dele — o VALOR gravado continua sendo o nome. */
+  var LEGENDA_COR_HEX = {
+    texto: '#FFFFFF', destaque: '#D9A441', destaqueGanho: '#8FB573',
+    destaquePerda: '#C0554A', palavraCor: '#59E36A'
+  };
+  var LEGENDA_COR_LABELS = {
+    texto: 'Branco', destaque: 'Âmbar', destaqueGanho: 'Verde',
+    destaquePerda: 'Vermelho', palavraCor: 'Verde-claro'
+  };
+  /* O que o download rápido (FFmpeg/ASS) NÃO reproduz do que a tela deixa escolher.
+     Espelha o `captions.ASS_NAO_REPRODUZ`, e está na tela ao lado do botão que usa aquele
+     caminho: um renderizador que entrega outra coisa calado é o defeito que o BP-008
+     existe para matar. */
+  var ASS_NAO_REPRODUZ = [
+    'o destaque da palavra sendo dita (a página inteira sai na cor principal)',
+    'a animação de entrada da palavra',
+    'o desfoque da sombra (o ASS só tem sombra dura, deslocada)'
+  ];
+
+  /* O que o controle MOSTRA: o valor manual quando existe, senão o automático do estilo.
+     `manual` é o que acende o marcador da linha — valor automático e valor escolhido nunca
+     podem parecer a mesma coisa (BP-008). PURA: o teste chama com um trecho construído. */
+  function legendaValor(clip, chave) {
+    var manual = editOf(clip).legenda;
+    var auto = LEGENDA_AUTO[legendaStyleOf(clip)] || LEGENDA_AUTO[LEGENDA_PADRAO];
+    var padrao = Object.prototype.hasOwnProperty.call(auto, chave)
+      ? auto[chave] : LEGENDA_AUTO_COMUM[chave];
+    var temManual = Object.prototype.hasOwnProperty.call(manual, chave);
+    return { valor: temManual ? manual[chave] : padrao, manual: temManual };
+  }
+  /* Quantos controles o operador já tirou do automático. É o que a faixa de estado mostra
+     — inclusive o caso em que ela NÃO age ("tudo automático"), que é o ramo que o BP-008
+     cobra e o que um painel mudo deixaria indistinguível de um painel quebrado. */
+  function legendaManuais(clip) {
+    var edit = editOf(clip);
+    return Object.keys(edit.legenda).length + Object.keys(edit.enquadramento).length;
+  }
+
+  function legRowHTML(clip, chave, rotulo, controle) {
+    var estado = legendaValor(clip, chave);
+    return '<div class="vop-leg-row" data-leg-row="' + esc(chave) + '"'
+      + ' data-manual="' + (estado.manual ? '1' : '0') + '">'
+      + '<span class="vop-leg-lab">' + esc(rotulo) + '</span>'
+      + '<div class="vop-leg-ctl">' + controle + '</div>'
+      /* O botão de voltar ao automático existe SEMPRE, e não só quando há override: um
+         botão que aparece e some muda a largura da linha no meio do ajuste. Desabilitado
+         quando não há o que desfazer diz a mesma coisa sem mexer no layout. */
+      + '<button class="vop-leg-auto" type="button" data-act="leg-auto"'
+      + ' data-id="' + esc(clip.id) + '" data-key="' + esc(chave) + '"'
+      + (estado.manual ? '' : ' disabled')
+      + ' title="Voltar este controle ao automático">auto</button>'
+      + '</div>';
+  }
+  /* Radios NATIVOS, como o card e o enquadramento: o `:checked` desenha o selecionado, a
+     navegação por seta vem de graça e não há JS de estado visual para dessincronizar do
+     dado. O `name` leva o id do trecho E a chave — um `name` só faria os grupos brigarem. */
+  function legRadiosHTML(clip, chave, opcoes, rotulo) {
+    var estado = legendaValor(clip, chave);
+    return legRowHTML(clip, chave, rotulo, '<div class="vop-leg-seg">'
+      + opcoes.map(function (opcao) {
+        var valor = String(opcao[0]);
+        var id = 'leg-' + chave + '-' + clip.id + '-' + valor;
+        return '<input type="radio" id="' + esc(id) + '"'
+          + ' name="leg-' + esc(chave) + '-' + esc(clip.id) + '"'
+          + ' data-leg-field="' + esc(chave) + '" data-id="' + esc(clip.id) + '"'
+          + ' value="' + esc(valor) + '"' + (String(estado.valor) === valor ? ' checked' : '') + '>'
+          + '<label for="' + esc(id) + '"' + (opcao[2] ? ' style="--sw:' + esc(opcao[2]) + '"' : '')
+          + '>' + esc(opcao[1]) + '</label>';
+      }).join('') + '</div>');
+  }
+  function legRangeHTML(clip, chave, rotulo, min, max, passo, sufixo) {
+    var estado = legendaValor(clip, chave);
+    var valor = num(estado.valor);
+    return legRowHTML(clip, chave, rotulo, '<div class="vop-leg-range">'
+      + '<input type="range" min="' + min + '" max="' + max + '" step="' + passo + '"'
+      + ' value="' + valor + '" data-leg-field="' + esc(chave) + '"'
+      + ' data-id="' + esc(clip.id) + '" aria-label="' + esc(rotulo) + '">'
+      + '<output data-leg-out="' + esc(chave) + '">' + valor + esc(sufixo) + '</output>'
+      + '</div>');
+  }
+  /* O painel inteiro. Fica DEPOIS do seletor de estilo e antes do enquadramento, que é a
+     ordem em que a decisão acontece: escolho a aparência de partida, ajusto o que não
+     serviu, e só então decido o recorte. */
+  function legendaPanelHTML(clip) {
+    var manuais = legendaManuais(clip);
+    var posicao = legendaValor(clip, 'posicaoPct');
+    return '<div class="vop-leg" data-leg="' + esc(clip.id) + '">'
+      /* Faixa de estado: TODO ramo fala, inclusive o que não fez nada (BP-008). */
+      + '<p class="vop-leg-state" data-leg-state data-tone="' + (manuais ? 'manual' : 'auto') + '">'
+      + esc(manuais
+        ? manuais + (manuais > 1 ? ' controles ajustados' : ' controle ajustado')
+          + ' à mão — o resto segue o estilo.'
+        : 'Tudo automático: a legenda segue o estilo escolhido acima.') + '</p>'
+      + legRadiosHTML(clip, 'familia', [['inter', LEGENDA_FONTE_LABELS.inter],
+        ['montserrat', LEGENDA_FONTE_LABELS.montserrat]], 'Fonte')
+      + legRangeHTML(clip, 'tamanho', 'Corpo', 32, 96, 2, 'px')
+      + legRadiosHTML(clip, 'caixaAlta', [['false', 'Caixa baixa'], ['true', 'CAIXA ALTA']], 'Caixa')
+      + legRadiosHTML(clip, 'cor', LEGENDA_CORES.map(function (c) {
+        return [c, LEGENDA_COR_LABELS[c], LEGENDA_COR_HEX[c]];
+      }), 'Cor do texto')
+      + legRadiosHTML(clip, 'destaqueCor', LEGENDA_CORES.map(function (c) {
+        return [c, LEGENDA_COR_LABELS[c], LEGENDA_COR_HEX[c]];
+      }), 'Cor do destaque')
+      + legRangeHTML(clip, 'largura', 'Coluna', 360, 1000, 20, 'px')
+      + legRadiosHTML(clip, 'alinhamento', LEGENDA_ALINHAMENTOS.map(function (a) {
+        return [a, LEGENDA_ALINHA_LABELS[a]];
+      }), 'Alinhamento')
+      /* A posição vertical é o único controle que NASCE sem número: a âncora automática é
+         calculada no servidor (`captions.margem_inferior`), a partir do enquadramento, e
+         repeti-la aqui em JavaScript é o defeito que aquela função existe para impedir — a
+         legenda já saiu 61 px abaixo da imagem por causa disso. Enquanto está automática a
+         linha DIZ isso; ao assumir o controle, o slider parte de um número redondo e o
+         ajuste fino se faz olhando o quadro real. */
+      + (posicao.manual
+        ? legRangeHTML(clip, 'posicaoPct', 'Posição vertical', 0, 100, 1, '%')
+        : legRowHTML(clip, 'posicaoPct', 'Posição vertical',
+          '<div class="vop-leg-range"><span class="vop-leg-auto-note">'
+          + 'automática — o servidor ancora dentro da imagem</span>'
+          + '<button class="vop-inline-action" type="button" data-act="leg-posicao"'
+          + ' data-id="' + esc(clip.id) + '">Posicionar à mão</button></div>'))
+      /* CAMADA B: o quadro de verdade, sob demanda. A prévia em CSS acima é aproximação
+         declarada; este botão manda o MESMO corpo do export para o `/api/remotion-still`,
+         que monta os props com a MESMA função do MP4. É ele que responde onde a legenda
+         automática realmente cai — a tela não tem como saber isso sozinha, porque a âncora
+         é calculada em Python e repeti-la aqui é proibido. */
+      + '<div class="vop-leg-still">'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="leg-still"'
+      + ' data-id="' + esc(clip.id) + '">Ver o quadro real</button>'
+      + '<p class="vop-leg-still-msg" data-leg-still-msg>A prévia acima é aproximação. '
+      + 'O quadro real usa o renderizador do export, no meio do corte.</p>'
+      + '<div data-leg-still-slot></div></div>'
+      + '</div>';
+  }
+  /* A prévia da tipografia, desenhada em CSS por cima do player da fonte. É APROXIMAÇÃO e
+     a tela diz isso: a quebra de PÁGINA tem um dono só (`toCaptionPages`/`to_pages`) e esta
+     caixa NÃO a reimplementa — ela deixa o navegador quebrar o texto dentro da coluna, que
+     é outra coisa. O que ela prova é fonte, corpo, caixa, cor, coluna e alinhamento.
+
+     As medidas ficam em pixels do QUADRO (1080x1920) e o contêiner as escala com
+     `transform: scale()` no CSS: assim nenhum número da prévia precisa ser convertido, e um
+     erro de escala aparece como "tudo grande demais", nunca como um deslocamento sutil. */
+  function legendaPreviewHTML(clip) {
+    var familia = legendaValor(clip, 'familia').valor;
+    var tamanho = num(legendaValor(clip, 'tamanho').valor);
+    var caixa = legendaValor(clip, 'caixaAlta').valor;
+    var cor = LEGENDA_COR_HEX[legendaValor(clip, 'cor').valor] || LEGENDA_COR_HEX.texto;
+    var largura = num(legendaValor(clip, 'largura').valor);
+    var alinha = legendaValor(clip, 'alinhamento').valor;
+    var posicao = legendaValor(clip, 'posicaoPct');
+    /* O texto é a primeira fala do trecho, sem recorte nosso: mostrar a fala real é o que
+       faz o operador ver a linha estourar a coluna antes de exportar. Trecho sem fala usa
+       uma frase de amostra. */
+    var fala = ((clip.clipCues || [])[0] || {}).text || '';
+    return '<div class="vop-leg-prev" data-leg-prev'
+      /* NUMEROS sem unidade de proposito: o CSS os multiplica pelo tamanho de UM pixel do
+         quadro (`calc(var(--leg-col) * var(--px))`), e `calc(px * px)` seria invalido. Com
+         isso todo numero daqui continua sendo pixel do quadro de 1080x1920, e a conversao
+         para a tela mora num lugar so. */
+      + ' style="--leg-fonte:' + tamanho + ';--leg-col:' + largura + ';--leg-cor:' + esc(cor)
+      + ';--leg-pos:' + (posicao.manual ? num(posicao.valor) : LEGENDA_POSICAO_PARTIDA) + '%"'
+      + ' data-familia="' + esc(familia) + '" data-caixa="' + (caixa ? '1' : '0') + '"'
+      + ' data-align="' + esc(alinha) + '" data-auto="' + (posicao.manual ? '0' : '1') + '"'
+      + ' aria-hidden="true"><span data-leg-prev-text>'
+      + esc(fala || 'Assim fica a legenda deste corte') + '</span></div>';
   }
 
   /* --- enquadramento do 9:16 ---------------------------------------------------------
@@ -138,7 +377,7 @@
       + (aviso ? '<p class="vop-reframe-aviso">' + esc(aviso) + '</p>' : '');
   }
   function reframeOf(obj) {
-    var valor = obj && obj.reframe;
+    var valor = editOf(obj).enquadramento.reframe || (obj && obj.reframe);
     return REFRAMES.indexOf(valor) >= 0 ? valor : REFRAME_PADRAO;
   }
   /* Quanto o perfil corta de CADA lado, em porcento de uma fonte 16:9 -- que e a proporcao
@@ -2118,6 +2357,7 @@
           + ' value="' + esc(estilo) + '"' + (legendaAtual === estilo ? ' checked' : '') + '>'
           + '<label for="' + esc(id) + '">' + esc(LEGENDA_LABELS[estilo]) + '</label>';
       }).join('') + '</fieldset>'
+      + legendaPanelHTML(clip)
       + reframeFieldHTML(clip, 'clip-field', 'reframe',
         sourceWarning(reframeOf(clip), clip.sourceWidth, clip.sourceHeight))
       + '<div class="yt-detail-acts">'
@@ -2128,6 +2368,13 @@
         : '')
       + '<button class="vop-btn" type="button" data-act="yt-fetch" data-id="' + esc(clip.id) + '"'
       + (status.podeBaixar ? '' : ' disabled') + '>' + esc(status.rotulo) + '</button>'
+      /* O download rapido queima a legenda com FFmpeg/ASS, que nao expressa tudo o que a
+         composicao do Remotion faz. Dizer AQUI, ao lado do botao que usa esse caminho, e o
+         que impede o operador de comparar dois arquivos e achar que um deles quebrou
+         (BP-008) -- e o botao ao lado, "Baixar video editado", nao tem essa limitacao. */
+      + '<p class="vop-leg-ass">O download rápido queima a legenda com FFmpeg: ele veste '
+      + 'fonte, corpo, caixa, cor, coluna, alinhamento e posição, mas <strong>não</strong> reproduz '
+      + ASS_NAO_REPRODUZ.map(esc).join('; ') + '. O "Baixar vídeo editado" reproduz.</p>'
       + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-render" data-id="' + esc(clip.id) + '"'
       + (status.podeBaixar && !renderizando ? '' : ' disabled') + '>'
       + esc(renderizando ? 'Renderizando…' : 'Baixar vídeo editado') + '</button>'
@@ -2201,7 +2448,11 @@
       + '<video class="yt-src-video" data-src-video src="' + esc(SRC.url) + '" controls'
       + ' preload="metadata" playsinline></video>'
       + (corte ? '<div class="vop-cand-mask" style="--corte:' + corte + '%" aria-hidden="true"></div>' : '')
+      + (aberto ? legendaPreviewHTML(aberto) : '')
       + '</div>'
+      + (aberto ? '<p class="vop-leg-prev-nota">A caixa sobre o player é uma <strong>aproximação</strong> '
+        + 'da tipografia (fonte, corpo, caixa, cor, coluna e alinhamento). O quadro de verdade sai '
+        + 'do botão <em>Ver o quadro real</em>, no painel da legenda.</p>' : '')
       + '<div class="yt-src-meta">'
       + '<p class="yt-src-id"><strong>' + esc(SRC.name) + '</strong> · '
       + esc(fmtClock(SRC.durationSec)) + ' · ' + esc(fmtBytes(SRC.bytes))
@@ -2665,8 +2916,10 @@
   }
   /* Duração de partida de um trecho marcado à mão: o alvo do detector
      (`ytclip.TARGET_CLIP_SEC`). Não é teto — as bordas são ajustáveis depois, como em
-     qualquer sugestão. */
-  var MANUAL_SEC = 45;
+     qualquer sugestão. Caiu de 45 para 35 em 2026-09-16, junto com o alvo do motor: o
+     trecho manual nascer maior que toda sugestão da lista é a tela contradizendo o
+     detector, e quem marca à mão é a mesma pessoa que acabou de ver a lista. */
+  var MANUAL_SEC = 35;
   /* `unshift` e NÃO um array novo: o `YT.candidates` É o array do projeto salvo (o
      `openProject` o pega por referência), e trocá-lo por outro desligaria os dois — o trecho
      novo apareceria na tela e nunca no disco. */
@@ -2898,6 +3151,8 @@
          de novo e dela tira o `videoAltura`, o `bandaAltura` e o `legendaBase`. */
       reframe: reframeOf(clip)
     };
+    var edit = editOf(clip);
+    if (Object.keys(edit.legenda).length || Object.keys(edit.enquadramento).length) corpo.edit = edit;
     if (daFonte) {
       corpo.start = num(clip.inSec);
       corpo.end = num(clip.outSec);
@@ -2987,6 +3242,49 @@
         + (backgroundMessage(fundo) ? ' ' + backgroundMessage(fundo) : ''));
       renderKeepingScroll();
     }).catch(function (error) { ytFail(key, error); });
+  }
+  /* CAMADA B: um quadro, do renderizador de verdade. Sem barra de progresso e sem fila
+     própria — o servidor já serializa render e still no mesmo `_render_slot`, e inventar
+     uma segunda fila aqui só criaria dois donos para a mesma espera.
+     TODO desfecho fala (BP-008): pedindo, deu certo (com a âncora que o servidor resolveu)
+     e falhou com o motivo. Fiapo de carregamento sem fim é o que este projeto não aceita. */
+  function ytStill(button, clipId) {
+    var clip = findById(YT.candidates, clipId);
+    if (!clip) { toast('O trecho saiu da lista.', 'error'); return; }
+    var raiz = document.getElementById('video-ops-root');
+    var aviso = raiz && raiz.querySelector('[data-leg-still-msg]');
+    var vaga = raiz && raiz.querySelector('[data-leg-still-slot]');
+    function diga(texto) { if (aviso) aviso.textContent = texto; }
+    if (button) button.disabled = true;
+    diga('Montando o quadro real… o primeiro pode demorar (o Chrome do Remotion abre agora).');
+    fetch('/api/remotion-still', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'image/png' },
+      body: JSON.stringify(renderBody(clip, true, { token: SRC.token, name: SRC.name }))
+    }).catch(function () {
+      throw new Error('O renderizador não está ativo — rode estudio.ps1.');
+    }).then(function (response) {
+      if (!response.ok) return renderError(response).then(function (m) { throw new Error(m); });
+      var base = response.headers.get('X-Clip-Legenda-Base') || '';
+      var alto = response.headers.get('X-Clip-Video-Altura') || '';
+      return response.blob().then(function (blob) { return { blob: blob, base: base, alto: alto }; });
+    }).then(function (saida) {
+      if (button) button.disabled = false;
+      if (!saida.blob || !saida.blob.size) throw new Error('O Remotion devolveu um quadro vazio.');
+      if (vaga) {
+        /* O objeto anterior é revogado: cada clique gera uma URL nova, e sem isto o
+           navegador segura um PNG de 1080x1920 por clique até a aba fechar. */
+        var velha = vaga.querySelector('img');
+        if (velha && velha.src.indexOf('blob:') === 0) URL.revokeObjectURL(velha.src);
+        vaga.innerHTML = '<img class="vop-leg-still-img" alt="Quadro real do corte, '
+          + 'renderizado pelo Remotion" src="' + esc(URL.createObjectURL(saida.blob)) + '">';
+      }
+      diga('Este é o quadro real, no meio do corte. A legenda foi ancorada a '
+        + saida.base + ' px da borda de baixo, sobre um vídeo de ' + saida.alto + ' px de altura.');
+    }).catch(function (error) {
+      if (button) button.disabled = false;
+      diga('Não deu para montar o quadro real: ' + (error && error.message ? error.message : 'erro desconhecido') + '.');
+    });
   }
   /* A aba não processa AV1/4K: envia o File somente ao helper local da mesma origem. O
      primeiro download sobe a fonte; o segundo reaproveita o cache temporário pelo token. */
@@ -3636,6 +3934,13 @@
          porque isto é um CLIQUE deliberado, não uma tecla. */
       clip.legendaStyle = legendaStyleOf({ legendaStyle: input.value });
       projectsPersist();
+      /* E aqui, diferente do card, o re-render é OBRIGATÓRIO: o painel manual mostra o valor
+         que o AUTOMÁTICO usaria (corpo 58 no clássico, 72 no impacto), e o estilo é quem
+         decide esse número. Sem repintar, trocar de estilo deixaria os sliders parados no
+         número do estilo anterior — automação mentindo sobre o que vai sair, que é o BP-008
+         ao contrário. `renderKeepingScroll` guarda a rolagem e o `srcAdopt` preserva o
+         `<video>` da fonte, então o custo é zero para quem está com o player tocando. */
+      renderKeepingScroll();
     } else if (input.dataset.clipField === 'reframe') {
       /* Mesmo tratamento do titleCardStyle: validador (o DOM e entrada) e `projectsPersist`
          porque isto e um CLIQUE deliberado, nao uma tecla -- gravar a cada letra martelaria
@@ -3643,6 +3948,75 @@
       clip.reframe = reframeOf({ reframe: input.value });
       projectsPersist();
     }
+  }
+  /* --- escrita e atualização no lugar dos controles manuais ---------------------------
+     O DOM é ENTRADA: o valor do `<input>` passa pelo `editFieldWrite`, que passa pelo
+     `editOf` — nada é gravado cru. `false` significa "o trecho não está mais na lista"
+     (a URL trocou no meio do ajuste), e aí não se grava candidato fantasma. */
+  function legendaFieldWrite(input, gravar) {
+    var clip = findById(YT.candidates, input.dataset.id);
+    if (!clip) return false;
+    var chave = input.dataset.legField;
+    var valor = input.value;
+    /* O `value` de um radio é SEMPRE string: 'false' é verdadeiro em JavaScript, e sem esta
+       conversão marcar "Caixa baixa" gravaria `caixaAlta: true`. */
+    if (chave === 'caixaAlta') valor = valor === 'true';
+    else if (['tamanho', 'largura', 'posicaoPct'].indexOf(chave) >= 0) valor = num(valor);
+    if (!editFieldWrite(clip, 'legenda', chave, valor)) return false;
+    legendaRefresh(clip, gravar);
+    return true;
+  }
+  /* Atualiza a tela NO LUGAR, sem `render()`: re-renderizar destruiria o slider no meio do
+     arrasto (parente do BP-001) e recriaria o `<video>` de 2 GB da fonte. Três coisas
+     mudam — o marcador de cada linha, a faixa de estado e a prévia.
+     Persiste aqui porque `YT.candidates` É `project.candidates` (mesmos objetos), então o
+     ajuste volta com o projeto depois de recarregar a página. */
+  function legendaRefresh(clip, gravar) {
+    var raiz = document.getElementById('video-ops-root');
+    if (!raiz) return;
+    var painel = null;
+    raiz.querySelectorAll('[data-leg]').forEach(function (el) {
+      if (el.dataset.leg === clip.id) painel = el;
+    });
+    if (painel) {
+      painel.querySelectorAll('[data-leg-row]').forEach(function (linha) {
+        var estado = legendaValor(clip, linha.dataset.legRow);
+        linha.dataset.manual = estado.manual ? '1' : '0';
+        var botao = linha.querySelector('[data-act="leg-auto"]');
+        if (botao) botao.disabled = !estado.manual;
+        var saida = linha.querySelector('[data-leg-out]');
+        if (saida) {
+          saida.textContent = num(estado.valor)
+            + (linha.dataset.legRow === 'posicaoPct' ? '%' : 'px');
+        }
+      });
+      var faixa = painel.querySelector('[data-leg-state]');
+      var manuais = legendaManuais(clip);
+      if (faixa) {
+        faixa.dataset.tone = manuais ? 'manual' : 'auto';
+        faixa.textContent = manuais
+          ? manuais + (manuais > 1 ? ' controles ajustados' : ' controle ajustado')
+            + ' à mão — o resto segue o estilo.'
+          : 'Tudo automático: a legenda segue o estilo escolhido acima.';
+      }
+    }
+    /* A prévia é substituída inteira: ela não tem estado próprio (nem foco, nem rolagem),
+       então reescrevê-la é mais simples e mais barato que sincronizar seis atributos. */
+    var velha = raiz.querySelector('[data-leg-prev]');
+    if (velha && velha.parentNode) velha.outerHTML = legendaPreviewHTML(clip);
+    if (gravar) projectsPersist();
+  }
+  /* Volta UM controle ao automático. `null` é o gesto de apagar a chave — o `editFieldWrite`
+     a remove e o `editOf` reescreve o modelo, então não sobra chave morta no disco.
+     Aqui SIM re-renderiza: a linha da posição vertical troca de FORMA (slider <-> botão) e
+     os radios precisam voltar a marcar o valor automático. É um CLIQUE deliberado, o
+     `renderKeepingScroll` guarda a rolagem (BP-013) e o `srcAdopt` preserva o `<video>` da
+     fonte — nem a posição do player se perde. */
+  function legendaAuto(clip, chave) {
+    if (!editFieldWrite(clip, 'legenda', chave, null)) return false;
+    projectsPersist();
+    renderKeepingScroll();
+    return true;
   }
   function cutFieldWrite(input) {
     var cut = findById(INTAKE.cuts, input.dataset.id);
@@ -3690,6 +4064,7 @@
     }
     if (event.target.matches('[data-cut-field]')) { cutFieldWrite(event.target); return; }
     if (event.target.matches('[data-clip-field]')) { clipFieldWrite(event.target); return; }
+    if (event.target.matches('[data-leg-field]')) { legendaFieldWrite(event.target, true); return; }
     if (event.target.matches('[data-cap-field]')) { capCueWrite(event.target); return; }
     if (event.target.matches('[data-intake-input]')) {
       var chosen = event.target.files && event.target.files[0];
@@ -3724,6 +4099,10 @@
   function onRootInput(event) {
     if (event.target.matches('[data-cut-field]')) { cutFieldWrite(event.target); return; }
     if (event.target.matches('[data-clip-field]')) { clipFieldWrite(event.target); return; }
+    /* O slider dispara `input` a cada pixel do arrasto: a prévia acompanha em tempo real,
+       e o `change` (soltar) é quem GRAVA. Sem os dois, ou a prévia só aparece no fim do
+       arrasto, ou o localStorage leva dezenas de escritas por ajuste. */
+    if (event.target.matches('[data-leg-field]')) { legendaFieldWrite(event.target, false); return; }
     if (event.target.matches('[data-cap-field]')) { capCueWrite(event.target); return; }
     if (event.target.matches('[data-yt-url]')) ytUrlWrite(event.target);
   }
@@ -3821,6 +4200,20 @@
         var voltar = YT_GRID_SCROLL;
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { window.scrollTo(0, voltar); });
         else window.scrollTo(0, voltar);
+      }
+    }
+    /* Voltar UM controle ao automático, e assumir a posição vertical à mão. Os dois são
+       cliques deliberados numa lista que muda de FORMA, então aqui o re-render é o certo
+       (o `srcAdopt` preserva o player e o `renderKeepingScroll` a rolagem). */
+    else if (action === 'leg-still') { ytStill(button, button.dataset.id); }
+    else if (action === 'leg-auto' || action === 'leg-posicao') {
+      var alvoLeg = findById(YT.candidates, button.dataset.id);
+      if (!alvoLeg) return;
+      if (action === 'leg-auto') legendaAuto(alvoLeg, button.dataset.key);
+      else {
+        editFieldWrite(alvoLeg, 'legenda', 'posicaoPct', LEGENDA_POSICAO_PARTIDA);
+        projectsPersist();
+        renderKeepingScroll();
       }
     }
     else if (action === 'yt-dl-menu') {
@@ -4070,6 +4463,21 @@
       /* O validador do estilo de legenda e as listas dele, pela mesma razão do card: o
          teste CHAMA a função com um trecho construído e compara as cópias com o preset.js. */
       legendaStyleOf: legendaStyleOf,
+      editOf: editOf,
+      editFieldWrite: editFieldWrite,
+      /* O painel manual: o teste CHAMA estas funcoes com um trecho construido, em vez de
+         asserir o texto do arquivo -- `in arquivo` so prova que alguem escreveu a palavra. */
+      legendaValor: legendaValor,
+      legendaManuais: legendaManuais,
+      legendaPanelHTML: legendaPanelHTML,
+      legendaPreviewHTML: legendaPreviewHTML,
+      LEGENDA_AUTO: LEGENDA_AUTO,
+      LEGENDA_AUTO_COMUM: LEGENDA_AUTO_COMUM,
+      LEGENDA_COR_HEX: LEGENDA_COR_HEX,
+      ASS_NAO_REPRODUZ: ASS_NAO_REPRODUZ,
+      LEGENDA_FONTES: LEGENDA_FONTES,
+      LEGENDA_CORES: LEGENDA_CORES,
+      LEGENDA_ALINHAMENTOS: LEGENDA_ALINHAMENTOS,
       LEGENDA_STYLES: LEGENDA_STYLES,
       LEGENDA_PADRAO: LEGENDA_PADRAO,
       LEGENDA_LABELS: LEGENDA_LABELS,

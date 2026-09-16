@@ -71,6 +71,9 @@ Append-only.
 - [Lançamento](03-Decisions/LANCAMENTO-decisoes.md) — portão da versão online.
   **Prova A meia respondida, Prova B em aberto.** Nada dali foi implementado.
 - [Contrato de qualidade do clip](03-Decisions/CONTRATO-qualidade-clip.md)
+- [Contrato do corte bom](03-Decisions/CONTRATO-corte-bom.md) — o critério EDITORIAL da
+  recomendação: as cinco condições, a forma do corte e o que não é critério. O de cima é
+  sobre o arquivo; este é sobre o conteúdo.
 - Decisões vigentes de produto/código: [`../CLAUDE.md`](../CLAUDE.md)
 - Decisões datadas já fechadas: [`01-Wiki/archive/`](01-Wiki/archive/)
 

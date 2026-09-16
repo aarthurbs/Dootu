@@ -8,6 +8,32 @@ arquivos alterados. Se ninguém vai reler, não entra.
 
 ---
 
+- **2026-09-16 — decisão + execução — a recomendação passa a caber em 1 minuto e a cobrar
+  ASSUNTO; contrato do corte bom escrito.** Três relatos numa frase só: cortes longos demais,
+  trechos "pela metade ou em cima do assunto", e "não sabemos como o corte deve ficar". **Teto:**
+  `MAX_CLIP_SEC` 90 → **60**, `STORY_CLIP_SEC` 70 → **45**, `TARGET_CLIP_SEC` 45 → **35**. Medido
+  na legenda real (`fixtures/json3-rolante.json`, `_window` chamada em cada uma das 49 frases):
+  **13 das 41 janelas passavam de 60 s, a maior com 72,5 s** — depois, **nenhuma**, com as 41
+  ainda fechando e o tamanho ainda variando (15 s a 55 s). O teto do laço é `MAX_FALA_SEC`
+  (= teto − 3 s) e não o teto duro, porque o respiro do fim e o arredondamento para segundo
+  inteiro **alargam** o intervalo entregue: sem o desconto o card mostraria 1:01 num sistema que
+  promete 1 minuto. Ideia que não fecha dentro do teto é **descartada, nunca aparada** — aparar
+  reintroduz o "termina com a fala no ar" consertado em 2026-09-09. **Assunto:** sexto fator
+  (`_assunto_de`), no `VETO`. Os cinco de antes eram todos **estruturais**, então trecho
+  impecavelmente formado e sobre coisa nenhuma passava com nota alta — é esse o "fora do
+  assunto". Ele cobra tema **na abertura** (duas primeiras frases), não em qualquer ponto:
+  assunto que só chega no segundo 40 é o "pegar por cima do assunto". Evidência é a que já
+  existia (`classify_segment` + `hook_hits`); nada novo foi inventado. Calibrado contra 20
+  aberturas escritas como fala de podcast BR: **9 de 10 boas passam, 8 de 10 divagações
+  reprovam**. Pesos redistribuídos para abrir os 16 pontos dele sem furar os 88 + 12 —
+  `confiabilidade` caiu de 12 para 8 por medir a qualidade da BORDA, não a do conteúdo.
+  **Armadilha que a suíte pegou:** a fala padrão da fixture (`"Fala continua de teste."`) não
+  diz nada, então o fator novo reprovava tudo e 15 checks passaram a perguntar a lista vazia —
+  a fixture virou `FALA_PADRAO`, com assunto e gancho. **Critério escrito:**
+  `03-Decisions/CONTRATO-corte-bom.md` — o de qualidade do clip é sobre o arquivo, este é sobre
+  o conteúdo, e sem ele cada ajuste no detector vira gosto. `test_ytclip.py` 254 → **273**
+  (blocos 25 e 26, com polaridade).
+
 - **2026-09-14 — execução — `PLANO-descricao-hashtags.md` criado; CP1 entregue no vault
   `Cortes`.** O pedido era "sistema de análise de descrição e hashtags que funcionam melhor
   para nossa conta". Com **zero clips publicados**, um analisador só poderia devolver conselho
