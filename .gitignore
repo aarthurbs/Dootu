@@ -2,6 +2,11 @@
 .env.*
 !.env.example
 
+# Tokens do TikTok gravados pelo worker (access/refresh de UMA conta, valem 365 dias).
+# O .env.tiktok com client_key/secret ja cai no .env.* acima. Os dois comecam com ponto,
+# entao o send_head do serve.py tambem se recusa a servi-los pela porta 8765.
+video-worker/.tiktok-tokens.json
+
 node_modules/
 dist/
 build/

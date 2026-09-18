@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Icone de app (TikTok Developer Portal exige 1024x1024). O "D" vem do
+       dootu-01-geometric, nao do wordmark inteiro: em 48px na lista de apps um
+       logo 4:1 vira borrao, uma letra unica continua legivel.
+       Cores = tokens do preset preto-gelo do design-system.css. -->
+  <rect width="1024" height="1024" fill="#111113"/>
+  <g transform="translate(371.6 272) scale(4.8)" fill="#F3F3F5">
+    <path d="M0.000 0.000H8.500V100.000H0.000ZM8.500 0.000A50.000 50.000 0 0 1 8.500 100.000L8.500 91.500A41.500 41.500 0 0 0 8.500 8.500Z"/>
+  </g>
+</svg>

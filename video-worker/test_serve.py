@@ -47,6 +47,7 @@ import serve  # noqa: E402
 import ytclip  # noqa: E402  (a lista de extensão da miniatura mora lá; ver bloco 26)
 import worker  # noqa: E402
 import captions as captions_mod  # noqa: E402
+import tiktok  # noqa: E402  (bloco 31: envio do clip pronto para a caixa de entrada)
 
 CHECKS = []
 
@@ -61,6 +62,46 @@ def _codifica_cabecalho(valor):
     except UnicodeEncodeError:
         return False
 
+
+
+def _levanta(acao, *codigos):
+    """Verdadeiro se `acao` levanta WorkerError com um dos códigos esperados.
+
+    Conferir o CÓDIGO, e não só "levantou alguma coisa": um erro pelo motivo errado passa
+    num teste que só checa a exceção, e é assim que uma recusa de `state` vira uma recusa
+    de credencial sem ninguém notar.
+    """
+    try:
+        acao()
+    except worker.WorkerError as err:
+        return err.code in codigos
+    except Exception:
+        return False
+    return False
+
+
+def _motivo(acao):
+    """A mensagem da WorkerError, para provar que ela DIZ o que fazer (BP-008)."""
+    try:
+        acao()
+    except worker.WorkerError as err:
+        return err.message
+    except Exception as err:
+        return str(err)
+    return ""
+
+
+def _grava_e_le(pasta, conteudo):
+    """Grava um arquivo de tokens corrompido e devolve o que o tiktok.ler_tokens() faz."""
+    caminho = os.path.join(pasta, "tokens-corrompido.json")
+    with open(caminho, "w", encoding="utf-8") as arquivo:
+        arquivo.write(conteudo)
+    anterior = tiktok.TOKENS_FILE
+    tiktok.TOKENS_FILE = caminho
+    try:
+        return tiktok.ler_tokens()
+    finally:
+        tiktok.TOKENS_FILE = anterior
 
 
 def check(label, ok):
@@ -232,6 +273,20 @@ def main():
         pagina = pedir(base + "/index.html")
         check("12. index.html continua servido",
               pagina.status == 200 and b"<h1>site</h1>" in pagina.body)
+        # O GET do callback do TikTok tem de ser interceptado ANTES do servidor de arquivo:
+        # sem o `do_GET` próprio isto seria 404 e o código de autorização se perderia. Sem
+        # `state` válido a resposta é recusa — e em HTML, porque quem lê é uma ABA DE
+        # NAVEGADOR, não o fetch da tela (JSON apareceria como texto cru para a pessoa).
+        # Fica aqui, e não no bloco 31, porque lá o servidor já foi encerrado.
+        volta_tt = pedir(base + serve.ROUTE_TT_CALLBACK + "?code=x&state=inventado")
+        check("31n. /tiktok/callback/ é rota, não arquivo — e responde HTML ao navegador",
+              volta_tt.status == 400
+              and "text/html" in volta_tt.headers.get("Content-Type", ""))
+        # E o arquivo de tokens não sai pela porta: começa com ponto, então cai na MESMA
+        # guarda do .env acima. Prova aqui para a garantia não depender de ninguém lembrar.
+        check("31o. o arquivo de tokens do TikTok não é servido pela porta",
+              pedir(base + "/video-worker/.tiktok-tokens.json").status == 404
+              and pedir(base + "/.tiktok-tokens.json").status == 404)
 
         # ------------------------------------------------ 17: legenda vinda do sidecar
         # A pasta do baixador é redirecionada para o temporário: o teste NUNCA escreve na
@@ -2123,6 +2178,126 @@ def main():
               and serve.source_media_on_disk(fio_src, "") == ("", ""))
     finally:
         shutil.rmtree(fio_src, ignore_errors=True)
+    # -------------------------------------------- 31: TikTok (envio para a caixa de entrada)
+    # NENHUMA destas chamadas toca a rede. As que poderiam (login, publicar, estado) param
+    # antes de abrir soquete: ou não há token guardado, ou o `state` não confere. As
+    # credenciais são falsas e moram num temporário, então uma máquina que TENHA o
+    # .env.tiktok de verdade roda o mesmo teste, com o mesmo resultado.
+    import hashlib as _hashlib
+    MB = 1024 * 1024
+    tt_cred_real, tt_tok_real = tiktok.CRED_FILE, tiktok.TOKENS_FILE
+    tt_pedir_real = tiktok._pedir
+
+    def _sem_rede(_req):
+        """Porta ÚNICA de saída do tiktok.py, tapada. Qualquer caminho que tente falar com
+        o open.tiktokapis.com falha aqui em vez de abrir soquete — a suíte roda offline, e
+        um teste que dependesse da rede reprovaria por motivo que não é defeito."""
+        raise worker.WorkerError("tiktok_sem_rede", "rede desligada no teste")
+    tiktok._pedir = _sem_rede
+    tt_dir = os.path.join(trabalho, "tiktok")
+    os.makedirs(tt_dir, exist_ok=True)
+    tt_cred = os.path.join(tt_dir, ".env.tiktok")
+    with open(tt_cred, "w", encoding="utf-8") as arq:
+        arq.write("# comentario ignorado\nTIKTOK_CLIENT_KEY=chave-falsa\n"
+                  "TIKTOK_CLIENT_SECRET=segredo-falso\n")
+    try:
+        tiktok.CRED_FILE = tt_cred
+        tiktok.TOKENS_FILE = os.path.join(tt_dir, "nao-existe.json")
+
+        def plano_coerente(tamanho):
+            """Refaz o fatiamento do `publicar()` e confere as regras do Media Transfer
+            Guide. É o teste que importa: a aritmética de pedaço é o único lugar onde um
+            erro sai calado — o TikTok simplesmente fica esperando bytes que nunca vêm."""
+            pedaco, total = tiktok.chunk_plan(tamanho)
+            if total < 1 or total > 1000:
+                return False
+            # Acima de 64 MB a doc EXIGE vários pedaços. É a armadilha do 64 MB + 1 byte:
+            # com pedaço de 64 MB a divisão inteira daria total == 1, isto é, um pedaço
+            # único acima do teto — aceito pela conta e recusado pelo TikTok.
+            if tamanho > 64 * MB and total < 2:
+                return False
+            coberto = 0
+            for indice in range(total):
+                inicio = indice * pedaco
+                fim = tamanho - 1 if indice == total - 1 else inicio + pedaco - 1
+                tamanho_pedaco = fim - inicio + 1
+                if inicio != coberto:
+                    return False  # buraco ou sobreposição entre pedaços
+                coberto = fim + 1
+                if indice == total - 1:
+                    # O último absorve a sobra da divisão inteira: até 128 MB.
+                    if tamanho_pedaco > 128 * MB:
+                        return False
+                    if total > 1 and tamanho_pedaco < 5 * MB:
+                        return False
+                elif tamanho_pedaco < 5 * MB or tamanho_pedaco > 64 * MB:
+                    return False
+            return coberto == tamanho  # nenhum byte fica para trás
+
+        check("31a. arquivo pequeno vai inteiro, num pedaço só",
+              tiktok.chunk_plan(3 * MB) == (3 * MB, 1)
+              and tiktok.chunk_plan(64 * MB) == (64 * MB, 1))
+        check("31b. 64 MB + 1 byte vira VÁRIOS pedaços (a armadilha do pedaço único)",
+              tiktok.chunk_plan(64 * MB + 1)[1] >= 2)
+        check("31c. o plano de pedaços cobre o arquivo inteiro e respeita os limites",
+              all(plano_coerente(n) for n in
+                  (1, 4 * MB, 5 * MB, 64 * MB, 64 * MB + 1, 100 * MB, 1024 * MB, 5120 * MB)))
+        check("31d. arquivo vazio é recusado com motivo, não dividido por zero",
+              _levanta(lambda: tiktok.chunk_plan(0), "tiktok_video"))
+
+        # PKCE: o TikTok quer HEX do SHA256, não o base64url do RFC 7636. Errar isto dá um
+        # erro genérico de autorização, sem dizer o motivo — por isso vale um teste.
+        alvo = tiktok.url_autorizacao("http://127.0.0.1:8765/tiktok/callback/")
+        campos = urllib.parse.parse_qs(urllib.parse.urlparse(alvo).query)
+        verifier = list(tiktok._PENDENTE.values())[0] if tiktok._PENDENTE else ""
+        esperado = _hashlib.sha256(verifier.encode("ascii")).hexdigest()
+        check("31e. code_challenge é o HEX do SHA256 do verifier (não base64url)",
+              bool(verifier) and campos.get("code_challenge", [""])[0] == esperado
+              and campos.get("code_challenge_method", [""])[0] == "S256")
+        check("31f. a autorização pede os dois escopos e volta para o loopback",
+              campos.get("scope", [""])[0] == "user.info.basic,video.upload"
+              and campos.get("redirect_uri", [""])[0].startswith("http://127.0.0.1:")
+              and alvo.startswith("https://www.tiktok.com/v2/auth/authorize/"))
+        # `state` é de uso único: sem isso um callback repetido (ou forjado) reentraria.
+        estado_bom = campos.get("state", [""])[0]
+        primeira = _levanta(lambda: tiktok.concluir_login("cod", estado_bom, "http://x/"),
+                            "tiktok_recusou", "tiktok_sem_rede")
+        check("31g. state desconhecido é recusado ANTES de falar com o TikTok",
+              _levanta(lambda: tiktok.concluir_login("cod", "inventado", "http://x/"),
+                       "tiktok_estado_invalido"))
+        check("31h. state é consumido no uso — o segundo callback com o mesmo state cai",
+              primeira and _levanta(
+                  lambda: tiktok.concluir_login("cod", estado_bom, "http://x/"),
+                  "tiktok_estado_invalido"))
+        check("31i. token guardado ilegível conta como desconectado, não derruba a tela",
+              tiktok.ler_tokens() is None and _grava_e_le(tt_dir, "{lixo") is None)
+        check("31j. sem conta conectada a tela recebe resposta, não exceção (BP-008)",
+              tiktok.conta() == {"connected": False, "username": ""})
+
+        tiktok.CRED_FILE = os.path.join(tt_dir, "nao-existe.env")
+        check("31k. sem .env.tiktok o erro DIZ qual arquivo criar",
+              _levanta(lambda: tiktok.credenciais(), "tiktok_sem_credencial")
+              and ".env.tiktok" in _motivo(lambda: tiktok.credenciais()))
+    finally:
+        tiktok.CRED_FILE, tiktok.TOKENS_FILE = tt_cred_real, tt_tok_real
+        tiktok._pedir = tt_pedir_real
+
+    # Todo código que o tiktok.py levanta precisa de status HTTP próprio: um código fora do
+    # mapa viraria 400 genérico e a tela perderia a diferença entre "crie o arquivo",
+    # "clique em conectar" e "a rede caiu" (mesma família dos conjuntos fechados).
+    fonte_tiktok = open(os.path.join(os.path.dirname(os.path.abspath(serve.__file__)),
+                                     "tiktok.py"), "r", encoding="utf-8").read()
+    codigos = set(re.findall(r'WorkerError\(\s*"(tiktok_[a-z_]+)"', fonte_tiktok))
+    check("31l. todo código de erro do tiktok.py tem status próprio em STATUS_BY_CODE",
+          bool(codigos) and codigos <= set(serve.STATUS_BY_CODE))
+    # E em worker.ERROR_CODES, que é conjunto FECHADO com assert: código não declarado não
+    # vira erro tratado, vira AssertionError DENTRO do handler — a thread morre, o navegador
+    # recebe conexão fechada sem resposta, e o motivo real fica só no console. Foi
+    # exatamente o que aconteceu na primeira execução deste bloco.
+    check("31p. todo código de erro do tiktok.py está declarado em worker.ERROR_CODES",
+          bool(codigos) and codigos <= set(worker.ERROR_CODES))
+    check("31m. a rota de callback é a MESMA nos dois arquivos",
+          serve.ROUTE_TT_CALLBACK == tiktok.CAMINHO_CALLBACK)
 
     # ------------------------------------------------------------ 14: limpeza
     check("14. o temporário é removido no encerramento", not os.path.isdir(temporario))

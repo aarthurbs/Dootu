@@ -187,6 +187,14 @@ ERROR_CODES = (
     "ffmpeg_failed",        # o FFmpeg retornou erro
     "output_invalid",       # o arquivo produzido não passou na conferência técnica
     "render_busy",          # a vez na fila do renderizador não chegou dentro do prazo
+    # Envio para a caixa de entrada do TikTok (tiktok.py). Separados porque cada um manda
+    # o operador fazer uma coisa DIFERENTE; colapsar em "falhou" devolveria a adivinhação.
+    "tiktok_sem_credencial",  # falta o .env.tiktok com client_key/client_secret
+    "tiktok_desconectado",    # nenhuma conta autorizada ainda (ou autorização revogada)
+    "tiktok_estado_invalido", # o callback não casa com nenhum pedido em aberto
+    "tiktok_video",           # o MP4 do clip não está lá, está vazio ou o nome não serve
+    "tiktok_recusou",         # o TikTok respondeu erro (escopo faltando, formato, cota)
+    "tiktok_sem_rede",        # não deu para alcançar o TikTok
 )
 
 

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termos e Privacidade — Dootu (app TikTok)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#0f0f10; --surface:#19191b; --border:#303034; --accent:#e31837;
+        --text:#f2f2f2; --text-dim:#a1a1a6; --text-muted:#68686e; }
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0 }
+html,body { background:var(--bg); color:var(--text); font-size:14px; line-height:1.65;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif }
+a { color:var(--text-dim) }
+a:focus-visible { outline:2px solid var(--accent); outline-offset:2px }
+.wrap { max-width:74ch; margin:0 auto; padding:32px 18px 64px; display:grid; gap:22px }
+h1 { font-size:21px; letter-spacing:-.03em }
+h2 { font-size:16px; letter-spacing:-.02em; margin-bottom:8px }
+h3 { font-size:13px; margin:16px 0 4px }
+p, li { color:var(--text-dim); font-size:13px }
+ul { padding-left:20px; display:grid; gap:4px }
+section { border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:20px }
+.rev { border:1px solid rgba(241,183,72,.24); background:rgba(241,183,72,.08); color:#e6c680;
+  border-radius:8px; padding:10px 12px; font-size:12px }
+.meta { color:var(--text-muted); font-size:11.5px }
+strong { color:var(--text) }
+code { font-size:12px }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Dootu — Termos e Privacidade do app TikTok</h1>
+
+  <p class="rev"><strong>Este texto descreve o que o aplicativo faz, com precisão técnica.
+  Ele não foi revisado por advogado.</strong> Antes de oferecer este app a terceiros, de criar
+  contas de usuário ou de guardar dado pessoal além do descrito aqui, passe por revisão
+  jurídica.</p>
+
+  <p>O <strong>Dootu</strong> é um estúdio de edição de vídeo que roda na máquina do próprio
+  operador, em <code>127.0.0.1</code>. Ele não é um site hospedado, não tem contas de usuário e
+  não é oferecido ao público. Esta página existe porque o TikTok exige URLs de termos e de
+  privacidade para registrar um aplicativo. Ela cobre <strong>apenas a integração com o
+  TikTok</strong> — a ferramenta pública de análise tem texto próprio em
+  <a href="legal.html">legal.html</a>.</p>
+
+  <section id="privacidade">
+    <h2>Privacidade</h2>
+
+    <h3>Quais permissões o app pede</h3>
+    <ul>
+      <li><code>user.info.basic</code> — lê <strong>somente o nome de exibição</strong> da conta
+        conectada, para mostrar na tela qual conta está ligada. Esse nome é consultado ao TikTok
+        no momento de desenhar a tela e <strong>não é gravado em lugar nenhum</strong>.</li>
+      <li><code>video.upload</code> — envia um arquivo MP4 para a <strong>caixa de entrada</strong>
+        (rascunhos) da sua própria conta.</li>
+    </ul>
+    <p>Nenhuma outra permissão é solicitada. O app não lê seus vídeos publicados, não lê
+    comentários, não lê mensagens, não acessa seus seguidores e não age sobre contas de terceiros.</p>
+
+    <h3>O que sai da sua máquina</h3>
+    <p>Só duas coisas, e as duas vão <strong>direto para a API do TikTok</strong>, sem servidor
+    intermediário: as chamadas de autenticação (OAuth) e o arquivo MP4 que você escolhe enviar,
+    clique a clique. Não existe backend do Dootu no meio do caminho.</p>
+
+    <h3>O que fica guardado, e onde</h3>
+    <ul>
+      <li><strong>Tokens de acesso e de renovação</strong> — no arquivo
+        <code>video-worker/.tiktok-tokens.json</code>, no disco da sua própria máquina. Nunca são
+        enviados ao navegador e nunca saem do computador, exceto de volta ao TikTok para renovar
+        a sessão.</li>
+      <li><strong>Credenciais do aplicativo</strong> (<code>client_key</code> e
+        <code>client_secret</code>) — no arquivo local <code>video-worker/.env.tiktok</code>. O
+        <code>client_secret</code> nunca chega ao navegador.</li>
+    </ul>
+    <p><strong>Não há banco de dados, não há conta, não há servidor e não há telemetria.</strong>
+    Nada é enviado a nenhum terceiro além do próprio TikTok.</p>
+
+    <h3>O que o app não faz</h3>
+    <p>Ele <strong>não publica nada sozinho</strong>. O recurso <em>Direct Post</em> está
+    desligado de propósito: o vídeo chega como rascunho na sua caixa de entrada, e quem escreve a
+    legenda, escolhe a capa e aperta publicar é você, no aplicativo do TikTok.</p>
+
+    <h3>Como desconectar</h3>
+    <p>Pelo próprio Estúdio, no botão de desconectar — ele apaga o arquivo de tokens da máquina.
+    E, de qualquer forma, pelo TikTok: <em>Configurações e privacidade → Segurança e permissões →
+    Gerenciar permissões de aplicativos</em>. Revogar ali invalida o acesso imediatamente.</p>
+
+    <h3>Seus direitos (LGPD)</h3>
+    <p>Como não existe cadastro nem banco de dados, não há dado pessoal sob nossa guarda para
+    acessar, corrigir ou apagar — o que existe são arquivos no seu próprio computador, que você
+    apaga quando quiser. Se isso mudar, este texto muda antes, e um canal de contato passa a
+    constar aqui.</p>
+  </section>
+
+  <section id="termos">
+    <h2>Termos de uso</h2>
+
+    <h3>O que o aplicativo faz</h3>
+    <p>Edita cortes de vídeo localmente — recorte, legenda, reenquadramento para 9:16 — e envia o
+    MP4 final para a caixa de entrada da sua própria conta do TikTok, para que você termine e
+    publique pelo aplicativo oficial.</p>
+
+    <h3>Quem pode usar</h3>
+    <p>É uma ferramenta de uso pessoal do operador, instalada na máquina dele, conectada à conta
+    dele. Não é um serviço oferecido a terceiros e não há cadastro de usuários.</p>
+
+    <h3>Sua responsabilidade</h3>
+    <p><strong>Editar ou publicar trecho de vídeo de terceiro sem autorização do titular é
+    violação de direito autoral</strong>, e a responsabilidade por isso é de quem publica. Use o
+    aplicativo em conteúdo próprio ou com autorização expressa do criador. O Estúdio exige
+    declaração explícita de autorização antes de baixar qualquer mídia, e essa declaração é sua.</p>
+
+    <h3>Regras do TikTok</h3>
+    <p>O uso desta integração está sujeito aos Termos de Serviço e às Diretrizes da Comunidade do
+    TikTok. Conteúdo enviado por aqui passa pelas mesmas regras de moderação de qualquer outro
+    vídeo da plataforma.</p>
+
+    <h3>Sem garantia</h3>
+    <p>O aplicativo é oferecido no estado em que se encontra, sem garantia de disponibilidade, de
+    exatidão ou de adequação a qualquer finalidade. A API do TikTok pode recusar um envio por
+    formato, duração, limite de requisições ou mudança nas regras dela.</p>
+
+    <h3>Mudanças</h3>
+    <p>Estes termos podem mudar. A versão em vigor é a publicada nesta página.</p>
+  </section>
+
+  <p class="meta">Última atualização: 12 de setembro de 2026 · <a href="index.html">voltar</a></p>
+
+</div>
+</body>
+</html>

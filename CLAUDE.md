@@ -90,6 +90,10 @@ com progresso real em `/api/yt-import-state`); ele toca num `<video>` do própri
 fonte. **Reverte explicitamente o "só o trecho escolhido é baixado".** Nada de iframe do
 YouTube na tela de edição. Mudar a borda de um corte invalida o que foi exportado dele e
 **nunca** a fonte. Regras próprias em `.claude/rules/estudio-ui.md` e `estudio-video-worker.md`.
+**Única exceção ao "cor neon", aberta pelo operador em 2026-09-11:** a PALAVRA SENDO DITA da
+legenda usa um leque neon (`TOKENS.palavraCores`, amarelo na frente), que gira por palavra.
+Vale só para ela — texto, sombra, marca e destaque estático continuam na paleta fechada, e o
+check 1g continua cobrando isso. Não "consertar" de volta para cor única.
 **Direitos autorais (inviolável):** analisar metadados/legenda é livre; **baixar mídia passa
 por portão de declaração explícita**, conferido duas vezes e válido por URL — agora o portão
 guarda a IMPORTAÇÃO (é ela que baixa), e a declaração, sendo por sessão, é o que religa a
@@ -122,7 +126,7 @@ Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**184**) · `test_serve.py` (**385**) · `test_ytclip.py` (**273**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**379**) · `test-video-ops.js` (**109**) · `test-video-ops-dom.js` (**189**) · `test-video-results.js` (**46**) — **1994 verificações nas dez, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**184**) · `test_serve.py` (**401**) · `test_ytclip.py` (**273**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**385**) · `test-video-ops.js` (**115**) · `test-video-ops-dom.js` (**189**) · `test-video-results.js` (**46**) — **2022 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 
