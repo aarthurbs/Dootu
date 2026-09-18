@@ -36,13 +36,61 @@ Histórico, medições e armadilhas completas: `docs/01-Wiki/archive/HISTORICO-e
   divergem. `crop` mantém ramo dedicado — o segmento genérico o quebra (medido:
   1080x1918, e encode falhando em fonte 720p).
 
+## A FONTE é o vídeo INTEIRO (decisão do usuário, 2026-09-15)
+`/api/yt-import` baixa o original completo (`ytclip.fetch_full`) numa **thread**, e
+`/api/yt-import-state` é o que a barra consulta — 2 GB não cabem numa requisição HTTP sem o
+navegador desistir no meio. `/sources/` serve o arquivo ao player do site **com Range** (206),
+que é o que permite arrastar a barra na duração inteira. Todo corte sai daí: o
+`/api/video-cut` já recortava sub-intervalo de fonte em cache (é o caminho do trecho cru e do
+9:16 FFmpeg), e o `/api/remotion-render` ganhou `start`/`end`.
+
+- **`_download_args` é o dono único das flags dos DOIS downloads** (trecho e vídeo inteiro).
+  Duas listas à mão divergiriam e o MESMO vídeo entraria com codec ou resolução diferente
+  dependendo da rota, calado. `fetch_full` = `fetch_section` menos `--download-sections` e
+  `--force-keyframes-at-cuts` — e é a ausência delas que elimina o encode das pontas.
+- **A importação NÃO pega o `_render_slot`.** Ela não recodifica nada (só remuxa), o gargalo
+  é a rede, e segurar a fila por vinte minutos de download deixaria o operador sem poder
+  exportar durante todo esse tempo — pior que a briga que a trava evita. Quem pega a trava é
+  o `_cut_for_render`, que é FFmpeg de verdade (o check 29i conta **quatro** `_render_slot`).
+- **O sidecar é a economia central.** `write_source_sidecar` grava `<id>.mostreplayed.json` no
+  formato do BAIXADOR (`baixador/local-helper/yt_dlp_runner.py` é o dono do formato), na
+  MESMA pasta (`_sidecar_dir`). Com isso a fonte importada herda de graça a legenda
+  (`cut_captions`, `/api/clip-captions`), o fundo por miniatura (`cut_background`) e o
+  gráfico de audiência — **nenhuma rota nova para nenhum dos três**. Divergir do formato não
+  dá erro: faz o `_sidecar_captions` degradar calado para "sem legenda". O check 32f prova o
+  round-trip pelo leitor real.
+- **`source_media_on_disk` exige mídia E sidecar.** Meia fonte é fonte ausente: sem sidecar
+  não há legenda nem miniatura, e tratá-la como pronta faria TODO corte sair sem legenda,
+  calado (checks 32h/32i).
+- **`clip_args` põe `-ss` ANTES do `-i`.** Não é estilo: depois do `-i` o FFmpeg decodifica
+  desde o começo, e num podcast de 3 h um trecho em 2:30:00 custaria duas horas e meia de
+  decode por exportação. Antes do `-i` COM recodificação o corte ainda cai no quadro exato —
+  mesmo arranjo do `horizontal_args` e do `worker.render_cut` (check 32c).
+- **O nome do props/dest do Remotion leva sufixo aleatório.** Desde que a fonte passou a ser
+  o vídeo inteiro o token é o MESMO para todos os cortes dele, e dois "Baixar vídeo editado"
+  do mesmo vídeo escreviam em `props-<token>.json`: o segundo sobrescrevia o primeiro ANTES
+  da trava, e o primeiro renderizava o trecho do segundo. Mesma família do sufixo do `.ass`.
+- **A miniatura é COPIADA ao lado do recorte** no `_cut_for_render`: o `render_background` a
+  descobre pelo STEM do arquivo que o Remotion recebe, e sem a cópia todo vídeo editado de
+  fonte importada cairia no letterbox — com o estado dizendo "não havia miniatura", verdade
+  sobre o recorte e mentira sobre o vídeo.
+- **`IMPORT_STATES`/`IMPORT_STAGES`** entram nos conjuntos FECHADOS: cada valor precisa de
+  frase no `video-ops.js` (os checks 32a/32b LEEM o JS, como 21t0 e 30d).
+
 ## Segurança e direitos (inviolável)
 - **Nunca** `--exec`, `--netrc-cmd`, cookies de navegador nem `aria2c`. Sempre
   `--ignore-config`. A URL entregue ao processo é **reconstruída do id validado**,
   nunca a string colada. `player_client=web_embedded,tv,web` (fixado — ver armadilha 403).
+  Vale para a importação do mesmo jeito, e os checks 24l/24m capturam o argv REAL do
+  `fetch_full` — não o texto do arquivo, que CITA as flags proibidas ao explicar a proibição
+  (`in arquivo` só prova que alguém escreveu a palavra).
 - **Analisar** (metadados/legenda) é livre; **baixar mídia** passa pelo portão
   `ytFetchGate`, conferido DUAS vezes (antes de chamar e na volta). **Nunca remover o portão.**
+  Agora é a IMPORTAÇÃO que ele guarda — é ela que baixa. O portão fica no navegador, como no
+  `/api/yt-fetch`; o servidor cuida do portão TÉCNICO (espaço em disco, id válido).
 - Guarda de travessia em todo caminho vindo de sidecar/token + lista fechada de extensão.
+  **`/sources/` segue a mesma regra do `/clips/`**: `basename` mata travessia e o guarda de
+  componente com ponto do `send_head` roda antes (check 31l).
 
 ## Conjuntos FECHADOS (valor livre nesse trajeto quebra os dois lados)
 `serve.CAPTION_STATES` · `worker.AUDIO_STATES` · `serve.BACKGROUND_STATES` ·
@@ -88,12 +136,36 @@ ausência = "esta rota não tem o que dizer". Checks 18p/30e.
 - Alvo de saída: `yuv420p` · `tv` · `bt709` (as três coincidindo, o FFmpeg imprime
   `bt709` uma vez só — essa é a assinatura de sucesso).
 
-## Fonte
-`video-worker/fonts/Inter-Bold.ttf` viaja no repo (SIL OFL). `worker._place_font`
-copia para AO LADO do `.ass` e o filtro usa **`fontsdir=.`** — caminho absoluto do
-Windows exigiria escapar `\` e `:` dentro do `filter_complex`. Arquivo ausente
-**não levanta** (é o estado `burned-sem-inter`); falha de CÓPIA levanta.
-**O libass NÃO falha quando não acha a fonte — ele troca calado para Arial.**
+## Fonte e estilo do `.ass`
+`video-worker/fonts/` viaja no repo com as DUAS fontes e as duas licenças (SIL OFL):
+`Inter-Bold.ttf` (estilo `classico`) e `Montserrat-ExtraBold.ttf` (estilo `impacto`,
+desde 2026-09-16). `worker._place_font` copia **todas** as fontes do registro para AO
+LADO do `.ass` e o filtro usa **`fontsdir=.`** — caminho absoluto do Windows exigiria
+escapar `\` e `:` dentro do `filter_complex`. Escolher o arquivo dentro do worker
+exigiria carregar o estilo resolvido até lá; são ~800 KB por corte contra megabytes de
+vídeo. Arquivo ausente **não levanta** (é o estado `burned-sem-inter`); falha de CÓPIA
+levanta. **O libass NÃO falha quando não acha a fonte — ele troca calado para Arial.**
+
+- **O libass casa pela FAMÍLIA DECLARADA, não pelo nome do arquivo.** O
+  `Montserrat-ExtraBold.ttf` se declara `Montserrat ExtraBold`, e pedir `Montserrat`
+  cairia em Arial calado — por isso `captions.LEGENDA_FONTES` guarda o nome declarado e
+  o check 13b6 LÊ a tabela `name` do arquivo.
+- **`negrito` é por ARQUIVO, não por estilo.** A Inter-Bold declara família `Inter` e
+  precisa do `(Inter, 700)`; a Montserrat-ExtraBold já traz o peso no desenho, e pedir
+  negrito dela faz o libass SINTETIZAR por cima — engrossamento borrado que só aparece
+  olhando o frame.
+- **`captions.estilo_ass(style, manual)` é a dona única da tradução preset→ASS**, e
+  `FONTE` / `FONTE_ARQUIVO` / `NEGRITO` / `FONTE_TAMANHO` são DERIVADOS do estilo padrão
+  (não escritos à mão). Entrada desconhecida cai no `classico`, byte a byte o documento
+  que este módulo sempre gerou — provado pelo check 13h.
+- **O teto de caracteres vem do ESTILO** (`chars_por_linha`, espelho do
+  `charsPorLinhaLegenda`), nunca mais do `MAX_CHARS_LINHA` fixo: paginar com 25 e
+  desenhar a 72px em caixa alta é a linha estourando a coluna, sem erro nenhum.
+- **A caixa alta é aplicada ao TEXTO.** O ASS não tem `text-transform`; o
+  `textTransform: uppercase` do `Clip.jsx` é CSS e não viaja.
+- **O que o ASS NÃO reproduz está declarado em `captions.ASS_NAO_REPRODUZ`** e a TELA
+  mostra as frases ao lado do botão que usa esse caminho (BP-008). O check 33j2 conta os
+  dois lados.
 
 ## Prazos (botões de calibragem)
 `RENDER_SEC_PER_CLIP_SEC` (guarda o DOBRO do medido) · `DEFAULT_RENDER_TIMEOUT` é
@@ -122,5 +194,5 @@ reenviando o arquivo inteiro). O `finally` solta o lock em QUALQUER saída.
   quadro sai sem legenda).
 
 ## Validação
-`.\provas.ps1` — comando ÚNICO das oito suítes. Ele soma e **compara com a linha
+`.\provas.ps1` — comando ÚNICO das dez suítes. Ele soma e **compara com a linha
 `Checks:` do `CLAUDE.md`**, saindo com erro se divergir.

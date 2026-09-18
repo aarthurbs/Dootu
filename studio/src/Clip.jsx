@@ -8,7 +8,7 @@ import { loadFont as carregarInter } from "@remotion/google-fonts/Inter";
 /* A segunda FAMILIA do projeto, e a primeira que nao e Inter: ela e o estilo `impacto` da
    legenda. Nenhuma dependencia nova entra por causa dela — o `@remotion/google-fonts` ja
    estava no package.json desde a Inter, e este import e mais um modulo de dentro dele. */
-import { loadFont as carregarArchivoBlack } from "@remotion/google-fonts/ArchivoBlack";
+import { loadFont as carregarMontserrat } from "@remotion/google-fonts/Montserrat";
 import {
   TOKENS, corDoDestaque, toCaptionPages, pickEmphasis, splitEmphasis,
   ancoraLegenda, LEGENDA_BASE_PADRAO, ancoraBanda, BANDA_PADRAO,
@@ -17,7 +17,7 @@ import {
   tituloEscalonado, entradaCard, presencaCard,
   titleCardPreset, TITLE_CARD_PADRAO, TITULO_FILETE_REF,
   palcoGeometria, REFRAME_PADRAO, VIDEO_ALTURA_PADRAO,
-  legendaPreset, tetoDaPagina, LEGENDA_PADRAO,
+  resolveLegenda, tetoDaPagina, LEGENDA_PADRAO,
 } from "./preset.js";
 /* O REGISTRO das marcas, nunca uma marca solta. Enquanto isto era
    `import { MARCA_BADGE, ... }`, um segundo card só poderia escolher o asset com um `if` de
@@ -37,14 +37,12 @@ import { MARCAS } from "./marca.js";
 const { fontFamily: INTER } = carregarInter("normal", {
   weights: ["600", "700", "800", "900"], subsets: ["latin"],
 });
-/* UM peso, e nao e descuido: a familia Archivo Black tem um peso so (400) e o preto ja
-   esta no desenho. Pedir 700 ou 900 dela faria o Chrome SINTETIZAR negrito sobre um peso que
-   ja e maximo — o mesmo engrossamento borrado que o comentario do peso 800 da Inter (acima)
-   registra, e que so aparece OLHANDO o frame.
+/* Corpo e destaque Montserrat usam 800; não há linha secundária que peça 500/600.
+   Pedir peso que não foi carregado sintetiza negrito e borra a captura.
    `latin` basta para o portugues: o bloco cobre U+0000-00FF, ou seja A-Z, acentos, C-cedilha
    e til. Subset a mais e arquivo a mais para o render esperar antes do primeiro quadro. */
-const { fontFamily: ARCHIVO_BLACK } = carregarArchivoBlack("normal", {
-  weights: ["400"], subsets: ["latin"],
+const { fontFamily: MONTSERRAT } = carregarMontserrat("normal", {
+  weights: ["800"], subsets: ["latin"],
 });
 
 /* O id que o preset da legenda pede -> a familia carregada aqui. E um REGISTRO, e nao um
@@ -53,13 +51,10 @@ const { fontFamily: ARCHIVO_BLACK } = carregarArchivoBlack("normal", {
    Id ausente do mapa cai na Inter em vez de `undefined`: `fontFamily: undefined` faz o
    Chrome desenhar na fonte padrao DELE — legivel, sem erro, e fora da identidade. O check
    15g cobra que todo id do `LEGENDA_FAMILIAS` tenha entrada aqui. */
-const FAMILIAS = { inter: INTER, archivo_black: ARCHIVO_BLACK };
+const FAMILIAS = { inter: INTER, montserrat: MONTSERRAT };
 const familiaDo = (estilo) => FAMILIAS[estilo && estilo.familia] || INTER;
 
-/* A Montserrat continua FORA. Ela existia para o wordmark da marca antiga; as duas placas de
-   hoje estão em curvas (PNG e SVG), então nenhuma das duas identidades depende de fonte
-   instalada — e o texto do card é Inter nas duas, o que o próprio README do Ecommerce Puro
-   manda ("O texto do card continua em Inter. Montserrat só na marca"). */
+/* Montserrat pertence à legenda; os dois cards continuam em Inter. As placas são curvas. */
 
 export const WIDTH = TOKENS.largura;
 export const HEIGHT = TOKENS.altura;
@@ -298,9 +293,9 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
              parado e é a página que cresce para cima.
              O número vem do servidor (`captions.margem_inferior`), o mesmo que o FFmpeg usa. */
           bottom: base,
-          left: (TOKENS.largura - TOKENS.legendaLargura) / 2,
-          width: TOKENS.legendaLargura,
-          textAlign: "center",
+          left: (TOKENS.largura - (aparencia.largura || TOKENS.legendaLargura)) / 2,
+          width: aparencia.largura || TOKENS.legendaLargura,
+          textAlign: aparencia.alinhamento || "center",
           /* A TIPOGRAFIA toda vem do estilo resolvido (`LEGENDA_PRESETS`), nao mais dos
              tokens globais: e o que permite um segundo estilo existir sem um `if` aqui
              dentro. A GEOMETRIA acima (largura da coluna e ancora) continua global de
@@ -329,10 +324,8 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
             <span
               key={i}
               style={{
-                color: cor,
-                /* O peso do destaque e do ESTILO: no `impacto` a familia tem um peso so, e
-                   pedir 900 dela faria o Chrome sintetizar negrito borrado sobre um preto
-                   que ja e maximo. La a enfase e cor, como no card `primo_rico`. */
+                color: aparencia.destaqueCor || cor,
+                /* O peso vem do estilo e sempre existe no carregamento da família. */
                 fontWeight: aparencia.pesoDestaque,
                 /* SEM escala, de propósito. `transform: scale(1.05)` cresce o glifo mas não
                    a caixa de layout: numa palavra longa os 5% transbordam ~17px e comem o
@@ -568,7 +561,7 @@ const Vazio = () => (
 export const Clip = ({
   clipFile, backgroundFile, legendaBase, bandaAltura, cues, title,
   highlightText, autoHighlight, titleCardStyle, legendaStyle, preset, category,
-  reframe, videoAltura,
+  reframe, videoAltura, edit,
 }) => {
   const { fps, durationInFrames } = useVideoConfig();
   /* Janela do card. `Math.min` com a duração da composição porque um clipe de 2s não pode
@@ -592,7 +585,7 @@ export const Clip = ({
      componente recebe. Resolver duas vezes deixaria o teto de caracteres e a fonte poderem
      discordar — páginas cortadas para 58px desenhadas a 72px, que é uma linha estourando a
      coluna sem erro nenhum. */
-  const aparencia = legendaPreset(legendaStyle);
+  const aparencia = resolveLegenda(legendaStyle, edit);
   /* Fatiar a fala em páginas curtas é lógica pura e mora no preset.js, provada por
      test-preset.mjs — aqui só vira Sequence.
      O teto vem do ESTILO (`tetoDaPagina`), não mais da constante: caixa alta a 72px é ~22%

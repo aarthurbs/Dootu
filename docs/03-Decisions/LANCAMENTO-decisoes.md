@@ -1,14 +1,23 @@
 # Lançamento — Fase 0: as duas provas
 
-Este arquivo é o portão. Enquanto a Prova A e a Prova B não estiverem respondidas
-aqui, as Fases 2 e 3 não começam.
+**PORTÃO FECHADO EM 2026-09-14. As duas provas estão respondidas** — ver a seção
+*Decisão*, no fim do arquivo. A resposta veio junto de uma mudança de objetivo do
+projeto: **o Estúdio deixou de ser produto para vender e passou a ser instrumento
+de uso pessoal do dono.** Um usuário, uma máquina, nada público. É isso que responde
+a Prova A e que escolhe a postura da Prova B.
+
+O histórico das duas provas fica abaixo, tal como foi levantado. Reabrir qualquer
+uma delas exige que o objetivo mude de novo, ou um número novo.
 
 ---
 
 ## Prova A — o yt-dlp funciona a partir de um IP de datacenter?
 
-**Estado: meia resposta. A linha de base local está medida; o lado datacenter é
-seu passo manual (precisa de uma conta de nuvem para responder).**
+**Estado: RESPONDIDA em 2026-09-14 — a pergunta deixou de existir.** O motor não
+vai para a nuvem: o yt-dlp roda na máquina do dono, em IP residencial, que é
+exatamente a linha de base já medida abaixo. Nenhum IP de datacenter entra no
+caminho, então não há o que medir. O passo manual de ~20 min do `PASSO-A-PASSO.md`
+(Passo 3) **não será executado**.
 
 ### Linha de base local (medida em 2026-08-26, nesta máquina)
 
@@ -28,7 +37,10 @@ Provado com servidor de verdade em `127.0.0.1:8098` — resposta HTTP 200 de 4.2
 bytes — e as duas recusas previstas funcionando (`vimeo.com` → 400 "Esta rota só
 aceita vídeo do YouTube"; URL vazia → 400 "Cole o endereço do vídeo").
 
-### O que falta (e é o passo mais importante do lançamento)
+### O que faltava — registro, não pendência (encerrado em 2026-09-14)
+
+Tudo abaixo valia enquanto o motor fosse para a nuvem. Com a decisão de 2026-09-14
+nada disso acontece. Fica escrito para não ser redescoberto se o objetivo mudar.
 
 O YouTube trata IP residencial e IP de datacenter de forma diferente. De um
 container em nuvem, o pedido pode voltar com verificação de robô ("Sign in to
@@ -49,11 +61,11 @@ Duas observações que já valem, medidas no código:
 
 ## Prova B — postura de direitos autorais
 
-**Estado: NÃO RESPONDIDA. É decisão sua.** Escolha uma das três, apague as outras
-duas e escreva a razão. As Fases 1, 2 e 3 do `Prompt-Lancamento-Clips-v2.md`
-assumem a **(i)**.
+**Estado: RESPONDIDA em 2026-09-14 — escolhida a (i).** As opções (ii) OAuth do
+canal próprio e (iii) download no servidor foram apagadas conforme a instrução
+original deste arquivo.
 
-### (i) Só análise online — *é o que o código de hoje faz*
+### (i) Só análise online — ESCOLHIDA
 O servidor lê metadados públicos e a legenda que o YouTube publica. **Nunca baixa
 mídia.** O download e o render continuam na máquina do usuário, no Estúdio local,
 onde a declaração de autorização do criador já existe.
@@ -61,17 +73,19 @@ onde a declaração de autorização do criador já existe.
 que já está pronto e testado. *Contra:* o usuário precisa instalar o Estúdio para
 cortar de fato — o site entrega o "onde", não o arquivo.
 
-### (ii) Canal do próprio usuário (OAuth do YouTube)
-Só baixamos vídeo que o usuário comprovadamente possui.
-*A favor:* postura sólida, permite render na nuvem sem exposição nossa. *Contra:*
-público restrito a donos de canal, e exige a API do YouTube — trabalho que não
-existe hoje.
+**Por que ela, com o objetivo de hoje:** o "contra" da (i) deixou de existir. Ele
+custava um passo a mais para um usuário desconhecido; agora o único usuário é o
+dono, e o Estúdio já está instalado na máquina dele. A (i) é a única das três que
+**não muda uma linha de código** — é o que o sistema faz hoje. A (ii) exigiria a
+API do YouTube, trabalho que não existe. A (iii) transferiria para o projeto uma
+exposição que não faz sentido nenhum assumir quando não há cliente do outro lado.
 
-### (iii) Download no servidor com declaração do usuário
-É o portão de hoje, transplantado para a nuvem.
-*A favor:* produto completo em uma tela. *Contra:* a exposição passa a ser nossa,
-não do usuário. O `PESQUISA_FERRAMENTAS.md` §10 declara o yt-dlp "exceção
-aprovada caso a caso" — e caso a caso não é "para todo estranho pagante".
+**O que a (i) NÃO resolve, e é preciso estar escrito:** esta prova decide a postura
+da *ferramenta*, não a autorização para *publicar*. Cortar podcast de terceiro e
+postar em conta própria continua exigindo autorização da fonte — é o portão de
+declaração explícita do `CLAUDE.md` (inviolável, conferido duas vezes, válido por
+URL) e as fontes autorizadas do `../video-ops/PILOTO.md` §6. Escolher a (i) não
+destrava publicação; destrava só o fim do impasse de arquitetura.
 
 ### O que fecha uma porta que parecia aberta
 
@@ -84,14 +98,34 @@ produto, não uma variação deste.
 
 ---
 
-## Decisão (preencher)
+## Decisão (2026-09-14, decisão do usuário)
 
-- [ ] **Prova A** — o probe funciona de um IP de datacenter? Resposta:
-- [ ] **Prova B** — postura escolhida: (i) / (ii) / (iii). Porque:
+- [x] **Prova A** — o probe funciona de um IP de datacenter? **Resposta: a pergunta
+  não se aplica.** O motor não vai para a nuvem. O site passou a ser de uso pessoal
+  do dono, com o yt-dlp já instalado na máquina dele, em IP residencial — a mesma
+  condição da linha de base medida em 2026-08-26. Nenhum IP de datacenter no
+  caminho, nada a medir. O Passo 3 do `PASSO-A-PASSO.md` não será executado.
+
+- [x] **Prova B** — postura escolhida: **(i) só análise online.** Porque é a única
+  que não muda uma linha de código — descreve o que o sistema já faz — e porque o
+  único "contra" dela (obrigar o usuário a instalar o Estúdio) desapareceu quando o
+  único usuário passou a ser o dono, que já o tem instalado. A (ii) exigiria a API
+  do YouTube, que não existe no projeto; a (iii) traria exposição jurídica sem
+  nenhum cliente para justificá-la.
+
+**Consequência imediata:** as Fases 2 e 3 não começam por decisão de escopo, não
+por falta de prova. O portão está fechado e o que havia atrás dele foi arquivado —
+ver a seção seguinte.
 
 ---
 
 ## Nada disso é para agora (decisão do usuário, 2026-08-27)
+
+> **Superado em 2026-09-14: nada disto é para nunca, não para "agora".** Com o
+> objetivo pessoal e as duas provas respondidas acima, o motor não vai para a nuvem
+> e a receita abaixo (Fly.io, Turnstile, render em container) vira **registro
+> histórico**. Não executar. Retomar exige objetivo novo e plano novo — e a pasta
+> `cloud/` já foi aposentada em 2026-09-14 (ver `../02-Execution/PENDENCIAS.md`).
 
 A fase atual é **Vercel servindo a página + motor rodando na máquina do
 operador**, para ele acompanhar o trabalho de casa e do trabalho. Não é

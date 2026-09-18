@@ -115,7 +115,3 @@ Histórico de bugs encontrados e corrigidos. Formato: **ID · sintoma · causa �
 - **Correção:** Novo `renderKeepingScroll()` em `fluxos.js` que captura `scrollLeft`/`scrollTop` do `.fx-canvas-wrap` **antes** de `render()` e os restaura **depois**. Usado nos dois caminhos de exclusão (`node-del` e tecla Delete) e ao trocar a atividade de um card. Como o canvas tem tamanho fixo (`CANVAS_W/H`), a faixa de rolagem é idêntica após o re-render e a tela fica parada.
 - **Prevenção:** Regra BP-013 no `CLAUDE.md`.
 - **Status:** Corrigido. `node --check fluxos.js` + `node test-fluxos.js`/`test-fluxos-dom.js`/`test-fluxos-exec.js` passam.
-#   D o o t u  
- #   D o o t u  
- #   D o o t u  
- 

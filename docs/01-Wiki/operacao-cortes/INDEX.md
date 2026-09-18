@@ -1,28 +1,22 @@
+# Operação de cortes — o dono é o vault `Cortes`
 
-# Operação de cortes
+**Decisão do usuário, 2026-09-14:** o resultado real dos cortes publicados (objetivo, fluxo,
+lições e uma nota por clip) vive no vault **`Cortes`** da Usee, em
+`C:\Usee Brasil\Obsidian\Cortes`. Este repositório **não** guarda mais cópia disso.
 
-## Objetivo
+O que foi daqui para lá, e o que saiu:
 
-Registrar o resultado real dos cortes publicados para identificar:
+| Era aqui | Agora |
+|---|---|
+| as seções *Objetivo* e *Fluxo* desta nota | consolidadas no `INDEX.md` do vault `Cortes` |
+| `docs/01-Wiki/Licoes.md` | `Licoes.md` do vault `Cortes` — os dois eram byte-a-byte iguais |
+| `docs/_modelo-clip.md` | `_modelo-clip.md` do vault `Cortes` — idem |
 
-- temas que funcionam;
-- ganchos com maior retenção;
-- durações mais eficientes;
-- formatos que devem ser repetidos;
-- formatos que devem ser descartados.
+O que **fica** no repositório: como o Estúdio funciona por dentro (preset, CRF, LUFS,
+armadilha medida, tempo de render) — em `CLAUDE.md`, `.claude/rules/estudio-*` e
+`docs/03-Decisions/CONTRATO-qualidade-clip.md`. É a mesma divisão que o `INDEX.md` do vault
+`Cortes` já declarava: copiar de um lado para o outro cria duas verdades, e a cópia apodrece.
 
-## Arquivos
-
-- [Lições acumuladas](LICOES.md)
-- [Modelo de clip](../_templates/clip.md)
-- Pasta de registros: `clips/`
-
-## Fluxo
-
-1. Publicar o corte
-2. Criar o registro no mesmo dia
-3. Preencher os dados iniciais
-4. Atualizar métricas após 24 horas
-5. Atualizar novamente após 7 dias
-6. Definir o veredito
-7. Transferir aprendizados relevantes para `LICOES.md`
+Ainda aqui, por ser exclusivo: [`../../_templates/`](../../_templates/) — modelo de clip do
+plugin *Templates* deste vault, com campos que o `_modelo-clip.md` do vault `Cortes` não tem
+(hipótese, `views_24h`/`views_7d`, conclusão). Não foi copiado para lá.

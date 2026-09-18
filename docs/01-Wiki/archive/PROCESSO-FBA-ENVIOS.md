@@ -1,5 +1,11 @@
 # Desenho do Processo — Controle de Envios FBA (Amazon)
 
+> **Arquivada em 2026-09-14 (decisão do usuário).** Especificação escrita em 2026-06-29 e
+> **nunca implementada**. O domínio Amazon saiu do site (Amazon FBA em 2026-06-29,
+> Inventário e Precificação em 2026-08-17, Faturador em 2026-09-08) e o único código que a
+> cita — `arquivo/fba-shipments.js` — está desligado, guardado em `arquivo/`. Fica aqui como
+> registro do que foi desenhado e por quê; **não é plano ativo**. Veio de `docs/`.
+
 > **Status:** especificação de processo (sem implementação). **Granularidade:** Envio → Caixa → SKU.
 > **Entrada:** manual (`localStorage`, chave `pp_fba_shipments_v1`, padrão `pp_*_v1`). **Data:** 2026-06-29.
 >

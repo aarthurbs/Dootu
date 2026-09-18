@@ -1,5 +1,11 @@
 # Plano pronto: quando destacar (e quando NÃO) um trecho do título
 
+> **Estado (conferido em 2026-09-14): ENTREGUE em 2026-09-01.** Não é trabalho ativo.
+> `preset.pickTitleHighlight`, `TERMOS_FORTES`, `FRACOS_NO_TITULO` e `UNIDADE_RESULTADO`
+> vivem em `studio/src/preset.js`, com checks em `studio/test-preset.mjs`. Fechamento em
+> `../01-Wiki/archive/HISTORICO-estudio-video.md` (l. 172): destaque por **peso**
+> (Montserrat 800 → 900 com filete), nunca por cor.
+
 Decide, sem IA e sem dependência nova, qual pedaço do título do card 9:16 vira destaque —
 `Saiu de uma pequena cidade, para **100 mil pedidos** no Brasil.` — e, principalmente,
 quando a resposta certa é **não destacar nada**.

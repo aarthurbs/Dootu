@@ -1,7 +1,7 @@
 # Contexto do Projeto
 Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localStorage`): Painel do Empreendedor e Estúdio de Vídeos, mais widgets pessoais (placar NBA/Copa ao vivo). Módulos REMOVIDOS: **Amazon FBA** (2026-06-29), **Precificação**, **Inventário Amazon** e **Shooting Range** (2026-08-17), e **Prompts salvos**, **Planilha de Faturador**, **Radar** e **Fluxos** (2026-09-08) - ver Domínio do Negócio. O backend full-stack (Supabase/SP-API) está planejado, mas PAUSADO.
 
-## Arquitetura alvo (ver ARQUITETURA.md)
+## Arquitetura alvo (ver `docs/01-Wiki/ARQUITETURA.md`)
 - Frontend: site Vanilla JS atual (`index.html`) — NÃO reescrever; evoluir incrementalmente.
 - Backend: Supabase (Postgres + Auth + Edge Functions + RLS).
 - Integração: Amazon SP-API, acessada SOMENTE por Edge Functions (Deno). O navegador nunca fala com a Amazon.
@@ -18,25 +18,26 @@ Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localSto
 Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado sob demanda:
 - `.claude/rules/*.md` — regras ATIVAS por caminho, com `paths` no frontmatter. Carregam
   quando você toca o arquivo correspondente, não na partida.
-- `docs/archive/HISTORICO-*.md` — trabalho CONCLUÍDO: decisões datadas, armadilhas MEDIDAS
+- `docs/01-Wiki/archive/HISTORICO-*.md` — trabalho CONCLUÍDO: decisões datadas, armadilhas MEDIDAS
   ("não re-descobrir"), revisões adversariais. **Não são importados de propósito** (import
   consome contexto de partida). Grep neles antes de mexer num número ou numa guarda.
-- Backup íntegro do CLAUDE.md anterior (177.891 chars): `docs/archive/CLAUDE.md.backup-2026-09-04`.
+- Backup íntegro do CLAUDE.md anterior (177.891 chars): `docs/01-Wiki/archive/CLAUDE.md.backup-2026-09-04`.
 
 | Vai mexer em | Regra ativa | Histórico |
 |---|---|---|
 | `video-worker/**` (FFmpeg, ASS, yt-dlp, rotas) | `.claude/rules/estudio-video-worker.md` | `HISTORICO-estudio-video.md` |
 | `studio/**` (Remotion, preset, card) | `.claude/rules/estudio-remotion.md` | `HISTORICO-estudio-video.md` |
 | `video-ops.js` / `.css` (tela do Estúdio) | `.claude/rules/estudio-ui.md` | `HISTORICO-estudio-video.md` |
+| `video-results.js` (Resultados dos cortes) | `.claude/rules/estudio-resultados.md` | — |
 | `baixador/**` (extensão + helper) | `.claude/rules/baixador.md` | `HISTORICO-estudio-video.md` |
-| `cloud/**`, `web/**` (lançamento Fase 1) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
+| `web/**` (lançamento Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
 | `index.html`, `empreendedor.js` | `.claude/rules/modulos-index-html.md` | — |
 
 # Domínio do Negócio (Multi-marketplace)
 - **Módulos ATIVOS** (nenhum é código morto — BP-007): Central (home) · Painel do Empreendedor ·
   Estúdio de Vídeos · widgets pessoais (placar NBA/Copa). Detalhes de cada um nas regras por caminho.
 - **Módulos REMOVIDOS — não recriar nem referenciar** (inventário completo em
-  `docs/archive/HISTORICO-modulos-removidos.md`):
+  `docs/01-Wiki/archive/HISTORICO-modulos-removidos.md`):
   - **Prompts salvos, Planilha de Faturador, Radar e Fluxos** (2026-09-08, decisão do usuário —
     simplificação do site antes da migração para o Obsidian). Não voltam. Tokens que saíram:
     - Prompts: `pp_prompts_v1` · `pp_projects_v1` · `#cards-grid` · `#toolbar` · `#empty-state` ·
@@ -65,34 +66,67 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
   - **Shooting Range** (2026-08-17): `SRCore` · `shootingRangeSetActive` · `pp_shooting_range_v1`.
     **`docs/shooting-range/` e `vendor/three.min.js` FICAM** — são insumo de plano não iniciado, não código morto.
 - **Auditoria de performance 2026-06-30**: concluída e aplicada; virou BP-005 e BP-006.
-  Registro em `docs/archive/HISTORICO-performance-2026-06-30.md`.
+  Registro em `docs/01-Wiki/archive/HISTORICO-performance-2026-06-30.md`.
 
 # Estúdio de Vídeos (regra de topo)
-Cinco telas: `1 Vídeo` › `2 Cortes` › `3 Revisão`, mais `Central` e `YouTube`.
+Quatro telas: `Central` (inicial), `Meus projetos`, `YouTube` e `Resultados`. As etapas
+`1 Vídeo`, `2 Cortes` e `3 Revisão` saíram da navegação em 2026-09-14 por decisão do
+usuário. Não reabrir essas rotas; a edição dos trechos do YouTube e os dados salvos permanecem.
+**`Resultados dos cortes` (2026-09-14, decisão do usuário):** `video-results.js`, chave
+própria `pp_video_results_v1`, registro manual de publicação e de medição para descobrir
+que formato rende mais. Esta autorização **não** reabre o pipeline de publicação apagado em
+2026-08-21 (contas, Drive, CSV, aprovação por hash) — é área de ANÁLISE do que já foi
+publicado à mão. Regras próprias em `.claude/rules/estudio-resultados.md`.
 **Direção editorial (decisão do usuário):** cortes de podcast de negócios/empreendedorismo em
 PT-BR — *conteúdo forte → corte certo → comunicação clara → edição discreta → autoridade*,
 **nunca** "efeito, efeito, efeito". Proibido por escrito: meme, emoji, texto em movimento
 constante, zoom agressivo, shake, música alta, cor neon, e **qualquer efeito disparado só
 porque o tempo passou**.
+**A fonte é o VÍDEO INTEIRO importado (decisão do usuário, 2026-09-15).** Colar a URL +
+declarar o direito + `Importar vídeo` baixa o original completo uma vez (`/api/yt-import`,
+com progresso real em `/api/yt-import-state`); ele toca num `<video>` do próprio site
+(`/sources/…`, servido com Range) e **todo** corte sai desse arquivo — trecho cru pelo
+`/api/video-cut` e editado pelo `/api/remotion-render`, os dois com `start`/`end` dentro da
+fonte. **Reverte explicitamente o "só o trecho escolhido é baixado".** Nada de iframe do
+YouTube na tela de edição. Mudar a borda de um corte invalida o que foi exportado dele e
+**nunca** a fonte. Regras próprias em `.claude/rules/estudio-ui.md` e `estudio-video-worker.md`.
 **Única exceção ao "cor neon", aberta pelo operador em 2026-09-11:** a PALAVRA SENDO DITA da
 legenda usa um leque neon (`TOKENS.palavraCores`, amarelo na frente), que gira por palavra.
 Vale só para ela — texto, sombra, marca e destaque estático continuam na paleta fechada, e o
 check 1g continua cobrando isso. Não "consertar" de volta para cor única.
 **Direitos autorais (inviolável):** analisar metadados/legenda é livre; **baixar mídia passa
-por portão de declaração explícita**, conferido duas vezes e válido por URL. Nunca remover o
-portão. Nunca `--exec`, `--netrc-cmd`, cookies de navegador ou `aria2c` no yt-dlp.
-**Dupla compressão do caminho YouTube — MEDIDA em 2026-09-08 e DESCARTADA.** O ENCODE 1 do
-yt-dlp (`--force-keyframes-at-cuts`) é `libx264 crf=23 preset=medium` e custa **47,5 dB PSNR /
-0,993 SSIM** contra o stream copy do mesmo trecho: praticamente transparente. `-crf 18` compra
-+2,4 dB por **+78% de arquivo**. Decisão: **não mexer** — nem a opção B (tirar a flag) nem a C
-(CRF menor). Não reabrir sem número novo. Medições em `docs/PLANO-3-dupla-compressao.md` §8,
-inclusive a armadilha de alinhamento de quadro que vale 17 dB.
+por portão de declaração explícita**, conferido duas vezes e válido por URL — agora o portão
+guarda a IMPORTAÇÃO (é ela que baixa), e a declaração, sendo por sessão, é o que religa a
+fonte já no disco ao ser marcada. Nunca remover o portão. Nunca `--exec`, `--netrc-cmd`,
+cookies de navegador ou `aria2c` no yt-dlp.
+**Dupla compressão do caminho YouTube — MEDIDA em 2026-09-08 e DESCARTADA; hoje o assunto
+ACABOU.** O ENCODE 1 do yt-dlp (`--force-keyframes-at-cuts`) era `libx264 crf=23
+preset=medium` e custava **47,5 dB PSNR / 0,993 SSIM** contra o stream copy do mesmo trecho —
+praticamente transparente, e por isso a decisão foi não mexer. A importação do vídeo inteiro
+não usa aquela flag (não recorta nada), então esse encode **deixou de existir** no caminho
+normal: cada corte sai de um encode único, feito aqui. A medição não foi revogada — ela dizia
+"não vale mexer nele", e não "ele tem de continuar existindo". Números em
+`docs/02-Execution/PLANO-3-dupla-compressao.md` §8, inclusive a armadilha de alinhamento de
+quadro que vale 17 dB.
+**Editor MANUAL da legenda (2026-09-16, decisão do usuário):** o estilo continua sendo a
+escolha de PARTIDA, e o operador ajusta por cima dele fonte, corpo, caixa, cor do texto,
+cor do destaque, largura da coluna, alinhamento e posição vertical — cada controle com
+"voltar ao automático" e com marcador visível de que foi ajustado. Modelo versionado
+`clip.edit = { v: 1, legenda, enquadramento }` **na chave de projeto que já existe**, sem
+nova chave de `localStorage` e sem migração: corte salvo antes disto abre e exporta
+idêntico. O estilo `impacto` passou de **Archivo Black para Montserrat ExtraBold** (800) na
+mesma entrega, nos DOIS renderizadores — é a única mudança visual deliberada em clip
+antigo, e ela vale porque foi pedida por escrito. Duas prévias, e a tela diz qual é qual:
+CSS instantânea (aproximação da tipografia, sem repaginar) e `/api/remotion-still`, o quadro
+real com os MESMOS props do MP4. **A âncora vertical continua com um dono só** —
+`captions.margem_inferior`; a tela manda INTENÇÃO (`posicaoPct`), nunca pixel. Regras
+próprias em `.claude/rules/estudio-ui.md`, `estudio-remotion.md` e `estudio-video-worker.md`.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
-**Rode `.\provas.ps1`.** Ele roda as nove suítes, soma, e **confere o total contra a linha
+**Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (154) · `test_serve.py` (**338**) · `test_ytclip.py` (**234**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**372**) · `test-video-ops.js` (**96**) · `test-video-ops-dom.js` (**133**) — **1756 verificações nas nove, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**184**) · `test_serve.py` (**401**) · `test_ytclip.py` (**273**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**385**) · `test-video-ops.js` (**115**) · `test-video-ops-dom.js` (**189**) · `test-video-results.js` (**46**) — **2022 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

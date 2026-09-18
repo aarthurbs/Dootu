@@ -19,6 +19,8 @@ O que este script prova (e falha alto se não for verdade):
   12. duração               -> vem da ideia (pausa/troca de assunto), não de um cronômetro
   13. nota                  -> momento forte (fracasso, dinheiro, conselho…) pesa na nota
   14. mais reproduzidos    -> normaliza o grafico, acha regiao de pico e nunca inventa dado
+  25. teto de 1 minuto     -> o numero da TELA respeita o teto, e quem estoura e descartado
+  26. assunto              -> trecho tem de dizer a que vem NO COMECO, e isso reprova
 
 Uso:
     py -3.12 video-worker\\test_ytclip.py
@@ -26,7 +28,9 @@ Uso:
 
 import json
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import captions  # noqa: E402
@@ -57,17 +61,26 @@ def json3(rows):
         for s, d, t in rows]})
 
 
-def falar(inicio, quantidade, passo=3.0, texto="Fala continua de teste."):
+# A fala PADRAO da fixture diz alguma coisa de proposito. Desde 2026-09-16 o
+# `avaliar` tem o fator `assunto` no VETO: fala que nao anuncia tema nenhum NAO vira
+# candidato, entao "Fala continua de teste." deixaria toda esta suite exercitando o
+# caminho do descarte e provando geometria de janela sobre lista vazia. Esta frase traz
+# assunto (lexico de dinheiro) e gancho ("o erro"), que e o minimo para o trecho existir.
+# Quem precisa de fala SEM assunto passa `texto=` -- e o bloco 13 faz isso.
+FALA_PADRAO = "O erro foi gastar todo o lucro da empresa."
+
+
+def falar(inicio, quantidade, passo=3.0, texto=FALA_PADRAO):
     return [(inicio + i * passo, passo, texto) for i in range(quantidade)]
 
 
-def falar_cues(inicio, quantidade, passo=3.0, texto="Fala continua de teste."):
+def falar_cues(inicio, quantidade, passo=3.0, texto=FALA_PADRAO):
     """O mesmo `falar`, ja no formato de cue -- para montar grade a mao sem passar por json3."""
     return [{"start": inicio + i * passo, "end": inicio + (i + 1) * passo, "text": texto}
             for i in range(quantidade)]
 
 
-def palavras_falar(inicio, quantidade, passo=3.0, texto="Fala continua de teste."):
+def palavras_falar(inicio, quantidade, passo=3.0, texto=FALA_PADRAO):
     """Tempo por PALAVRA da mesma fala, distribuido dentro de cada cue."""
     saida = []
     for i in range(quantidade):
@@ -164,7 +177,7 @@ def main():
           all("erro mais comum" not in c["topic"] for c in lista
               if abs(c["inSec"] - 100.0) > ytclip.MERGE_GAP_SEC))
     check("5k3. sem capitulo perto, a manchete sai da FALA escolhida e nao do titulo do video",
-          all(c["topic"] and "Fala continua" in c["topic"] or c["topic"].startswith("Trecho em")
+          all(c["topic"] and "gastar todo o lucro" in c["topic"] or c["topic"].startswith("Trecho em")
               for c in lista))
 
     # ------------------------------------------------- 6. honestidade do sinal
@@ -335,8 +348,12 @@ def main():
           0.0 <= dur_curta - 25.0 <= ytclip.RESPIRO_DEPOIS_SEC + 1e-6)
     check("12a2. o respiro do fim nao invade a fala seguinte",
           j_curta["outSec"] <= 26.5 + 1e-6)
-    check("12b. historia sem pausa corre ate o teto suave (~70s)", dur_longa >= 65.0)
-    check("12c. duracoes materialmente diferentes", dur_longa - dur_curta >= 20.0)
+    check("12b. historia sem pausa corre ate o teto suave (~45s)",
+          ytclip.STORY_CLIP_SEC - 1e-6 <= dur_longa <= ytclip.STORY_CLIP_SEC + ytclip.RESPIRO_DEPOIS_SEC)
+    # A distancia entre as duas encolheu junto com o teto suave (70 -> 45 em 2026-09-16), e
+    # o que este check prova e que a duracao SAI DA IDEIA: 25 s e 45 s na mesma suite, nao
+    # dois cortes do mesmo tamanho. O numero e 15 e nao 20 por isso, nao por folga.
+    check("12c. duracoes materialmente diferentes", dur_longa - dur_curta >= 15.0)
     check("12d. nenhuma das duas grudou no alvo antigo de 45s",
           abs(dur_curta - ytclip.TARGET_CLIP_SEC) > 5.0 and
           abs(dur_longa - ytclip.TARGET_CLIP_SEC) > 5.0)
@@ -348,21 +365,33 @@ def main():
           abs((troca["outSec"] - troca["inSec"]) - 40.0) < 1e-6)
 
     # --------------------------------------- 13. nota reflete momento forte
+    # `neutro` fala de assunto de CONTEXTO (negocios), nao de um dos seis fortes: e contra
+    # ele que a categoria forte tem de levantar a nota. Com a fala padrao aqui os dois
+    # lados empatavam -- ela cita dinheiro, que TAMBEM e categoria forte, e o check passava
+    # a comparar forte com forte.
     neutro = {"durationSec": 300.0, "heatmap": [],
               "chapters": [{"start_time": 30.0, "title": "Parte dois"}],
-              "cues": ytclip.parse_json3(json3(falar(0.0, 60)))}
+              "cues": ytclip.parse_json3(json3(falar(
+                  0.0, 60, texto="O meu socio cuida da operacao e do mercado hoje.")))}
+    # Fala SEM termo de lexico nenhum, mas com gancho (pergunta direta): desde o fator
+    # `assunto`, trecho sem tema E sem gancho nao vira candidato, entao provar "categoria
+    # vazia" exige uma fala que exista por gancho. Sem isto o 13d passaria a perguntar a
+    # lista vazia, que e a armadilha registrada no 17m0.
+    sem_termo = dict(neutro, cues=ytclip.parse_json3(json3(falar(
+        0.0, 60, texto="voce ja tentou fazer diferente?"))))
     forte = dict(neutro, cues=ytclip.parse_json3(json3(
         [(i * 3.0, 3.0, "eu errei feio e quebrei a empresa, aprendi da pior forma.")
          for i in range(60)])))
     lista_n = ytclip.candidates(neutro)
     lista_f = ytclip.candidates(forte)
+    lista_s = ytclip.candidates(sem_termo)
     check("13a. categoria forte levanta a nota", bool(lista_n) and bool(lista_f) and
           lista_f[0]["score"] > lista_n[0]["score"])
     check("13b. classificou como fracasso", bool(lista_f) and lista_f[0]["category"] == "failure")
     check("13c. o motivo mostra o assunto em portugues",
           bool(lista_f) and "Fracasso" in lista_f[0]["reason"])
     check("13d. sem termo conhecido a categoria fica vazia",
-          bool(lista_n) and lista_n[0]["category"] == "")
+          bool(lista_s) and lista_s[0]["category"] == "")
     check("13e. nota continua de 0 a 100", all(0 <= c["score"] <= 100 for c in lista_f + lista_n))
     check("13f. category entrou sem derrubar o schema antigo",
           all(campos <= set(c) and {"category", "contextWarning"} <= set(c) for c in lista_f))
@@ -928,8 +957,13 @@ def main():
     # porque o respiro de RESPIRO_ANTES_SEC recua o inicio para 149,88 de propriedade.
     check("20a. pico MAXIMO nao entrega nada de dentro da briga censurada",
           bool(saiu) and all(c["inSec"] >= 21.0 for c in saiu))
-    check("20a2. e o trecho que sobrou nem e apresentado como recomendado",
-          bool(saiu) and saiu[0]["quality"] == "fraco")
+    # O trecho que sobra esta em 150 s e o pico MAXIMO cobre 0-50 s: se a audiencia
+    # tivesse alcancado o que sobrou, `heatmap` estaria nos sinais dele. Antes de
+    # 2026-09-16 este check cobrava `quality == "fraco"`, mas isso media a fala vazia da
+    # fixture e nao o resgate -- com fala que diz alguma coisa, o trecho e bom por merito
+    # proprio, e cobrar "fraco" seria cobrar que a fixture continue ruim.
+    check("20a2. o pico nao alcanca o trecho que sobrou (nao e ele que o sustenta)",
+          bool(saiu) and all("heatmap" not in c["signals"] for c in saiu))
     check("20b. e o motivo do descarte sai em portugues em vez de sumir calado",
           "não se entendiam sozinhos" in ytclip.candidates_report(quente)[1])
     # A mesma fala, sem o pico: a lista tem de ser a MESMA. Se mudar, audiencia esta
@@ -1053,6 +1087,206 @@ def main():
     # O caminho SEM palavra a palavra nao muda: quem mede a pausa la sempre foi a cue.
     check("23i. sem `words` a grade continua sendo a da cue, com as pausas dela",
           ytclip.sentences_from(cues_pausa) == ytclip.sentences_from(cues_pausa, []))
+
+    # ------------------------------------ 24: progresso REAL da importação do vídeo
+    # A importação leva minutos. Uma barra que só sabe "começou" e "acabou" é
+    # indistinguível de tela travada (BP-008), e é por isso que estas contas existem.
+    # A linha é do NOSSO `--progress-template`: o formato é escolhido aqui, e não por
+    # regex sobre a linha bonita do yt-dlp, que muda entre versões e quebraria calada.
+    check("24a. o template pede os dois números que a barra precisa",
+          "%(progress.downloaded_bytes)s" in ytclip.PROGRESS_TEMPLATE
+          and "total_bytes" in ytclip.PROGRESS_TEMPLATE
+          and ytclip.PROGRESS_TEMPLATE.startswith(ytclip.PROGRESS_TAG))
+    check("24b. parse_progress lê a linha do template",
+          ytclip.parse_progress(ytclip.PROGRESS_TAG + " 1024 4096") == (1024, 4096))
+    # Linha que NÃO é progresso tem de devolver None: é ela que o `_run` guarda na cauda
+    # para a mensagem de erro. Confundir as duas encheria o erro de ruído.
+    check("24c. e devolve None para qualquer outra linha do yt-dlp",
+          ytclip.parse_progress("[download]  4.2% of ~ 1.20GiB") is None
+          and ytclip.parse_progress("") is None
+          and ytclip.parse_progress(None) is None
+          and ytclip.parse_progress(ytclip.PROGRESS_TAG + " 1") is None)
+    # "NA" é o que o yt-dlp escreve quando ainda não sabe o tamanho. Total 0 é resposta
+    # LEGÍTIMA ("não sei ainda"), não erro — e não pode virar divisão por zero (BP-004).
+    check("24d. campo que o yt-dlp não soube preencher vira 0, não exceção",
+          ytclip.parse_progress(ytclip.PROGRESS_TAG + " 512 NA") == (512, 0)
+          and ytclip.parse_progress(ytclip.PROGRESS_TAG + " nan inf") == (0, 0))
+    andamento = ytclip.ImportProgress()
+    andamento.feed(ytclip.PROGRESS_TAG + " 0 NA")
+    check("24e. total desconhecido não divide por zero", andamento.fracao == 0.0)
+    # O yt-dlp baixa vídeo e áudio SEPARADOS: `downloaded_bytes` volta a zero na segunda
+    # faixa. Ligada direto nesse número, a barra iria a 100%, cairia a 0% e voltaria — a
+    # aparência exata de coisa quebrada. A sequência abaixo é essa, e a fração só pode subir.
+    andando = ytclip.ImportProgress()
+    lidas = []
+    for linha in (" 200 1000", " 600 1000", " 1000 1000",   # faixa de vídeo
+                  " 50 200", " 120 200", " 200 200"):       # faixa de áudio
+        andando.feed(ytclip.PROGRESS_TAG + linha)
+        lidas.append(andando.fracao)
+    check("24f. a fração SÓ SOBE entre as duas faixas (%s)"
+          % " ".join("%.2f" % v for v in lidas),
+          all(lidas[i] <= lidas[i + 1] for i in range(len(lidas) - 1)))
+    # Enquanto só UMA faixa apareceu o denominador está incompleto, então 80% é o teto
+    # honesto: o vídeo é 80-95% dos bytes em toda combinação que o seletor de formato pede.
+    # Sem o teto, o fim do vídeo marcava 99% e a barra ficava cheia e parada durante o áudio
+    # inteiro e a junção — ou seja, prometendo pronto e não entregando.
+    check("24g. uma faixa sozinha não passa do teto honesto (%.2f)" % lidas[2],
+          lidas[2] <= ytclip.ImportProgress.TETO_UMA_FAIXA + 1e-9
+          and lidas[2] > 0.5)
+    check("24h. e os 100%% ficam para quem JUNTA as faixas (%.2f)" % lidas[-1],
+          lidas[-1] <= ytclip.ImportProgress.TETO + 1e-9 and lidas[-1] > lidas[2])
+
+    # -------------------------- 24i-24m: as flags do download do vídeo INTEIRO
+    # Os dois caminhos de download (trecho e vídeo inteiro) compartilham UMA lista de
+    # argumentos. Duas listas à mão divergiriam, e o MESMO vídeo entraria no Estúdio com
+    # codec ou resolução diferente dependendo da rota — calado.
+    # A prova é sobre o argv CONSTRUÍDO, capturado de dentro do `fetch_full`, e não sobre o
+    # texto do arquivo: o `ytclip.py` CITA `--exec`, `--netrc-cmd` e `aria2c` nos comentários
+    # que explicam a proibição, então um `not in fonte` reprovaria o arquivo justamente por
+    # documentar a regra. É a armadilha que a regra do worker nomeia — `in arquivo` só prova
+    # que alguém escreveu a palavra.
+    argv_visto = []
+    run_original = ytclip._run
+    try:
+        def _captura(args, timeout, on_line=None):
+            argv_visto.append(list(args))
+            # Devolve o que o chamador espera e deixa ele seguir; quem levanta depois é o
+            # `produced_media`, porque nenhum arquivo foi gravado — e isso não atrapalha:
+            # o argv já foi capturado.
+            return b""
+        ytclip._run = _captura
+        pasta_falsa = tempfile.mkdtemp(prefix="import-argv-")
+        try:
+            # URL com sujeira de propósito: o que vai ao processo tem de ser a canônica,
+            # reconstruída do id VALIDADO — nunca a string colada.
+            ytclip.fetch_full("https://youtu.be/abcdefghijk?si=rastreador&t=90", pasta_falsa)
+        except Exception:
+            pass
+        finally:
+            shutil.rmtree(pasta_falsa, ignore_errors=True)
+    finally:
+        ytclip._run = run_original
+    check("24i. a importação chegou a montar um comando", len(argv_visto) == 1)
+    argv = argv_visto[0] if argv_visto else []
+    check("24j. o cliente do player continua FIXADO (armadilha do 403)",
+          "youtube:player_client=web_embedded,tv,web" in argv)
+    check("24k. o FFmpeg é o do projeto, e a miniatura vem no MESMO comando",
+          "--ffmpeg-location" in argv and worker.FFMPEG in argv
+          and "--write-thumbnail" in argv)
+    check("24l. a URL entregue ao processo é a CANÔNICA, do id validado",
+          argv[-1] == "https://www.youtube.com/watch?v=abcdefghijk"
+          and not any("si=rastreador" in str(a) for a in argv))
+    # A auditoria proíbe estas quatro por escrito.
+    for proibida in ("--exec", "--netrc-cmd", "--cookies-from-browser", "--cookies",
+                     "--downloader", "aria2c"):
+        check("24m. a importação não usa %s" % proibida,
+              not any(proibida == str(a) or proibida in str(a) for a in argv))
+    # E o que a DISTINGUE do download de trecho: o vídeo inteiro não recorta, então não passa
+    # pelas flags de recorte — é a ausência delas que elimina o encode das pontas por trecho.
+    check("24n. o download do vídeo inteiro NÃO recorta (sem download-sections)",
+          "--download-sections" not in argv and "--force-keyframes-at-cuts" not in argv)
+    check("24o. e pede progresso linha a linha, que é o que alimenta a barra",
+          "--newline" in argv and ytclip.PROGRESS_TEMPLATE in argv)
+
+    # ------------------------------- 25. teto de 1 minuto (2026-09-16)
+    # A regra do usuario e sobre o numero que aparece no CARD, nao sobre uma variavel
+    # interna: o intervalo entregue leva o respiro do fim e sai em segundo inteiro (`floor`
+    # no comeco, `ceil` no fim), e os tres ALARGAM. Por isso a fala para antes, em
+    # `MAX_FALA_SEC` -- e a aritmetica disso e uma prova, nao um comentario.
+    check("25a. a fala para cedo o bastante para o arredondamento caber no teto",
+          ytclip.MAX_FALA_SEC + ytclip.RESPIRO_DEPOIS_SEC + 2.0 <= ytclip.MAX_CLIP_SEC + 1e-9)
+    check("25b. e o teto entregue e de um minuto", ytclip.MAX_CLIP_SEC == 60.0)
+    check("25c. o teto suave da historia cabe dentro do teto duro",
+          ytclip.MIN_CLIP_SEC < ytclip.TARGET_CLIP_SEC <= ytclip.STORY_CLIP_SEC < ytclip.MAX_CLIP_SEC)
+    # A medicao que abriu a entrega, refeita como prova: `_window` chamada em CADA frase da
+    # legenda real (`fixtures/json3-rolante.json`, tempos byte a byte de uma automatica pt).
+    # Antes disto 13 das 41 janelas passavam de 60 s, a maior com 72,5 s.
+    cues_reais = ytclip.parse_json3(AMOSTRA)
+    palavras_reais = ytclip.parse_json3_words(AMOSTRA)
+    fim_reais = max(c["end"] for c in cues_reais) + 5.0
+    janelas = [ytclip._window(cues_reais, f["start"], fim_reais, (), palavras_reais)
+               for f in ytclip.sentences_from(cues_reais, palavras_reais)]
+    duracoes = [j["outSec"] - j["inSec"] for j in janelas
+                if j["outSec"] - j["inSec"] >= ytclip.MIN_CLIP_SEC]
+    check("25d. nenhuma janela da legenda REAL passa do teto",
+          bool(duracoes) and max(duracoes) <= ytclip.MAX_CLIP_SEC + 1e-6)
+    check("25e. e elas continuam de tamanhos diferentes (o teto nao virou cronometro)",
+          bool(duracoes) and max(duracoes) - min(duracoes) >= 20.0)
+    # Polaridade: a mesma grade com o teto antigo produzia janela acima de 60 s. Sem isto o
+    # 25d passaria num motor que nunca chegasse perto do teto, provando nada.
+    guardado = (ytclip.MAX_FALA_SEC, ytclip.STORY_CLIP_SEC)
+    try:
+        # Os DOIS numeros de antes de 2026-09-16. Mover so o teto duro nao prova nada: na
+        # pratica quem para a janela primeiro e o teto SUAVE da historia, e era ele em 70 s
+        # que produzia os cortes de 72 s do relato.
+        ytclip.MAX_FALA_SEC, ytclip.STORY_CLIP_SEC = 87.0, 70.0
+        antigas = [ytclip._window(cues_reais, f["start"], fim_reais, (), palavras_reais)
+                   for f in ytclip.sentences_from(cues_reais, palavras_reais)]
+        estouro = max(j["outSec"] - j["inSec"] for j in antigas)
+    finally:
+        ytclip.MAX_FALA_SEC, ytclip.STORY_CLIP_SEC = guardado
+    check("25f. polaridade: com o teto antigo a MESMA grade estoura o minuto",
+          estouro > ytclip.MAX_CLIP_SEC)
+    # E o intervalo ENTREGUE, que e o que o card mostra, tambem respeita -- este e o numero
+    # que o usuario ve, e o que o `_candidates` arredonda.
+    corrido = {"durationSec": 400.0, "heatmap": [], "words": [],
+               "chapters": [{"start_time": 30.0, "title": "Sem respiro"}],
+               "cues": ytclip.parse_json3(json3(falar(0.0, 80)))}
+    entregues = ytclip.candidates(corrido)
+    check("25g. nenhum candidato ENTREGUE passa de um minuto",
+          bool(entregues) and all(c["durationSec"] <= ytclip.MAX_CLIP_SEC + 1e-9
+                                  for c in entregues))
+    check("25h. e o motivo de descarte por duracao tem frase em portugues",
+          "duracao" in ytclip.REPROVA_LABEL and ytclip.REPROVA_LABEL["duracao"].strip())
+
+    # ------------------------------- 26. assunto: o corte diz a que vem? (2026-09-16)
+    def janela_falada(*frases):
+        """Frases -> janela pronta, com fecho e borda de palavra. So para o `_assunto_de`."""
+        fatia = [{"clean": f, "text": f, "pauseAfter": 1.2, "hardStart": True} for f in frases]
+        inteiro = " ".join(frases)
+        return {"frases": fatia, "clean": inteiro, "text": inteiro, "inSec": 100.0,
+                "outSec": 135.0, "fecho": True, "wordLevel": True}
+
+    # A abertura nao pode abrir em conector solto ("Ele...", "Entao...") nem trazer troca
+    # de falante: senao quem reprova primeiro e `abertura`/`independencia` e o check passa a
+    # medir o veto errado -- foi o que aconteceu na primeira escrita deste bloco.
+    divaga = janela_falada("Naquela epoca a gente morava perto daqui.",
+                           "A conversa seguiu tranquila ate o fim da tarde.")
+    tema = janela_falada("Eu perdi quarenta mil reais no primeiro ano.",
+                         "Foi o erro que me ensinou tudo.")
+    # Assunto que so aparece DEPOIS do comeco: as duas primeiras frases nao dizem nada, e o
+    # tema (dinheiro) chega na terceira. E o "pegar por cima do assunto" do relato.
+    atrasado = janela_falada("Naquela epoca a gente morava perto daqui.",
+                             "A conversa seguiu tranquila ate o fim da tarde.",
+                             "Ai eu contei que o faturamento tinha dobrado com o novo socio.")
+    # As duas dividem a MESMA abertura de proposito: o que as separa e so o tema chegar ou
+    # nao, entao qualquer diferenca de nota entre elas vem do fator `assunto` e de mais nada.
+    v_divaga, frase_divaga = ytclip._assunto_de(divaga)
+    v_tema, frase_tema = ytclip._assunto_de(tema)
+    v_atrasado, frase_atrasado = ytclip._assunto_de(atrasado)
+    check("26a. fala que nao diz a que vem reprova", v_divaga == 0.0)
+    check("26b. e a frase explica isso em portugues, sem numero",
+          "sobre o que" in frase_divaga.lower())
+    check("26c. fala com assunto na abertura passa", v_tema >= 0.85)
+    check("26d. assunto que so aparece depois do comeco reprova", v_atrasado == 0.0)
+    check("26e. e a frase distingue as duas faltas",
+          "depois do come" in frase_atrasado and frase_atrasado != frase_divaga)
+    check("26f. sem transcricao o assunto nao e AFIRMADO nem reprovado",
+          ytclip._assunto_de({"frases": [], "clean": "", "text": ""})[0] == 0.5)
+    # O fator esta no VETO, entao audiencia cheia nao resgata -- e o `score` continua
+    # existindo, so nao promove. Valor CONSTRUIDO e funcao CHAMADA, nunca `in arquivo`.
+    nota_divaga = ytclip.avaliar(divaga, 1.0)
+    check("26g. audiencia cheia nao resgata trecho sem assunto",
+          nota_divaga["rejectId"] == "assunto" and nota_divaga["quality"] == "fraco")
+    check("26h. e a reprova vem com a frase que a explica", bool(nota_divaga["reject"].strip()))
+    check("26i. assunto esta entre os fatores e no veto",
+          "assunto" in dict((f, p) for f, p, _ in ytclip.FATORES) and "assunto" in ytclip.VETO)
+    check("26j. os pesos continuam somando 88, e a audiencia 12",
+          sum(p for _, p, _ in ytclip.FATORES) == 88 and ytclip.INTERESSE_PESO == 12)
+    # Polaridade que ja custou caro neste projeto: motivo de reprova sem frase do outro lado
+    # e descarte calado, indistinguivel de recurso quebrado.
+    check("26k. todo motivo de veto tem frase em portugues no resumo",
+          set(ytclip.VETO) <= set(ytclip.REPROVA_LABEL))
 
     # ---------------------------------------------------------------- relatório
     print("\n--- verificacoes ---")

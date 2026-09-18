@@ -1,5 +1,11 @@
 # Continuar projeto — Automação de Conteúdo em Vídeo
 
+> **Escopo deste arquivo (conferido em 2026-09-14).** Este é o checkpoint da **trilha
+> `video-growth-loop`**, datado de 12/08/2026 — o agente `.claude/agents/video-growth-loop.md`
+> o lê e grava nele, por isso ele fica na raiz e **não** dentro de `docs/`.
+> **O estado atual do projeto não é aqui:** é `docs/01-Wiki/ESTADO-ATUAL.md`, e as pendências
+> são `docs/02-Execution/PENDENCIAS.md`. Em caso de divergência, vale o Estado atual.
+
 ## Checkpoint
 
 - **Data:** 12/08/2026

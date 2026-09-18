@@ -688,6 +688,151 @@ check("12w. cue que era SO artefato, sozinha, nao gera documento nenhum",
       captions.to_ass([{"start": 0.0, "end": 2.0, "text": "[ __ ]"}]) == "")
 
 
+# ---------------------------------------------------------------- 13. estilo do .ass
+# O caminho FFmpeg/ASS deixou de ser "Inter 58 branca, sempre": ele veste o estilo escolhido
+# e o ajuste manual. Estes checks CHAMAM `estilo_ass`/`to_ass` com valores construidos --
+# asserir o texto do arquivo so provaria que alguem escreveu a palavra.
+_CUES_ESTILO = [{"start": 0.0, "end": 4.0,
+                 "text": "A maioria das pessoas nao vai conseguir fazer isso de jeito nenhum"}]
+
+_CLASSICO = captions.estilo_ass()
+check("13a. sem estilo e sem ajuste, o resolvido e o classico de sempre",
+      _CLASSICO["fonte"] == "Inter" and _CLASSICO["tamanho"] == 58
+      and _CLASSICO["negrito"] is True and _CLASSICO["caixaAlta"] is False
+      and _CLASSICO["max_linha"] == captions.MAX_CHARS_LINHA
+      and _CLASSICO["largura"] == captions.LARGURA
+      and _CLASSICO["alinhamento"] == 2 and _CLASSICO["posicaoPct"] is None)
+check("13a2. e os quatro nomes publicos sao DERIVADOS desse mesmo estilo",
+      (captions.FONTE, captions.FONTE_TAMANHO, captions.NEGRITO, captions.FONTE_ARQUIVO)
+      == (_CLASSICO["fonte"], _CLASSICO["tamanho"], _CLASSICO["negrito"], _CLASSICO["arquivo"]))
+
+_IMPACTO = captions.estilo_ass("impacto")
+check("13b. o impacto e Montserrat ExtraBold 72, caixa alta",
+      _IMPACTO["fonte"] == "Montserrat ExtraBold" and _IMPACTO["tamanho"] == 72
+      and _IMPACTO["caixaAlta"] is True)
+# O arquivo ja e ExtraBold: pedir negrito por cima faz o libass SINTETIZAR sobre um peso que
+# ja e alto -- engrossamento borrado que so aparece olhando o frame.
+check("13b2. e ele NAO pede negrito de um arquivo que ja nasce ExtraBold",
+      _IMPACTO["negrito"] is False)
+check("13b3. o arquivo dele existe no repositorio (senao o libass troca por Arial, calado)",
+      captions.font_available(_IMPACTO["arquivo"]))
+check("13b4. e o `font_available` sem argumento continua respondendo pelo classico",
+      captions.font_available() == captions.font_available(captions.FONTE_ARQUIVO))
+check("13b5. arquivo inexistente devolve False em vez de levantar",
+      captions.font_available("NaoExiste-Bold.ttf") is False)
+# O libass casa pelo NOME que a fonte declara, nao pelo nome do arquivo: `Montserrat-
+# ExtraBold.ttf` se declara familia "Montserrat ExtraBold", e pedir "Montserrat" cairia em
+# Arial calado. Por isso a tabela guarda o nome declarado, e este check LE a tabela `name`.
+_NOMES_TTF = {}
+for _fid, _f in captions.LEGENDA_FONTES.items():
+    _caminho = os.path.join(captions.FONTE_DIR, _f["arquivo"])
+    _familia = ""
+    if os.path.isfile(_caminho):
+        with io.open(_caminho, "rb") as _handle:
+            _bruto = _handle.read()
+        # Familia (nameID 1) em UTF-16BE, como toda tabela `name` de TTF da Microsoft.
+        _alvo = _f["nome"].encode("utf-16-be")
+        _familia = _f["nome"] if _alvo in _bruto else ""
+    _NOMES_TTF[_fid] = _familia
+check("13b6. cada arquivo DECLARA a familia que o estilo pede (o libass casa pelo nome)",
+      all(_NOMES_TTF[_fid] == _f["nome"] for _fid, _f in captions.LEGENDA_FONTES.items()))
+
+# O defeito que esta entrega veio matar: 25 caracteres fixos no ASS contra o teto do ESTILO
+# no Remotion. Com 72px e o avanco medido da Montserrat em caixa alta, cabem 15 por linha.
+check("13c. o teto de caracteres sai do CORPO e do avanco, nao da constante",
+      _IMPACTO["max_linha"] == 15 and _IMPACTO["max_linha"] != captions.MAX_CHARS_LINHA)
+check("13c2. coluna mais estreita cabe menos caractere, pela mesma conta",
+      captions.chars_por_linha(58, 0.55, 360) == 11
+      and captions.chars_por_linha(58, 0.55) == captions.MAX_CHARS_LINHA)
+# Entrada torta nao pode virar teto 0: pagina de zero caractere e laco infinito no to_pages.
+check("13c3. entrada torta devolve o teto de hoje, nunca 0 nem NaN",
+      all(captions.chars_por_linha(*a) == captions.MAX_CHARS_LINHA
+          for a in [(0, 0.55), (58, 0), ("x", 0.55), (58, None), (58, 0.55, 0),
+                    (58, 0.55, "x"), (58, 0.55, float("inf"))]))
+
+# Ajuste MANUAL. Cada campo e provado pelo EFEITO no documento, nao pela chave no dicionario.
+_MANUAL = captions.estilo_ass("impacto", {
+    "familia": "inter", "tamanho": 44, "caixaAlta": False, "cor": "destaque",
+    "largura": 600, "alinhamento": "left", "posicaoPct": 70})
+check("13d. o ajuste manual ganha do estilo em cada campo que o ASS expressa",
+      _MANUAL["fonte"] == "Inter" and _MANUAL["tamanho"] == 44
+      and _MANUAL["caixaAlta"] is False and _MANUAL["cor"] == captions.CORES["destaque"]
+      and _MANUAL["largura"] == 600 and _MANUAL["alinhamento"] == 1
+      and _MANUAL["posicaoPct"] == 70)
+check("13d2. `style` dentro do ajuste tambem escolhe o preset de partida",
+      captions.estilo_ass(None, {"style": "impacto"})["fonte"] == "Montserrat ExtraBold")
+# `caixaAlta: False` e uma ESCOLHA ("este estilo em caixa baixa"), nao a ausencia de escolha:
+# um `if manual.get("caixaAlta")` a perderia e o impacto sairia em caixa alta mesmo assim.
+check("13d3. caixaAlta False sobrevive (booleano, nao truthy)",
+      captions.estilo_ass("impacto", {"caixaAlta": False})["caixaAlta"] is False)
+check("13d4. numeros fora da faixa sao GRAMPEADOS, nao recusados",
+      captions.estilo_ass(None, {"tamanho": 999, "largura": 1, "posicaoPct": -5})
+      == dict(_CLASSICO, tamanho=96, largura=360, posicaoPct=0,
+              max_linha=captions.chars_por_linha(96, 0.55, 360)))
+check("13d5. tipo errado, cor livre e alinhamento desconhecido caem no automatico",
+      captions.estilo_ass("xxx", {"familia": 123, "tamanho": "58", "cor": "#ff00ff",
+                                  "alinhamento": "justify", "caixaAlta": 1,
+                                  "posicaoPct": "80"}) == _CLASSICO)
+check("13d6. `manual` que nao e dicionario nao derruba nada",
+      all(captions.estilo_ass(None, m) == _CLASSICO for m in (None, [], "x", 7)))
+
+# A ancora continua com UM dono: `pct` e INTENCAO, e quem vira pixel (e quem grampeia contra
+# a zona de botoes do TikTok) e o `margem_inferior`.
+check("13e. sem `pct` a ancora e exatamente a de sempre",
+      captions.margem_inferior(1920, 607) == 705
+      and captions.margem_inferior(1920, 607, None) == 705)
+check("13e2. com `pct` a base vai para a fracao pedida da altura do quadro",
+      captions.margem_inferior(1920, 607, 70) == 1920 - int(round(1920 * 0.70)))
+# 99% cairia DENTRO da faixa de botoes do TikTok: o teto ZONA_UI_PCT continua mordendo.
+check("13e3. e o teto da zona de interface continua sendo aplicado",
+      captions.margem_inferior(1920, 607, 99) == 269
+      and captions.margem_inferior(1920, 607, 99) == captions.margem_inferior(1920, 1920))
+check("13e4. pct fora de 0..100 e grampeado aqui tambem (o .ass nunca ve numero torto)",
+      captions.margem_inferior(1920, 607, -40) == 1920
+      and captions.margem_inferior(1920, 607, 400) == captions.margem_inferior(1920, 607, 86))
+
+# O documento. A prova e o TEXTO do .ass gerado, nao o dicionario que o gerou.
+_ASS_IMPACTO = captions.to_ass(_CUES_ESTILO, video_h=607, estilo=_IMPACTO)
+check("13f. a linha Style do impacto leva fonte, corpo e Bold=0",
+      "Style: Legenda,Montserrat ExtraBold,72," in _ASS_IMPACTO
+      and ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H2E000000,0," in _ASS_IMPACTO)
+# O ASS nao tem `text-transform`: o `textTransform: uppercase` do Clip.jsx e CSS e nao viaja.
+# Sem subir o texto aqui, o MESMO estilo sai em caixa alta num renderizador e baixa no outro.
+check("13f2. a caixa alta e aplicada ao TEXTO, porque o ASS nao tem text-transform",
+      "A MAIORIA DAS" in _ASS_IMPACTO and "A maioria das" not in _ASS_IMPACTO)
+# O `Format:` do ASS tem 10 campos e o TEXTO e o decimo -- `split(",", 9)`, e nao um regex
+# ate a primeira virgula DUPLA: ela aparece antes disso (o campo `Name`, vazio), e cortar
+# ali deixava "0,0,0," colado no comeco e o check media a string errada.
+_LINHAS_IMPACTO = [parte
+                   for evento in _ASS_IMPACTO.splitlines() if evento.startswith("Dialogue:")
+                   for parte in evento.split(",", 9)[9].split(r"\N")]
+check("13f3. e a pagina e cortada com o teto DELE (15 por linha, nao 25)",
+      bool(_LINHAS_IMPACTO) and all(len(linha) <= 15 for linha in _LINHAS_IMPACTO))
+_ASS_MANUAL = captions.to_ass(_CUES_ESTILO, video_h=607, estilo=_MANUAL)
+_MARGEM_MANUAL = (1080 - 600) // 2
+check("13g. coluna manual muda a margem lateral do documento",
+      ",%d,%d," % (_MARGEM_MANUAL, _MARGEM_MANUAL) in _ASS_MANUAL
+      and ",%d,%d," % ((1080 - 820) // 2, (1080 - 820) // 2) not in _ASS_MANUAL)
+check("13g2. alinhamento a esquerda vira Alignment 1, e a cor manual entra",
+      ",1,%d,%d," % (_MARGEM_MANUAL, _MARGEM_MANUAL) in _ASS_MANUAL
+      and captions.CORES["destaque"] in _ASS_MANUAL)
+check("13g3. a posicao manual vira o MarginV que o `margem_inferior` resolveu",
+      (",%d,1" % captions.margem_inferior(1920, 607, 70)) in _ASS_MANUAL
+      and (",%d,1" % captions.margem_inferior(1920, 607)) not in _ASS_MANUAL)
+# Corte salvo antes desta entrega nao manda estilo nenhum: tem de sair byte a byte igual.
+check("13h. sem `estilo`, o documento e IDENTICO ao que o classico gera",
+      captions.to_ass(_CUES_ESTILO, video_h=607)
+      == captions.to_ass(_CUES_ESTILO, video_h=607, estilo=captions.estilo_ass())
+      and captions.to_ass(_CUES_ESTILO, video_h=607, estilo="lixo")
+      == captions.to_ass(_CUES_ESTILO, video_h=607))
+check("13h2. e sem pagina continua devolvendo '' em qualquer estilo",
+      captions.to_ass([], estilo=_IMPACTO) == "")
+# O que o ASS NAO faz precisa estar declarado: e o que a tela mostra ao lado do botao dele.
+check("13i. a lista do que o ASS nao reproduz existe, e nenhuma frase e vazia",
+      isinstance(captions.ASS_NAO_REPRODUZ, tuple) and len(captions.ASS_NAO_REPRODUZ) >= 3
+      and all(isinstance(f, str) and f.strip() for f in captions.ASS_NAO_REPRODUZ))
+
+
 def main():
     falhas = 0
     for label, ok in CHECKS:

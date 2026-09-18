@@ -1,5 +1,13 @@
 # Ponte de contexto — Estúdio de Vídeos + extensão Baixador
 
+> **Superado em parte (conferido em 2026-09-14).** Este documento é registro datado de
+> **24/08/2026** e fica como está. O que mudou desde então: o **§3.1 "As cinco telas" não
+> descreve mais o produto** — desde 2026-09-14 o Estúdio tem **três** telas (`central` ·
+> `projects` "Meus projetos" · `youtube`), verificadas em `video-ops.js` (lista de abas) e
+> registradas no `CLAUDE.md`. As etapas `1 Vídeo` / `2 Cortes` / `3 Clips` saíram da
+> navegação; projetos, clips salvos e a edição dos trechos do YouTube continuam.
+> Estado atual do projeto: `docs/01-Wiki/ESTADO-ATUAL.md`.
+
 > **Para o ChatGPT:** você **não** tem acesso ao repositório. Tudo que existe está descrito
 > aqui. Este documento é o estado **verificado em 24/08/2026** (todos os testes citados no §8
 > rodaram e passaram nesta data). Trate o §6 (regras invioláveis) e o §7 (o que foi apagado

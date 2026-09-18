@@ -1,5 +1,10 @@
 # PLANO 3 — a dupla compressão do caminho YouTube
 
+> **Estado (conferido em 2026-09-14): ENCERRADO em 2026-09-08. A Fase 2 não acontece.**
+> O portão do §2.1 manda parar em ≥ 45 dB e a medição do §8 deu **47,46 dB PSNR / 0,9932
+> SSIM**. Vale a opção A — não mexer. **Nenhuma linha de produção mudou**, que é o desfecho
+> de sucesso previsto aqui. O `CLAUDE.md` exige "número novo" para reabrir.
+
 **Ordem recomendada:** o **último** dos três. É o maior, o mais arriscado e o único que pode
 terminar legitimamente em **"medi e não vou mexer"** — e isso seria um desfecho de sucesso, não
 uma falha. Faça os Planos 1 e 2 antes: eles são pequenos e fecham pendência de verdade.

@@ -1319,9 +1319,11 @@
 
 /* As duas faixas do que o recorte joga fora, em UM elemento: dois gradientes duros, um de
    cada lado, na largura que o `cropInsetPct` calculou (`--corte`). Quem lhe da o bloco
-   containing e o `.yt-detail-player` (`position: relative`) — era o `.vop-cand-prev`, que
-   saiu com o cartao antigo.
-   `pointer-events: none` é obrigatório — sem ele o player do YouTube para de aceitar clique.
+   containing e o `.yt-src-stage` (`position: relative`) — antes era o `.yt-detail-player`, a
+   moldura do iframe, que saiu com o embed; e antes dele o `.vop-cand-prev`, do cartao antigo.
+   `pointer-events: none` é obrigatório, e agora custa ainda mais caro: por cima de um
+   `<video controls>` sem ele os botões de play, volume e a barra de tempo param de aceitar
+   clique — ou seja, a máscara tiraria justamente a navegação que esta tela existe para dar.
    Sem `transition`: isto é informação, aparece com a escolha e fica PARADA. */
 #view-video-ops .vop-cand-mask {
   position: absolute;
@@ -1583,11 +1585,8 @@
 #view-video-ops .yt-detail-side {
   display: grid; gap: 10px; align-content: start; min-width: 0;
 }
-#view-video-ops .yt-detail-player {
-  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
-  border: 1px solid var(--border); border-radius: 12px; background: #000;
-}
-#view-video-ops .yt-detail-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* `.yt-detail-player` SAIU: era a moldura do `<iframe>` do YouTube dentro da tela de
+   detalhe. O player agora é um só, o da fonte (`.yt-src-stage`), e mora acima desta tela. */
 #view-video-ops .yt-detail-title {
   width: 100%; padding: 9px 11px;
   border: 1px solid var(--border); border-radius: 9px;
@@ -1673,40 +1672,77 @@
   color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums;
 }
 
-/* --- prévia: um diálogo, um player ------------------------------------------------ */
-#view-video-ops .yt-modal {
-  position: fixed; inset: 0; z-index: 60;
-  display: grid; place-items: center; padding: 18px;
-  background: rgba(6, 6, 8, .74);
-  animation: yt-fade 160ms var(--vop-ease-out) both;
-}
+/* --- O player da FONTE: o vídeo importado, tocando dentro do site ------------------
+   Substituiu o diálogo com `<iframe>` do YouTube que existia aqui (`.yt-modal*`) e a moldura
+   do player embutido na tela de detalhe (`.yt-detail-player`). As duas saíram junto com o
+   embed — não sobrou nada que as referenciasse (BP-007).
+
+   UM player para a tela toda: a grade dá prévia arrastando-o, a tela de detalhe confere nele
+   e "Marcar trecho daqui" lê o instante dele. Ele fica no ALTO, acima das duas caras da tela,
+   e é preservado entre renders pelo `srcAdopt` — por isso nada aqui pode depender de o
+   elemento ser recriado. */
 @keyframes yt-fade { from { opacity: 0; } }
-#view-video-ops .yt-modal-box {
-  width: min(880px, 100%); max-height: 100%; overflow: auto;
-  border: 1px solid var(--border-hover); border-radius: 14px;
-  background: var(--surface); box-shadow: 0 18px 48px rgba(0, 0, 0, .6);
-  /* Modal cresce do CENTRO: não está ancorado num gatilho. */
-  transform-origin: center;
-  animation: yt-modal 200ms var(--vop-ease-out) both;
+#view-video-ops .yt-src {
+  display: grid; gap: 10px; margin: 0 0 4px;
 }
-@keyframes yt-modal { from { opacity: 0; transform: scale(.96); } }
-#view-video-ops .yt-modal-head {
-  display: flex; align-items: center; gap: 10px; padding: 11px 13px;
-  border-bottom: 1px solid var(--border);
+#view-video-ops .yt-src-stage {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 12px; background: #000;
 }
-#view-video-ops .yt-modal-head strong {
-  flex: 1 1 auto; min-width: 0; color: var(--text); font-size: 13px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+#view-video-ops .yt-src-video {
+  display: block; width: 100%;
+  /* Teto em altura de viewport: a fonte pode não ser 16:9, e `contain` deixa o preto
+     aparecer em vez de cortar ou esticar o vídeo — que é o honesto. */
+  max-height: 58vh; aspect-ratio: 16 / 9;
+  background: #000; object-fit: contain;
 }
-#view-video-ops .yt-modal-head span {
-  color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+#view-video-ops .yt-src-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
 }
-#view-video-ops .yt-modal-player { position: relative; aspect-ratio: 16 / 9; background: #000; }
-#view-video-ops .yt-modal-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-#view-video-ops .yt-modal-foot {
-  display: flex; justify-content: flex-end; gap: 8px; padding: 11px 13px;
-  border-top: 1px solid var(--border);
+#view-video-ops .yt-src-id {
+  flex: 1 1 260px; min-width: 0; margin: 0;
+  color: var(--text-muted); font-size: 11.5px; line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+#view-video-ops .yt-src-id strong {
+  color: var(--text-dim); font-weight: 600; overflow-wrap: anywhere;
+}
+#view-video-ops .yt-src-id em { font-style: normal; color: var(--text-dim); }
+/* Onde a prévia acontece agora. Uma linha, discreta: é orientação, não controle. */
+#view-video-ops .yt-detail-onde {
+  margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.55;
+}
+
+/* --- Importação: estado e progresso REAIS ------------------------------------------
+   Todo estado tem faixa, inclusive o que não age: `idle` diz que nada foi importado e
+   `error` diz o motivo e traz o botão de tentar de novo (BP-008). */
+#view-video-ops .yt-imp {
+  display: grid; gap: 7px; justify-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+#view-video-ops .yt-imp[data-state="error"] { border-color: var(--danger, #b4433a); }
+#view-video-ops .yt-imp-line {
+  margin: 0; color: var(--text-dim); font-size: 12px; line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+#view-video-ops .yt-imp-note {
+  margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5;
+}
+#view-video-ops .yt-imp-bar {
+  justify-self: stretch; overflow: hidden;
+  height: 4px; border-radius: 999px; background: var(--border);
+}
+#view-video-ops .yt-imp-bar > i {
+  display: block; width: 100%; height: 100%;
+  border-radius: inherit; background: var(--accent);
+  /* `transform`, nunca `width`: só transform e opacity pulam layout e paint. A origem é a
+     ESQUERDA — no centro (o padrão) a barra cresceria para os dois lados. */
+  transform-origin: left center;
+  /* `linear` porque isto é movimento CONSTANTE, não entrada de elemento: a barra recebe uma
+     amostra por segundo e a transição só preenche o intervalo entre duas. Com `ease-out` cada
+     amostra chegaria rápido e frearia, o que lê como progresso irregular. */
+  transition: transform 220ms linear;
 }
 
 /* Movimento reduzido: fica a opacidade, sai o deslocamento e a escala. */
@@ -1716,6 +1752,514 @@
   #view-video-ops .yt-play { transition: none; }
   #view-video-ops .yt-thumb:active { transform: none; }
   #view-video-ops .yt-skel { animation: none; }
-  #view-video-ops .yt-modal-box { animation: yt-fade 160ms linear both; }
   #view-video-ops .yt-dl-menu { animation: yt-fade 120ms linear both; }
+  /* A barra SALTA em vez de correr. O número continua certo: o que sai é o amaciamento
+     entre duas amostras, não a informação. */
+  #view-video-ops .yt-imp-bar > i { transition: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Resultados dos cortes (`video-results.js`)
+
+   Sem animação de entrada em nada desta tela, de propósito: cada troca de filtro
+   redesenha a seção inteira, e um fade que reproduz dezenas de vezes por sessão
+   lê como lentidão, não como polimento. O movimento fica só onde responde a um
+   gesto — pressionar, passar o mouse — e sempre abaixo de 300 ms.
+   Profundidade aqui é borda e sombra contida; nada de brilho colorido.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.res-topbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+
+.res-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 10px 12px;
+}
+
+.res-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.res-stat {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface-2);
+}
+.res-stat > span {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.res-stat > strong { color: var(--text); font-size: 19px; letter-spacing: -.02em; }
+
+/* Ausência tem cara de ausência. Cinza e em itálico para nunca ser lida de relance
+   como um número — "não informado" parecendo dado é a origem do erro que esta tela
+   inteira existe para evitar. */
+.res-na { color: var(--text-muted); font-size: 11.5px; font-style: italic; }
+
+.res-warn,
+.res-error {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 11px 14px 11px 28px;
+  border: 1px solid rgba(230, 198, 128, .28);
+  border-radius: var(--radius-lg, 10px);
+  background: rgba(230, 198, 128, .07);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.res-error {
+  border-color: rgba(235, 87, 87, .3);
+  background: rgba(235, 87, 87, .08);
+  color: var(--danger);
+}
+
+.res-empty-line {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.res-formula,
+.res-formula-inline {
+  display: block;
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+/* Um botão que se comporta como texto: abrir a publicação a partir de qualquer lugar
+   da tela sem transformar a lista numa parede de botões. */
+.res-link {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms var(--vop-ease-out), border-color 140ms var(--vop-ease-out), transform 120ms var(--vop-ease-out);
+}
+.res-link:active { transform: scale(.97); }
+.res-link:focus-visible { border-radius: 3px; outline: 2px solid var(--border-strong); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .res-link:hover { border-bottom-color: var(--border-hover); color: var(--accent-hover); }
+}
+
+/* ── Destaques ── */
+.res-hl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 12px;
+}
+.res-hl {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface-2);
+}
+.res-hl h3 { margin: 0; color: var(--text); font-size: 14px; letter-spacing: -.01em; }
+.res-hl-note { margin: 5px 0 10px; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }
+.res-hl-list { display: grid; gap: 7px; margin: 0; padding: 0 0 0 18px; }
+.res-hl-list li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; font-size: 12px; }
+.res-hl-list li > span { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+
+/* ── Tabelas ── */
+.res-table-wrap { overflow-x: auto; }
+.res-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.res-table th,
+.res-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.res-table th {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.res-table td small { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10.5px; }
+.res-table .res-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.res-table tbody tr { transition: background-color 140ms var(--vop-ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .res-table tbody tr:hover { background: var(--veil); }
+}
+.res-delta { color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+.res-chip-small { background: rgba(230, 198, 128, .13); color: var(--warn); }
+.res-chip-paid { background: var(--veil-strong); color: var(--text-dim); }
+
+/* ── Padrões ── */
+.res-pat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 12px;
+}
+.res-pat {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface-2);
+}
+.res-pat-up { border-left-color: var(--border-strong); }
+.res-pat-down { border-left-color: rgba(235, 87, 87, .45); }
+.res-pat > header { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
+.res-pat h4 { margin: 0; color: var(--text); font-size: 13px; line-height: 1.35; }
+.res-pat-delta { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+.res-pat-down .res-pat-delta { color: var(--danger); }
+.res-pat-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 11px 0 0; font-size: 11.5px; }
+.res-pat-facts dt { color: var(--text-muted); font-weight: 700; white-space: nowrap; }
+.res-pat-facts dd { margin: 0; color: var(--text-dim); line-height: 1.5; }
+/* O rótulo que impede a leitura errada. Discreto, mas presente em TODO padrão: sem ele
+   a tela vira uma máquina de confundir "apareceu junto" com "causou". */
+.res-pat-label {
+  margin: 10px 0 8px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.res-weak { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.res-weak h4 { margin: 0; color: var(--text); font-size: 13px; }
+.res-weak ul { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.res-weak li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 12px; }
+.res-weak li > span { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 700; }
+.res-weak li > small { flex-basis: 100%; color: var(--text-muted); font-size: 10.5px; }
+
+/* ── Aprendizado ── */
+.res-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+.res-note-col {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface-2);
+}
+.res-note-col h4 { margin: 0 0 10px; color: var(--text); font-size: 13px; }
+.res-note-col ul { display: grid; gap: 9px; margin: 0 0 12px; padding: 0; list-style: none; }
+.res-note-col li {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  background: var(--surface);
+}
+.res-note-col li p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.5; }
+.res-note-col li .res-link { color: var(--text-muted); font-size: 11px; font-weight: 500; }
+.res-note-col li .vop-btn { justify-self: start; min-height: 28px; padding: 5px 8px; font-size: 11px; }
+.res-note-form { display: flex; gap: 8px; }
+.res-note-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  transition: border-color 140ms var(--vop-ease-out);
+}
+.res-note-form input:focus { border-color: var(--border-strong); outline: none; }
+
+/* ── Formulário e detalhe ── */
+.res-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px 14px;
+  margin-bottom: 14px;
+}
+.res-form-wide { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+.res-facts {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) 1fr;
+  gap: 6px 16px;
+  margin: 0 0 18px;
+  font-size: 12.5px;
+}
+.res-facts dt { color: var(--text-muted); font-weight: 700; }
+.res-facts dd { margin: 0; color: var(--text); line-height: 1.55; overflow-wrap: anywhere; }
+
+.res-sub { margin: 20px 0 4px; color: var(--text); font-size: 14px; letter-spacing: -.01em; }
+
+.res-med-form {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface-2);
+}
+.res-med-form h4 { margin: 0; color: var(--text); font-size: 13px; }
+
+.res-siblings { display: grid; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.res-siblings li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; font-size: 12px; }
+.res-siblings li > small { color: var(--text-muted); font-size: 10.5px; }
+
+@media (max-width: 640px) {
+  .res-facts { grid-template-columns: 1fr; gap: 2px; }
+  .res-facts dd { margin-bottom: 8px; }
+  .res-pat-facts { grid-template-columns: 1fr; gap: 2px; }
+  .res-pat-facts dd { margin-bottom: 7px; }
+}
+
+/* --- Painel MANUAL da legenda ---------------------------------------------------------
+   Mesma família visual do `.vop-cardstyle`: radio nativo escondido, `:checked` no label,
+   zero JS de estado visual. O que é NOVO aqui é o marcador de override — valor automático
+   e valor escolhido à mão nunca podem parecer a mesma coisa (BP-008). */
+#view-video-ops .vop-leg {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  /* Container query, e não media query de viewport: este painel mora na coluna lateral do
+     detalhe, ao lado da barra do site — a largura da JANELA não diz nada sobre a largura
+     que ele tem de fato. */
+  container-type: inline-size;
+  container-name: legpainel;
+}
+#view-video-ops .vop-leg-state {
+  margin: 0 0 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+#view-video-ops .vop-leg-state[data-tone="manual"] { color: var(--text); font-weight: 650; }
+#view-video-ops .vop-leg-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 7px;
+  border-radius: 8px;
+  /* A borda ESQUERDA é o marcador de override: ela ocupa lugar sempre (transparente no
+     automático), então acender não empurra a linha nem um pixel. */
+  border-left: 2px solid transparent;
+  transition: background-color 160ms var(--vop-ease-out), border-color 160ms var(--vop-ease-out);
+}
+#view-video-ops .vop-leg-row[data-manual="1"] {
+  border-left-color: var(--accent, #D9A441);
+  background: color-mix(in srgb, var(--accent, #D9A441) 7%, transparent);
+}
+#view-video-ops .vop-leg-lab {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-dim);
+  letter-spacing: .02em;
+}
+#view-video-ops .vop-leg-row[data-manual="1"] .vop-leg-lab { color: var(--text); }
+#view-video-ops .vop-leg-ctl { min-width: 0; }
+
+/* Segmento: a MESMA armadilha medida do `.vop-cardstyle` — o radio é `position: absolute`,
+   então precisa de um ancestral POSICIONADO. Sem ele o bloco containing vira o documento,
+   focar o radio rola o `.layout` (que tem overflow oculto e conteúdo maior que ele) e a
+   tela ganha uma faixa morta de rolagem. Não remover o `position: relative`. */
+#view-video-ops .vop-leg-seg {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+#view-video-ops .vop-leg-seg input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+#view-video-ops .vop-leg-seg label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 160ms var(--vop-ease-out), color 160ms var(--vop-ease-out),
+    border-color 160ms var(--vop-ease-out), transform 140ms var(--vop-ease-out);
+}
+#view-video-ops .vop-leg-seg label:active { transform: scale(.97); }
+#view-video-ops .vop-leg-seg input:checked + label {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+#view-video-ops .vop-leg-seg input:focus-visible + label {
+  outline: 2px solid var(--accent, #D9A441);
+  outline-offset: 1px;
+}
+/* A bolinha de cor. O rótulo em TEXTO fica ao lado dela de propósito: cor sozinha não é
+   rótulo acessível, e "âmbar" e "verde-claro" são indistinguíveis para parte das pessoas. */
+#view-video-ops .vop-leg-seg label[style*="--sw"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sw);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .35);
+  flex: none;
+}
+
+#view-video-ops .vop-leg-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#view-video-ops .vop-leg-range input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent, #D9A441);
+}
+#view-video-ops .vop-leg-range output {
+  min-width: 42px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+#view-video-ops .vop-leg-auto-note {
+  flex: 1 1 auto;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+/* "auto" DESABILITADO continua na tela: um botão que aparece e some muda a largura da
+   linha no meio do ajuste, e é o movimento que o olho persegue em vez do controle. */
+#view-video-ops .vop-leg-auto {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 160ms var(--vop-ease-out), color 160ms var(--vop-ease-out),
+    border-color 160ms var(--vop-ease-out), opacity 160ms var(--vop-ease-out),
+    transform 140ms var(--vop-ease-out);
+}
+#view-video-ops .vop-leg-auto:active { transform: scale(.97); }
+#view-video-ops .vop-leg-auto[disabled] { opacity: .32; cursor: default; }
+#view-video-ops .vop-leg-auto[disabled]:active { transform: none; }
+/* Coluna estreita (o painel vive ao lado da barra do site): o rótulo sobe para cima do
+   controle em vez de espremer os dois. Container query — a largura da JANELA não diz nada
+   sobre a largura deste painel. */
+@container legpainel (max-width: 330px) {
+  #view-video-ops .vop-leg-row { grid-template-columns: minmax(0, 1fr) auto; }
+  #view-video-ops .vop-leg-lab { grid-column: 1 / -1; }
+}
+#view-video-ops .vop-leg-ass {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* --- Prévia da tipografia (camada A) --------------------------------------------------
+   APROXIMAÇÃO declarada: prova fonte, corpo, caixa, cor, coluna e alinhamento, e NÃO a
+   quebra de página — essa tem um dono só (`toCaptionPages` / `to_pages`) e não ganha uma
+   quarta implementação aqui. O quadro de verdade é a camada B (`/api/remotion-still`). */
+#view-video-ops .yt-src-stage { container-type: size; container-name: palco; }
+#view-video-ops .vop-leg-prev {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* UM pixel do quadro de saída (1080x1920) medido na altura do palco. Unidade de
+     container em vez de um `scale()` calculado em JS: o navegador refaz a conta sozinho
+     quando a janela muda, e não sobra número de escala para divergir. */
+  --px: calc(100cqh / 1920);
+}
+#view-video-ops .vop-leg-prev > span {
+  position: absolute;
+  left: 50%;
+  /* A BASE do texto fica em `--leg-pos` % da altura do quadro, contada do topo — a mesma
+     convenção que o `posicaoPct` manda ao servidor. A página cresce para CIMA, como no
+     Alignment 2 do ASS e no `bottom` da composição. */
+  bottom: calc(100% - var(--leg-pos));
+  transform: translateX(-50%);
+  width: calc(var(--leg-col) * var(--px));
+  font-size: calc(var(--leg-fonte) * var(--px));
+  line-height: 1.15;
+  font-weight: 800;
+  color: var(--leg-cor);
+  /* Sombra de LEITURA, não efeito: sem ela o branco some sobre camisa clara. Sem brilho
+     colorido e sem contorno — a assinatura do editor automático que a direção evita. */
+  text-shadow: 0 3px 14px rgba(0, 0, 0, .82);
+  overflow-wrap: break-word;
+}
+#view-video-ops .vop-leg-prev[data-familia="montserrat"] > span {
+  font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+}
+#view-video-ops .vop-leg-prev[data-familia="inter"] > span {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+#view-video-ops .vop-leg-prev[data-caixa="1"] > span { text-transform: uppercase; }
+#view-video-ops .vop-leg-prev[data-align="left"] > span { text-align: left; }
+#view-video-ops .vop-leg-prev[data-align="center"] > span { text-align: center; }
+#view-video-ops .vop-leg-prev[data-align="right"] > span { text-align: right; }
+/* Posição AUTOMÁTICA: o número aqui é o de partida da TELA, não a âncora do servidor (que
+   é calculada em Python). Marcar isso é o que impede a prévia de ser lida como promessa —
+   o quadro real responde essa pergunta (BP-008). */
+#view-video-ops .vop-leg-prev[data-auto="1"] > span { opacity: .82; }
+#view-video-ops .vop-leg-prev-nota {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+#view-video-ops .vop-leg-still { display: grid; gap: 6px; margin-top: 4px; }
+#view-video-ops .vop-leg-still-msg {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+/* O quadro real em 1080x1920 cabe na coluna pela LARGURA; a altura acompanha. `display:
+   block` mata a folga de linha-base que deixaria uma faixa clara sob a imagem. */
+#view-video-ops .vop-leg-still-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
 }

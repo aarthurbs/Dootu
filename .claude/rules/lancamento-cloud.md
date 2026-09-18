@@ -1,12 +1,20 @@
 ---
 paths:
-  - "cloud/**"
   - "web/**"
   - "PASSO-A-PASSO.md"
-description: Regras ativas da Fase 1 do lançamento público (só a ANÁLISE vai ao ar).
+description: Registro da Fase 1 do lançamento público. A pasta `cloud/` foi aposentada; só `web/` segue ativo.
 ---
 
-# Lançamento público, Fase 1 — `cloud/` e `web/` (regras ATIVAS)
+# Lançamento público, Fase 1 — `web/` (ativo) e `cloud/` (aposentado)
+
+> **`cloud/` foi aposentada em 2026-09-14 (decisão do usuário).** A pasta saiu da árvore no
+> commit `9d726ef "melhora edit"` — `Dockerfile`, `probe_server.py` e `test_probe_server.py`,
+> 663 linhas — e **não será restaurada**. O código continua no git
+> (`git show 9d726ef^:cloud/probe_server.py`) e as seções abaixo que descrevem `cloud/*`
+> passam a ser **registro do que existiu**, não regra a cumprir. Esta regra já não carrega
+> por `cloud/**`. O que segue ATIVO: tudo sobre **`web/`** e o `PASSO-A-PASSO.md`.
+> Retomar a análise na nuvem é decisão nova, com plano novo — ver
+> `docs/02-Execution/PENDENCIAS.md`, "Trabalho futuro".
 
 Histórico completo: `docs/01-Wiki/archive/HISTORICO-lancamento-fase1.md`.
 Passos manuais: `PASSO-A-PASSO.md` · portão da Fase 0: `docs/03-Decisions/LANCAMENTO-decisoes.md`.

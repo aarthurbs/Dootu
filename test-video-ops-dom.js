@@ -10,6 +10,7 @@ const path = require('path');
 
 const BS = String.fromCharCode(92);
 const MODULO = './video-ops.js';
+const RESULTADOS = './video-results.js';
 
 function fakeEl(sel) {
   const el = {
@@ -26,9 +27,23 @@ function fakeEl(sel) {
     setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, remove() {},
     closest() { return null; },
     matches(alvo) { return (sel || []).indexOf(alvo) >= 0; },
-    focus() {}
+    focus() {},
+    // O `downloadBlob` monta uma <a> e a clica. Sem isto, todo download morre no stub.
+    click() { el._clicado = (el._clicado || 0) + 1; }
   };
   return el;
+}
+
+/* O `<video>` da fonte importada. O `srcSeek`/`srcNow` do modulo falam com ELE, e e por aqui
+   que o teste prova que "Previa" arrasta o player e que "Marcar trecho daqui" le o instante
+   certo -- asserir o HTML provaria so que a tag foi escrita, nunca que alguem a comanda. */
+function fakeVideo() {
+  const v = fakeEl(['[data-src-video]']);
+  v.currentTime = 0;
+  v._tocou = 0;
+  v.play = function () { v._tocou += 1; return Promise.resolve(); };
+  v.pause = function () {};
+  return v;
 }
 
 // Bancada nova por cenário: o módulo é recarregado do zero, então cada cenário começa com
@@ -42,6 +57,7 @@ function bancada(dadosSalvos) {
 
   const root = fakeEl();
   const badge = fakeEl();
+  const video = fakeVideo();
   global.localStorage = {
     getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
     setItem(k, v) { store[k] = String(v); },
@@ -54,18 +70,34 @@ function bancada(dadosSalvos) {
       if (id === 'count-video-ops') return badge;
       return null;
     },
+    /* O player da fonte. O modulo o procura por `[data-src-video]` e e assim que o teste
+       pode conferir para onde ele foi arrastado. A faixa de importacao NAO e servida aqui:
+       devolvendo null para ela, o `srcRefresh` cai no re-render, que e o caminho que esta
+       bancada sabe observar (ela le `root.innerHTML`). */
+    querySelector(sel) { return sel === '[data-src-video]' ? video : null; },
     createElement() { return fakeEl(); },
     addEventListener() {},
     body: { appendChild(c) { return c; } }
   };
   global.window = { addEventListener() {}, scrollX: 0, scrollY: 0, scrollTo() {} };
   global.navigator = { clipboard: { writeText() { return Promise.resolve(); } } };
+  /* O `downloadBlob` usa as duas. ACRESCENTADAS ao `URL` do Node, nunca substituindo-o: o
+     `safeUrl` do modulo faz `new URL(...)`, e trocar a classe por um objeto com dois metodos
+     derruba TODA validacao de endereco do site -- pego no teste (o card da Central parou de
+     linkar o original), e o defeito ficaria parecendo do codigo, nao da bancada. */
+  global.URL.createObjectURL = function () { return 'blob:fake'; };
+  global.URL.revokeObjectURL = function () {};
   global.confirm = () => true;
 
+  /* Mesma ordem do `index.html`: o `video-results.js` se registra em `window.videoResults`
+     ANTES do Estúdio montar. Carregar aqui é o que torna a aba Resultados alcançável nesta
+     bancada — e o cenário que o APAGA logo abaixo prova o outro ramo. */
+  delete require.cache[require.resolve(RESULTADOS)];
+  require(RESULTADOS);
   delete require.cache[require.resolve(MODULO)];
   require(MODULO);
   return {
-    root: root, badge: badge, store: store,
+    root: root, badge: badge, store: store, video: video,
     html() { return root.innerHTML; },
     // Um clique de verdade: passa pela MESMA delegação da raiz que o site usa.
     clique(dataset) {
@@ -98,15 +130,21 @@ function ok(nome, valor) {
 }
 
 async function main() {
-  /* ----------------------------------------------------- a barra tem 5 telas, e só 5 */
+  /* ----------------------------------------------------- somente as três telas ativas */
   let b = bancada();
   ok('init renderiza sem estourar', b.html().length > 500);
-  ok('Passo 1 abre por padrão', /Comece pelo vídeo/.test(b.html()));
-  ok('Passo 1 é a tela que carrega o arquivo', /data-intake-input/.test(b.html()));
-  ['overview', 'cuts', 'review', 'central', 'youtube'].forEach(t => {
+  ok('Central abre por padrão', /data-tab="central" aria-pressed="true"/.test(b.html()));
+  ok('a tela inicial não oferece o fluxo removido', !/data-intake-input|Passo [123]/.test(b.html()));
+  const navegacao = /<nav class="vop-flow"[^>]*>([\s\S]*?)<\/nav>/.exec(b.html())[1];
+  // Resultados entrou em 2026-09-14 (decisão do usuário). O guard continua fechado: a
+  // lista é EXAUSTIVA, então as rotas apagadas (`overview`, `cuts`, `review`) seguem
+  // barradas — só a tela autorizada foi somada.
+  ok('a barra contém somente Central, Meus projetos, YouTube e Resultados, nessa ordem',
+    [...navegacao.matchAll(/data-tab="([^"]+)"/g)].map(m => m[1]).join(',') === 'central,projects,youtube,resultados');
+  ['central', 'projects', 'youtube', 'resultados'].forEach(t => {
     ok('a barra tem a tela ' + t, b.html().indexOf('data-tab="' + t + '"') > 0);
   });
-  ['sources', 'queue', 'creators', 'accounts', 'reports'].forEach(t => {
+  ['overview', 'cuts', 'review', 'sources', 'queue', 'creators', 'accounts', 'reports'].forEach(t => {
     ok('a tela removida ' + t + ' não voltou', b.html().indexOf('data-tab="' + t + '"') < 0);
   });
   ['Material', 'Posts', 'Direitos', 'Contas', 'Relatórios'].forEach(rotulo => {
@@ -115,13 +153,12 @@ async function main() {
   ok('a Central aparece no cabeçalho com a contagem', /Central · 0 clip/.test(b.html()));
   ok('o badge da navegação conta os clips guardados', String(b.badge.textContent) === '0');
 
-  /* ------------------------------------------- passos 2 e 3 sem vídeo: nada de seletor */
-  b.aba('cuts');
-  ok('Passo 2 sem vídeo manda voltar ao Passo 1', /Carregue o vídeo no Passo 1/.test(b.html()));
-  ok('Passo 2 sem vídeo NÃO oferece seletor de arquivo', !/data-intake-input/.test(b.html()));
-  b.aba('review');
-  ok('Passo 3 sem vídeo manda voltar ao Passo 1', /Carregue o vídeo no Passo 1/.test(b.html()));
-  ok('Passo 3 sem vídeo NÃO oferece seletor de arquivo', !/data-intake-input/.test(b.html()));
+  /* ------------------------------------------- rotas antigas não reabrem o fluxo */
+  ['overview', 'cuts', 'review', 'desconhecida'].forEach(t => {
+    const antes = b.html();
+    b.aba(t);
+    ok('a rota removida ou inválida ' + t + ' é ignorada', b.html() === antes);
+  });
 
   /* --------------------------------------------------------------- Central vazia */
   b.aba('central');
@@ -268,17 +305,16 @@ async function main() {
   ok('sem storyboard a miniatura e a capa, rotulada como tal',
     html.indexOf('Imagem do vídeo') > 0);
 
-  // ---- previa: UM player, num dialogo --------------------------------------------------
+  // ---- o player e do SITE, e a previa e um SEEK nele ----------------------------------
+  // MUDOU EM 2026-09-15 (decisao do usuario): a previa era um dialogo com `<iframe>` do
+  // YouTube, e a tela de detalhe tinha outro embed. Agora existe UM player -- um `<video>`
+  // da midia IMPORTADA -- e "Previa" arrasta esse player para o comeco do trecho. Nao e
+  // esconder o logo: nao ha embed nenhum em lugar nenhum da tela.
+  ok('nenhum embed do YouTube sobrou na tela', b.html().indexOf('youtube.com/embed') < 0);
+  ok('e nenhum iframe', b.html().indexOf('<iframe') < 0);
+  // Sem video importado a previa nao tem onde acontecer, e o clique nao pode derrubar a tela.
   b.clique({ act: 'yt-preview', id: clipId });
-  html = b.html();
-  ok('a previa abre um dialogo', /class="yt-modal"/.test(html) && /role="dialog"/.test(html));
-  ok('e AI sim existe um player, um so',
-    (html.match(/youtube\.com\/embed/g) || []).length === 1);
-  ok('o player abre no comeco do trecho e para no fim',
-    /embed\/abcdefghijk\?start=600&end=640/.test(html));
-  b.clique({ act: 'yt-preview-close' });
-  html = b.html();
-  ok('fechar a previa tira o player do DOM', html.indexOf('youtube.com/embed') < 0);
+  ok('previa sem video importado nao derruba a tela', b.html().length > 500);
 
   // ---- baixar: o menu diz QUAL arquivo -------------------------------------------------
   // "Baixar" sozinho nao diz se sai o recorte cru ou o 9:16 editado, e entregar o arquivo
@@ -291,37 +327,123 @@ async function main() {
   ok('baixar o trecho está BLOQUEADO sem a declaração', /yt-fetch"[^>]* disabled/.test(html));
   ok('o motivo do bloqueio está à vista (BP-008)',
     /bloqueado: você ainda não declarou/.test(html));
-  ok('o video editado nao e oferecido sem o trecho em disco',
+  // Sem VIDEO IMPORTADO nao ha o que exportar -- e o motivo mudou junto com a arquitetura:
+  // nao e mais "baixe o trecho original primeiro", e "importe o video".
+  ok('o video editado nao e oferecido sem a fonte importada',
     /yt-render"[^>]* disabled/.test(html));
-  ok('e o motivo esta escrito nele', /baixe o trecho original primeiro/.test(html));
+  ok('e o motivo escrito nele fala da IMPORTACAO, nao de baixar o trecho antes',
+    /importe o vídeo|ainda não foi importado/i.test(html)
+    && html.indexOf('baixe o trecho original primeiro') < 0);
 
-  // Declarar a autorização libera o download — e só ele.
-  b.muda('[data-yt-rights]', { checked: true });
-  html = b.html();
-  ok('com a declaração o botão de baixar libera', !/yt-fetch"[^>]* disabled/.test(html));
-  ok('com a declaração o aviso de bloqueio sai', !/bloqueado: você ainda não declarou/.test(html));
-
-  // ---- Revisão da legenda no trecho recomendado (o caminho do Remotion) ----------------
-  // A ASR do YouTube erra palavra e censura palavrão; este é o ÚLTIMO ponto antes do render
-  // de minutos em que uma pessoa consegue consertar, e até 2026-08-28 não existia aqui.
-  ok('sem trecho em disco não há revisão de legenda para oferecer',
-    b.html().indexOf('data-act="yt-cap"') < 0);
-  global.fetch = function (rota) {
-    return Promise.resolve({
-      ok: true,
-      headers: { get() { return null; } },
-      json: () => Promise.resolve({
-        clipToken: 'tok_um', bytes: 12345,
+  // ---- IMPORTAR o video inteiro: a fonte de todo corte --------------------------------
+  // O fluxo pedido em 2026-09-15: cola o link, declara o direito, importa o video INTEIRO,
+  // e a partir dai todo corte sai desse arquivo -- nenhum download por trecho.
+  // Um dublê por ROTA: cada uma devolve o que o servidor devolveria, e o teste conta quantas
+  // vezes cada uma foi chamada. E assim que "exportar dois cortes sem rebaixar o original"
+  // deixa de ser promessa e passa a ser numero.
+  const chamadas = {};
+  global.fetch = function (rota, opcoes) {
+    const caminho = String(rota).split('?')[0];
+    chamadas[caminho] = (chamadas[caminho] || 0) + 1;
+    chamadas['_ultima:' + caminho] = String(rota);
+    if (opcoes && opcoes.body && typeof opcoes.body === 'string') {
+      chamadas['_corpo:' + caminho] = opcoes.body;
+    }
+    const cabecalhos = { get() { return null; } };
+    if (caminho === '/api/yt-import' || caminho === '/api/yt-import-state') {
+      // A fonte JA esta no disco: a rota volta pronta, sem rede. E o ramo que faz o segundo
+      // corte (e o projeto reaberto amanha) nao rebaixarem nada.
+      return Promise.resolve({ ok: true, headers: cabecalhos, json: () => Promise.resolve({
+        state: 'ready', videoId: 'abcdefghijk', percent: 100, stage: 'preparando',
+        sourceToken: 'abcdefghijk', sourceName: 'abcdefghijk.mp4',
+        sourceUrl: '/sources/abcdefghijk.mp4', bytes: 2000000000,
+        durationSec: 3600, width: 1920, height: 1080, hasAudio: true, error: ''
+      }) });
+    }
+    if (caminho === '/api/clip-captions') {
+      return Promise.resolve({ ok: true, headers: cabecalhos, json: () => Promise.resolve({
+        state: 'ok',
         cues: [{ start: 0.0, end: 2.0, text: 'eu perdi [ __ ] mil reais' },
                { start: 2.0, end: 4.0, text: 'e foi o melhor negócio' }]
-      })
+      }) });
+    }
+    // /api/video-cut e /api/remotion-render devolvem MP4, nao JSON.
+    return Promise.resolve({
+      ok: true, headers: cabecalhos,
+      blob: () => Promise.resolve({ size: 4096 }),
+      json: () => Promise.resolve({})
     });
   };
-  b.clique({ act: 'yt-fetch', id: clipId });
-  await tick(); await tick(); await tick();
+
+  // Declarar a autorização é o portão de baixar mídia: ela libera a IMPORTAÇÃO.
+  b.muda('[data-yt-rights]', { checked: true });
+  await tick(); await tick();
   html = b.html();
-  ok('com o trecho em disco a grade diz que o arquivo esta la',
-    html.indexOf('Trecho no disco') > 0);
+  ok('com a declaração o aviso de bloqueio sai', !/bloqueado: você ainda não declarou/.test(html));
+  // Marcar a caixa RELIGA a fonte que já está no disco, sem baixar nada: é o caminho do
+  // projeto reaberto (a declaração morre com a sessão, o arquivo não).
+  ok('declarar religa a fonte do disco pela rota de estado',
+    chamadas['/api/yt-import-state'] === 1);
+  ok('o player interno da midia importada esta na tela',
+    /<video[^>]*data-src-video/.test(html) && html.indexOf('/sources/abcdefghijk.mp4') > 0);
+  ok('com controles de play, pausa e volume', /data-src-video[^>]*controls/.test(html));
+  ok('e ainda nenhum embed de terceiro', html.indexOf('youtube.com/embed') < 0);
+  ok('a faixa de estado confirma que o video esta pronto',
+    /data-state="ready"/.test(html));
+  ok('a tela diz que todo corte sai deste arquivo',
+    /nada é baixado de novo|sem baixar o original de novo/i.test(html));
+
+  // O botão principal fala de IMPORTAR, não de "Analisar" (o rótulo antigo descrevia o passo
+  // que já não é o primeiro).
+  ok('a acao principal da tela e importar o video',
+    html.indexOf('data-act="yt-import"') > 0 && html.indexOf('Importar vídeo') > 0);
+  // E ele PASSA pelo portão: a rota de importação é a que baixa mídia.
+  b.clique({ act: 'yt-import' });
+  await tick(); await tick();
+  ok('o botao principal chama /api/yt-import', chamadas['/api/yt-import'] === 1);
+  ok('e a fonte segue pronta (a rota e idempotente: arquivo no disco volta pronto)',
+    /<video[^>]*data-src-video/.test(b.html()));
+
+  // ---- previa = SEEK no player interno ------------------------------------------------
+  b.video.currentTime = 0;
+  b.video._tocou = 0;
+  b.clique({ act: 'yt-preview', id: clipId });
+  ok('Previa leva o player da fonte para o comeco do trecho', b.video.currentTime === 600);
+  ok('e manda tocar', b.video._tocou === 1);
+
+  // ---- marcar trecho A MAO, em qualquer ponto da duracao ------------------------------
+  // "I can navigate through the entire duration of the video and manually define a clip."
+  b.video.currentTime = 2400;              // 40:00, longe de qualquer sugestao
+  b.clique({ act: 'yt-manual' });
+  await tick();
+  html = b.html();
+  ok('marcar daqui cria um trecho no ponto em que o video esta',
+    html.indexOf('Trecho de 40:00') > 0);
+  ok('e ele abre direto no editor', /class="yt-detail"/.test(html));
+  ok('com a borda marcada como MANUAL (nao afirma conferencia do detector)',
+    /ajustadas por você/.test(html));
+  // O trecho manual e persistido junto do projeto: recarregar nao o perde.
+  ok('o trecho manual entrou no projeto salvo',
+    (b.store['pp_video_projects_v1'] || '').indexOf('Trecho de 40:00') > 0);
+  b.clique({ act: 'yt-back' });
+
+  // ---- "daqui" move a borda de um trecho recomendado ----------------------------------
+  b.clique({ act: 'yt-open', id: clipId });
+  b.video.currentTime = 612.4;
+  b.clique({ act: 'yt-mark', id: clipId, edge: 'in' });
+  await tick();
+  html = b.html();
+  ok('"daqui" move o comeco para onde o player esta, em segundo inteiro',
+    html.indexOf('value="10:12"') > 0);
+  b.video.currentTime = 700.8;
+  b.clique({ act: 'yt-mark', id: clipId, edge: 'out' });
+  await tick();
+  html = b.html();
+  ok('e o fim tambem, arredondando para fora (nunca comendo fala)',
+    html.indexOf('value="11:41"') > 0);
+  b.clique({ act: 'yt-back' });
+  html = b.html();
+
   // Os controles de producao vivem na TELA DE DETALHE. `Editar` e a acao primaria do card,
   // e e ela que abre esta tela com o trecho, as bordas e as escolhas salvas.
   ok('o card tem Editar como acao primaria',
@@ -339,6 +461,77 @@ async function main() {
   ok('e o botão do Remotion também', html.indexOf('data-act="yt-render"') > 0);
   ok('o botao de render nao expoe o nome do renderizador ao operador',
     html.indexOf('Remotion') < 0);
+
+  // O painel MANUAL da legenda. O que se cobra aqui e o que o `node --check` nao pega: que
+  // o construtor roda de verdade dentro do render, que TODO controle chega a tela e que um
+  // automatico nao e desenhado igual a um ajuste (BP-008).
+  ok('o painel manual da legenda aparece na tela de detalhe',
+    html.indexOf('class="vop-leg"') > 0 && html.indexOf('data-leg-state') > 0);
+  ok('e ele diz, sem ajuste nenhum, que esta tudo automatico',
+    html.indexOf('Tudo automático') > 0 && html.indexOf('data-manual="1"') < 0);
+  ['familia', 'tamanho', 'caixaAlta', 'cor', 'destaqueCor', 'largura', 'alinhamento',
+    'posicaoPct'].forEach(chave => {
+    ok('o controle ' + chave + ' esta na tela',
+      html.indexOf('data-leg-row="' + chave + '"') > 0);
+  });
+  ok('cada controle tem o seu proprio botao de voltar ao automatico',
+    (html.match(/data-act="leg-auto"/g) || []).length === 8);
+  // Radio NATIVO, como o resto da tela: o `:checked` desenha o estado e nao ha JS de estado
+  // visual para dessincronizar do dado.
+  ok('os segmentos sao radios nativos, com o valor de hoje ja marcado',
+    /data-leg-field="familia"[^>]*value="inter"[^>]*checked/.test(html));
+  ok('o corpo mostra o numero que o automatico usaria, e nao um zero',
+    /data-leg-field="tamanho"[^>]*value="58"/.test(html)
+    || /value="58"[^>]*data-leg-field="tamanho"/.test(html));
+  ok('a paleta das cores e FECHADA (cinco tokens, nunca uma roda de cor)',
+    (html.match(/data-leg-field="cor"/g) || []).length === 5
+    && html.indexOf('type="color"') < 0);
+  ok('o quadro real e oferecido, e a previa em CSS se declara aproximacao',
+    html.indexOf('data-act="leg-still"') > 0 && /aproxima/.test(html));
+  ok('e o download rapido avisa, ao lado do proprio botao, o que ele nao reproduz',
+    html.indexOf('vop-leg-ass') > 0 && html.indexOf('</strong> reproduz') > 0);
+
+  // Ajustar um controle marca a LINHA dele, e so ela. A escrita NAO re-renderiza (o slider
+  // morreria no meio do arrasto), entao o teste reabre a tela para ver o HTML novo -- que e
+  // tambem a prova de que o ajuste sobreviveu ao armazenamento.
+  b.muda('[data-leg-field]', { dataset: { legField: 'tamanho', id: clipId }, value: '84' });
+  b.clique({ act: 'yt-back' });
+  b.clique({ act: 'yt-open', id: clipId });
+  html = b.html();
+  ok('ajustar o corpo marca a linha como manual, e so ela',
+    html.indexOf('data-leg-row="tamanho" data-manual="1"') > 0
+    && (html.match(/data-manual="1"/g) || []).length === 1);
+  ok('e a faixa de estado passa a contar o ajuste',
+    html.indexOf('1 controle ajustado') > 0);
+  ok('o controle passa a mostrar o valor escolhido, nao o do estilo',
+    /data-leg-field="tamanho"[^>]*aria-label/.test(html) && html.indexOf('value="84"') > 0);
+  b.clique({ act: 'leg-auto', id: clipId, key: 'tamanho' });
+  html = b.html();
+  ok('o botao auto devolve o controle ao automatico',
+    html.indexOf('data-manual="1"') < 0 && html.indexOf('Tudo automático') > 0);
+  b.clique({ act: 'leg-posicao', id: clipId });
+  html = b.html();
+  ok('assumir a posicao vertical troca o aviso por um slider',
+    html.indexOf('data-leg-field="posicaoPct"') > 0
+    && html.indexOf('data-act="leg-posicao"') < 0);
+  b.clique({ act: 'leg-auto', id: clipId, key: 'posicaoPct' });
+  html = b.html();
+  ok('e voltar ao automatico devolve o aviso no lugar do slider',
+    html.indexOf('data-act="leg-posicao"') > 0
+    && html.indexOf('data-leg-field="posicaoPct"') < 0);
+  // Trocar o ESTILO tem de repintar o painel: ele mostra o numero que o automatico usaria,
+  // e quem decide esse numero e o estilo. Sem isto o slider fica no corpo do estilo anterior
+  // -- automacao mentindo sobre o que vai sair (BP-008 ao contrario).
+  b.muda('[data-clip-field]', { dataset: { clipField: 'legendaStyle', id: clipId },
+    value: 'impacto' });
+  html = b.html();
+  ok('trocar o estilo repinta o painel com os automaticos do estilo novo',
+    html.indexOf('value="72"') > 0 && html.indexOf('value="58"') < 0);
+  ok('e o radio da familia acompanha, sem virar ajuste manual',
+    /data-leg-field="familia"[^>]*value="montserrat"[^>]*checked/.test(html)
+    && html.indexOf('Tudo automático') > 0);
+  b.muda('[data-clip-field]', { dataset: { clipField: 'legendaStyle', id: clipId },
+    value: 'classico' });
   b.clique({ act: 'yt-cap', id: clipId });
   html = b.html();
   ok('abrir a legenda mostra as falas do trecho', html.indexOf('data-cap-panel') > 0);
@@ -367,9 +560,46 @@ async function main() {
   ok('a nota avisa que é este texto que vai ser queimado',
     /vai ser queimado no clip/.test(html));
 
+  // ---- EXPORTAR dois cortes sem rebaixar o original -----------------------------------
+  // O criterio de aceitacao em pessoa: "I can export two different clips without downloading
+  // the original video again." A prova nao e a tela dizer isso -- e a CONTAGEM de chamadas.
+  const contaImportes = () => (chamadas['/api/yt-import'] || 0)
+    + (chamadas['/api/yt-import-state'] || 0);
+  const importesAntes = contaImportes();
+  b.clique({ act: 'yt-fetch', id: clipId });
+  await tick(); await tick(); await tick();
+  const queryCorte = chamadas['_ultima:/api/video-cut'] || '';
+  ok('o trecho original sai pelo /api/video-cut, do arquivo ja importado',
+    chamadas['/api/video-cut'] === 1);
+  ok('e NUNCA pelo /api/yt-fetch, que baixava trecho do YouTube',
+    !chamadas['/api/yt-fetch']);
+  ok('a query manda o token da FONTE e o intervalo dentro dela',
+    queryCorte.indexOf('token=abcdefghijk') > 0
+    && /[?&]start=\d/.test(queryCorte) && /[?&]end=\d/.test(queryCorte));
+  ok('e o nome da fonte, que e a chave do sidecar da legenda dela',
+    queryCorte.indexOf('name=abcdefghijk.mp4') > 0);
+  ok('o trecho exportado entra na Central', String(b.badge.textContent) !== '0');
+
+  // O SEGUNDO corte: outro trecho, mesmo arquivo.
+  b.clique({ act: 'yt-render', id: clipId, });
+  await tick(); await tick(); await tick();
+  const corpoRender = chamadas['_corpo:/api/remotion-render'] || '';
+  ok('o video editado sai pelo Remotion com o token da FONTE', /"clipToken":"abcdefghijk"/.test(corpoRender));
+  ok('e dizendo QUAL pedaco dela cortar (sem isso o render sairia com o video inteiro)',
+    /"start":\d+/.test(corpoRender) && /"end":\d+/.test(corpoRender));
+  ok('a legenda corrigida pelo operador e a que desce para o render',
+    corpoRender.indexOf('eu perdi quarenta mil reais') > 0);
+  ok('e o nome do arquivo exportado NAO viaja como fonte (renderizaria o proprio export)',
+    corpoRender.indexOf('clipFilename') < 0);
+  ok('NENHUMA importacao nova aconteceu entre os dois exports',
+    contaImportes() === importesAntes);
+  ok('e o video importado continua pronto na tela',
+    /<video[^>]*data-src-video/.test(b.html()));
+
   // ---- "Card visual": as duas identidades do card do título -----------------------------
   // O card tinha UMA marca fixa e o operador não podia escolher. O que erra CALADO aqui é o
   // seletor não refletir o estado (dois radios, nenhum marcado) ou não gravar a escolha.
+  b.clique({ act: 'yt-open', id: clipId });
   html = b.html();
   ok('o seletor "Card visual" aparece no cartão do trecho',
     /<legend>Card visual<\/legend>/.test(html));
@@ -488,16 +718,42 @@ async function main() {
   await tick(); await tick(); await tick();
   ok('helper fora do ar não derruba a tela', b.html().length > 500);
 
+  /* ------------------------------------- Resultados: a delegação para o módulo vizinho
+     A tela mora no `video-results.js`. Aqui prova-se a FIAÇÃO, não a lógica dela (que tem
+     suíte própria): a aba monta, o clique `res-*` chega ao módulo pela delegação da raiz, e
+     a ausência do arquivo não derruba o Estúdio. */
+  b = bancada();
+  b.aba('resultados');
+  ok('a aba Resultados monta a tela do módulo vizinho',
+    b.html().indexOf('Nenhuma publicação registrada') > 0);
+  ok('e a tela nova não trouxe de volta o pipeline de publicação apagado',
+    !/Aprovar|Drive|publicationPackage|data-act="post/.test(b.html()));
+  b.clique({ act: 'res-new' });
+  ok('o clique res-* é entregue ao módulo pela delegação da raiz',
+    b.html().indexOf('Registrar uma publicação') > 0);
+  b.clique({ act: 'res-cancel' });
+  ok('e voltar também', b.html().indexOf('Nenhuma publicação registrada') > 0);
+
+  // A bancada registra o módulo no `window` novo que ela cria, então apagar tem de ser
+  // DEPOIS dela — apagar antes só seria desfeito pelo require seguinte.
+  b = bancada();
+  delete global.window.videoResults;
+  b.aba('resultados');
+  ok('sem o video-results.js a aba DIZ o motivo em vez de ficar vazia (BP-008)',
+    b.html().indexOf('não carregou') > 0 && b.html().indexOf('video-results.js') > 0);
+  b.aba('central');
+  ok('e o resto do Estúdio continua funcionando sem ele', b.html().length > 500);
+
   /* -------------------------------------------------- a dica muda com a tela atual */
   b = bancada();
   const dicas = {};
-  ['overview', 'cuts', 'review', 'central', 'youtube'].forEach(t => {
+  ['central', 'projects', 'youtube', 'resultados'].forEach(t => {
     b.aba(t);
     const achou = /class="vop-flow-hint">([^<]+)</.exec(b.html());
     dicas[t] = achou ? achou[1] : '';
     ok('a tela ' + t + ' tem dica escrita', dicas[t].length > 20);
   });
-  ok('cada tela tem a sua dica', new Set(Object.values(dicas)).size === 5);
+  ok('cada tela tem a sua dica', new Set(Object.values(dicas)).size === 4);
 
   console.log(provas + ' provas OK — DOM do Estúdio de Vídeos (' + path.basename(__filename) + ')');
 }

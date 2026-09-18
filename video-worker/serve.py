@@ -23,6 +23,7 @@ import argparse
 import atexit
 import contextlib
 import functools
+import hashlib
 import html
 import io
 import json
@@ -58,11 +59,56 @@ ROUTE_FETCH = "/api/yt-fetch"
 # continua sem npm (CLAUDE.md). Esta rota é a única ponte entre os dois, e ela chama um
 # processo — não importa nada do Node para dentro do Python.
 ROUTE_RENDER = "/api/remotion-render"
+# O QUADRO REAL de um corte, para conferir a legenda antes de esperar um render de minutos.
+# Mesma composicao, MESMOS props (`render_props`, dono unico) e `npx remotion still` em vez
+# de `render`: um segundo montador de props deixaria a conferencia concordar com ela mesma e
+# discordar do MP4 -- que e o unico defeito que uma previa pode ter.
+ROUTE_STILL = "/api/remotion-still"
+# Espelho do `TOKENS.fps` do preset.js (o `test_serve` compara os dois lendo o arquivo).
+# Serve para UMA coisa: achar o quadro do MEIO do corte. O meio, e nao o primeiro quadro,
+# porque o primeiro cai dentro dos 4 s do card do titulo -- a previa sairia mostrando a
+# placa e nao a legenda, que e justamente o que se foi conferir.
+STILL_FPS = 30
+# Um still e um quadro so: minutos de orcamento nao fazem sentido aqui, e um teto curto e o
+# que impede a previa de virar uma espera indistinguivel do render inteiro.
+STILL_TIMEOUT = 180.0
 ROUTE_MR = "/api/most-replayed"  # le o que o baixador local ja gravou; nao analisa nada
 # Revisao da legenda ANTES do render final. Le as falas do MESMO sidecar (nenhuma chamada
 # nova ao yt-dlp, nenhum byte de rede) e guarda a correcao que o operador digitou.
 ROUTE_CAPS = "/api/clip-captions"
 ROUTE_CLIP_STATUS = "/api/clip-status"  # verifica se o MP4 do clip existe na pasta permanente
+# Importação da FONTE. A mudança de arquitetura desta entrega: em vez de baixar um trecho por
+# vez, o Estúdio baixa o vídeo INTEIRO uma vez e todo corte sai dele. `/api/yt-import` começa
+# (ou reaproveita) o download; `/api/yt-import-state` é o que a barra de progresso consulta,
+# porque o download leva minutos e uma resposta HTTP não tem como contar isso enquanto corre.
+ROUTE_IMPORT = "/api/yt-import"
+ROUTE_IMPORT_STATE = "/api/yt-import-state"
+# Estados da importação. Conjunto FECHADO, pela mesma regra do CAPTION_STATES: cada um tem
+# frase correspondente no `video-ops.js` (IMPORT_MSG), e um check do test_serve.py LÊ o JS e
+# reprova quem acrescentar estado aqui sem dizer o que ele significa na tela.
+IMPORT_RUNNING = "importing"
+IMPORT_READY = "ready"
+IMPORT_ERROR = "error"
+IMPORT_IDLE = "idle"
+IMPORT_STATES = (IMPORT_IDLE, IMPORT_RUNNING, IMPORT_READY, IMPORT_ERROR)
+# Etapas dentro do `importing`. Separadas do estado de propósito: "baixando 40%" e
+# "preparando" pedem palavras diferentes na tela, e a segunda não emite progresso nenhum —
+# sem nomeá-la, os últimos 2% da barra pareceriam travados.
+IMPORT_STAGE_PROBE = "lendo"
+IMPORT_STAGE_DOWNLOAD = "baixando"
+IMPORT_STAGE_PREPARE = "preparando"
+IMPORT_STAGES = (IMPORT_STAGE_PROBE, IMPORT_STAGE_DOWNLOAD, IMPORT_STAGE_PREPARE)
+# Quanto espaço em disco reservar por segundo de vídeo importado. NÃO é o
+# `worker.BYTES_PER_SEC` (1,5 MB/s), que está calibrado para o 9:16 que SAI: o que entra é o
+# stream do YouTube, que em 1080p H.264 + m4a fica na casa de 0,4-0,55 MB/s. Com 1,5 um
+# podcast de 3 h exigiria 16 GB livres e a importação seria recusada numa máquina onde ela
+# caberia folgada. 0,6 MB/s cobre o caso alto com margem. Botão de calibragem.
+IMPORT_BYTES_PER_SEC = 600_000
+# Versão do sidecar. O DONO do formato é o `baixador/local-helper/yt_dlp_runner.py`; este
+# número viaja junto só para o arquivo ficar idêntico ao que ele grava. Nada aqui decide
+# nada com base nele — quem lê (`_sidecar_captions`) degrada por AUSÊNCIA de chave, não por
+# versão, e é isso que faz sidecar antigo continuar abrindo.
+SIDECAR_VERSION = 5
 # Publicação no TikTok (decisão do usuário, 2026-09-10). É a ÚNICA saída para fora da
 # máquina em todo o Estúdio, e é RASCUNHO: o arquivo cai na caixa de entrada do app e quem
 # publica é a pessoa, no celular. Ver `tiktok.py` e o plano em docs/02-Execution/plans/.
@@ -86,6 +132,14 @@ MAX_EDIT_SESSIONS = 32
 # lá (e tocável na revisão) depois de fechar o site. Quando houver banco de dados, o que
 # muda é quem guarda o CAMINHO; o arquivo continua sendo do disco.
 CLIPS_URL = "/clips/"
+# A FONTE importada, servida ao player interno do site. Sai da MESMA pasta do sidecar
+# (`_sidecar_dir`) porque é lá que a legenda e a miniatura dela moram: um segundo diretório
+# faria `cut_captions` e `cut_background` deixarem de achar o que precisam, calados.
+SOURCES_URL = "/sources/"
+# Tamanho do pedaço lido por vez ao responder Range. 256 KB é grande o bastante para não
+# fazer syscall a cada quadro e pequeno o bastante para o player abortar a leitura rápido
+# quando o operador arrasta a barra — e é ele quem arrasta, várias vezes por corte.
+RANGE_CHUNK = 256 * 1024
 STUDIO_DIR = os.path.join(worker.REPO, "studio")
 STUDIO_ENTRY = "src/index.jsx"
 STUDIO_COMPOSITION = "Clip"
@@ -217,6 +271,9 @@ class CutRequest(NamedTuple):
     # gravou — e portanto de onde sai a legenda. Fica CRU de propósito: quem endurece é o
     # _read_most_replayed, que já recusa basename diferente, ".." e caminho fora da pasta.
     name: str = ""
+    # O ajuste MANUAL do corte, JÁ validado pelo `edit_of` (a query traz o JSON). `None` é
+    # o automático de sempre — e é o que todo download feito antes desta entrega manda.
+    edit: Optional[dict] = None
 
     @property
     def duration(self) -> float:
@@ -264,8 +321,11 @@ def parse_cut_query(raw_query: str, max_seconds: float = DEFAULT_MAX_SECONDS) ->
     output = worker.safe_component(_one(params, "output"), fallback="corte.mp4", max_len=120)
     if not output.lower().endswith(".mp4"):
         output += ".mp4"
+    # O ajuste manual viaja como UM parâmetro JSON, e não como oito campos soltos: é a
+    # MESMA forma que o corpo do POST do Remotion manda, validada pela MESMA função. Dois
+    # formatos para o mesmo modelo dariam dois lugares para ele divergir.
     return CutRequest(token=token, profile=profile, start=start, end=end, output=output,
-                      name=_one(params, "name"))
+                      name=_one(params, "name"), edit=edit_of(_one(params, "edit")))
 
 
 # --------------------------------------------------------------------------- render
@@ -390,8 +450,62 @@ def title_card_style(valor):
 # salvo antes deste seletor nao manda a chave e tem de sair exatamente como sempre saiu.
 # Aqui NAO existe o "nenhum" do card -- legenda desligada ja e o preset `limpo` da
 # composicao, e um segundo jeito de desligar a mesma coisa seria dois donos para a decisao.
-LEGENDA_STYLES = ("classico", "impacto")
-LEGENDA_PADRAO = "classico"
+# DERIVADOS do `captions`, nunca escritos a mao (a mesma disciplina do `PROFILES`, que sai
+# do `worker.REFRAMES`): o registro de estilos mora la porque e quem monta o .ass, e uma
+# segunda lista aqui seria mais um lugar para divergir calado.
+LEGENDA_STYLES = tuple(captions.LEGENDA_ESTILOS)
+LEGENDA_PADRAO = captions.LEGENDA_PADRAO
+# Os conjuntos FECHADOS do ajuste manual, pela mesma regra e do mesmo dono. O `test_serve`
+# compara os tres espelhos (preset.js -> aqui -> video-ops.js) lendo os arquivos.
+LEGENDA_FONTES = tuple(captions.LEGENDA_FONTES)
+LEGENDA_CORES = tuple(captions.CORES)
+LEGENDA_ALINHAMENTOS = tuple(captions.ALINHAMENTOS)
+# Faixa de cada numero que o operador arrasta. Espelha o `ranges` do `editOf` no preset.js
+# e no video-ops.js -- fora dela o valor e GRAMPEADO, nunca recusado: a tela ja limita os
+# controles, entao um numero fora da faixa e dado velho ou adulterado, e grampear mantem o
+# corte saindo em vez de derrubar o render por causa de um slider.
+EDIT_FAIXAS = {"tamanho": (32, 96), "largura": (360, 1000), "posicaoPct": (0, 100)}
+
+
+def edit_of(valor):
+    """Ajuste MANUAL do corte (dict do POST ou JSON da query) -> modelo validado. PURA.
+
+    Terceira copia do validador (`preset.js` e o dono, `video-ops.js` e a da tela), pela
+    razao de sempre: nao ha import possivel entre um ES module e este servidor stdlib.
+
+    Nada aqui levanta e nada aqui e obrigatorio: ausente, malformado, de versao
+    desconhecida ou com campo de tipo errado devolve o modelo VAZIO, que significa
+    "automatico" -- e automatico e exatamente o que todo corte salvo antes desta entrega
+    manda, e tem de sair como sempre saiu.
+    """
+    vazio = {"v": 1, "legenda": {}, "enquadramento": {}}
+    if isinstance(valor, str):
+        try:
+            valor = json.loads(valor) if valor.strip() else None
+        except ValueError:
+            return vazio
+    if not isinstance(valor, dict) or valor.get("v") != 1:
+        return vazio
+    out = {"v": 1, "legenda": {}, "enquadramento": {}}
+    legenda = valor.get("legenda")
+    if isinstance(legenda, dict):
+        for chave, conjunto in (("style", LEGENDA_STYLES), ("familia", LEGENDA_FONTES),
+                                ("cor", LEGENDA_CORES), ("destaqueCor", LEGENDA_CORES),
+                                ("alinhamento", LEGENDA_ALINHAMENTOS)):
+            if legenda.get(chave) in conjunto:
+                out["legenda"][chave] = legenda[chave]
+        # `isinstance(x, bool)` e NAO um truthy: `caixaAlta: false` e uma escolha do
+        # operador ("este estilo em caixa baixa"), nao a ausencia de escolha.
+        if isinstance(legenda.get("caixaAlta"), bool):
+            out["legenda"]["caixaAlta"] = legenda["caixaAlta"]
+        for chave, (minimo, maximo) in EDIT_FAIXAS.items():
+            numero = captions.limite(legenda.get(chave), None, minimo, maximo)
+            if numero is not None:
+                out["legenda"][chave] = numero
+    quadro = valor.get("enquadramento")
+    if isinstance(quadro, dict) and quadro.get("reframe") in worker.REFRAMES:
+        out["enquadramento"]["reframe"] = quadro["reframe"]
+    return out
 
 
 def legenda_style(valor):
@@ -423,7 +537,15 @@ def render_props(folder, clip_name, media, body):
     # O fallback 608 (16:9) fica: o outro fallback possível — "o vídeo preenche o quadro" —
     # jogaria a base do texto para y 1651, FORA da imagem, e errar a proporção por pouco é
     # muito melhor que isso.
-    reframe = reframe_profile(body.get("reframe"))
+    # O ajuste MANUAL, validado UMA vez e usado por todos os props que dependem dele. A
+    # composicao recebe o objeto inteiro (`resolveLegenda` la dentro veste a tipografia); a
+    # ancora vertical NAO sai daqui em JavaScript nenhum -- so a intencao viaja, e quem a
+    # transforma em pixel continua sendo o `captions.margem_inferior`.
+    edit = edit_of(body.get("edit"))
+    manual = edit["legenda"]
+    # O enquadramento manual ganha do `reframe` cru do corpo pelo mesmo motivo do estilo: o
+    # operador trocou na tela, e o corpo pode ser de um POST antigo repetido.
+    reframe = reframe_profile(edit["enquadramento"].get("reframe") or body.get("reframe"))
     altura = video_box(reframe, media) or int(round(worker.OUT_W * 9 / 16))
     # O nome do fundo E o desfecho, do MESMO dono. O estado viaja nos props porque a rota já
     # lê props para decidir coisa sua (`durationSec` -> render_budget); a composição ignora a
@@ -454,7 +576,11 @@ def render_props(folder, clip_name, media, body):
         # Sobe junto com o vídeo: no 1:1 e no 4:5 o vídeo é mais alto, então a base do texto
         # sobe com ele e nunca encosta na faixa de botões do TikTok (o teto ZONA_UI_PCT só
         # morde no perfil `crop`, de quadro cheio). Conferido: 1215 / 1414 / 1527.
-        "legendaBase": captions.margem_inferior(worker.OUT_H, altura),
+        # `posicaoPct` e a INTENCAO que o operador arrastou na previa, e ela entra AQUI, na
+        # unica funcao que sabe virar pixel -- que e tambem quem grampeia contra a zona de
+        # botoes do TikTok. Ausente = a ancora automatica de sempre.
+        "legendaBase": captions.margem_inferior(worker.OUT_H, altura,
+                                                manual.get("posicaoPct")),
         # Altura de UMA tarja. A miniatura entra no tamanho dela, repetida em cima e
         # embaixo, em vez de UMA esticada cobrindo o quadro. Sai do `worker.band_height`, o
         # MESMO dono que o filtro do FFmpeg usa — dois cálculos independentes fariam o
@@ -490,7 +616,11 @@ def render_props(folder, clip_name, media, body):
         # do titleCardStyle: o corpo do POST e entrada. Desconhecido/ausente cai no
         # "classico", que e a legenda que todo corte ja renderiza -- trecho salvo antes deste
         # seletor nao manda a chave e tem de sair como sempre saiu, nao no estilo novo.
-        "legendaStyle": legenda_style(body.get("legendaStyle")),
+        "legendaStyle": legenda_style(manual.get("style") or body.get("legendaStyle")),
+        # O ajuste manual INTEIRO, validado. O `Clip.jsx` o resolve com `resolveLegenda`,
+        # que e o MESMO dono da tipografia que o teto de pagina usa -- resolver duas vezes
+        # deixaria a pagina ser cortada com um corpo e desenhada com outro.
+        "edit": edit,
         "preset": "limpo" if body.get("preset") == "limpo" else "legenda",
         # Só o slug: a categoria escolhe a cor do destaque na composição e nada mais.
         "category": re.sub(r"[^a-z_]", "", str(body.get("category") or "").lower())[:40],
@@ -632,6 +762,205 @@ def cut_background(name):
     if os.path.dirname(os.path.realpath(alvo)) != pasta or not os.path.isfile(alvo):
         return ""
     return alvo
+
+
+# ------------------------------------------------------------------ fonte importada
+def source_sidecar_path(folder, stem):
+    """Caminho do `.mostreplayed.json` desta fonte. Uma fórmula, dois usuários (escrita aqui,
+    leitura no `_read_most_replayed`) — duas divergiriam e o leitor não acharia nada."""
+    return os.path.join(folder, os.path.splitext(os.path.basename(stem))[0] + ".mostreplayed.json")
+
+
+def source_media_on_disk(folder, video_id):
+    """(caminho, nome) do vídeo INTEIRO deste id já preparado, ou ("", "").
+
+    Duas coisas saem daqui de graça, e as duas importam: importar o MESMO vídeo de novo não
+    baixa nada (é o que faz "exportar dois cortes sem rebaixar o original" valer também
+    depois de recarregar a página), e reabrir um projeto salvo religa a fonte sem rede.
+
+    Exige o sidecar, não só a mídia: sem ele não há legenda nem miniatura, e tratar isso como
+    "pronto" faria TODO corte sair sem legenda calado (BP-008). Meia fonte é fonte ausente.
+    """
+    if not ytclip.VIDEO_ID_RE.match(str(video_id or "")):
+        return "", ""
+    try:
+        caminho = ytclip.produced_media(folder, video_id)
+    except (worker.WorkerError, OSError):
+        return "", ""
+    if not os.path.isfile(source_sidecar_path(folder, video_id)):
+        return "", ""
+    return caminho, os.path.basename(caminho)
+
+
+def write_source_sidecar(folder, media_name, probed):
+    """Grava o sidecar da fonte importada, no MESMO formato do baixador local.
+
+    É a economia central desta entrega: escrevendo o arquivo que o Estúdio JÁ sabe ler, a
+    fonte importada herda de graça a legenda (`cut_captions` e `/api/clip-captions`), o fundo
+    por miniatura (`cut_background`) e o gráfico de audiência — nenhuma rota nova para nenhum
+    dos três, e o caminho FFmpeg do 9:16 passa a legendar qualquer intervalo da fonte sem
+    saber que ela veio de uma importação.
+
+    O DONO do formato é o `baixador/local-helper/yt_dlp_runner.py`. Divergir dele não daria
+    erro: faria o `_sidecar_captions` degradar calado para "sem legenda", que é o pior
+    desfecho possível aqui.
+    """
+    bloco = ytclip.most_replayed(probed.get("heatmap"))
+    if not bloco.get("available"):
+        bloco["reason"] = "MOST_REPLAYED_NOT_AVAILABLE"
+    falas = probed.get("cues") or []
+    registro = {
+        "version": SIDECAR_VERSION,
+        "videoId": str(probed.get("videoId") or ""),
+        "sourceUrl": str(probed.get("url") or ""),
+        "duration": float(probed.get("durationSec") or 0.0),
+        "mostReplayed": bloco,
+        "captions": {
+            # `available` é sobre HAVER falas, não sobre a chamada ter voltado: lista vazia
+            # com `available: true` faria o leitor prometer legenda que não existe.
+            "available": bool(falas),
+            "language": str(probed.get("captionLang") or ""),
+            "kind": str(probed.get("captionKind") or ""),
+            "reason": "" if falas else ytclip.CAPTIONS_NONE,
+            "note": str(probed.get("note") or ""),
+            "cues": falas,
+            # `words` (tempo por palavra) é o que deixa a legenda quebrar no limite da
+            # palavra. Ausente, o `cues_for_range` cai na cue grossa — o caminho de sempre.
+            "words": probed.get("words") or [],
+        },
+        # NOME, nunca caminho: é o que o `cut_background` espera, e é o que impede caminho de
+        # disco de sair num arquivo que o navegador lê.
+        "thumbnail": ytclip.thumbnail_beside(folder, media_name),
+    }
+    alvo = source_sidecar_path(folder, media_name)
+    with io.open(alvo, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(registro, ensure_ascii=False, indent=1))
+    return alvo
+
+
+def _falha_render(proc) -> str:
+    """A última linha ÚTIL do Remotion, para a mensagem de erro dizer algo.
+
+    Era `tail.splitlines()[-1]`, e isso custou uma sessão de depuração: o `npx` imprime o
+    aviso de atualização do npm DEPOIS do erro, então a rota respondia "O Remotion falhou:
+    npm notice" — uma frase que não aponta para nada. O ruído é filtrado de trás para frente
+    e a linha do erro de verdade sobrevive; sem nenhuma linha útil, diz isso em vez de
+    inventar (BP-008).
+    """
+    bruto = (getattr(proc, "stderr", b"") or getattr(proc, "stdout", b"") or b"")
+    linhas = [l.strip() for l in bruto.decode("utf-8", "replace").splitlines() if l.strip()]
+    RUIDO = ("npm notice", "npm warn", "npm WARN", "(Use `node --trace",
+             "To update, run", "New ")
+    uteis = [l for l in linhas if not any(l.startswith(p) for p in RUIDO)]
+    return (uteis[-1] if uteis else (linhas[-1] if linhas else "sem detalhe"))[:400]
+
+
+def render_paths(folder: str, token: str) -> Tuple[str, str]:
+    """(props, destino) de UM render do Remotion. Função, e não duas linhas na rota, por dois
+    defeitos que já custaram caro e que só ficam prováveis desde que a fonte é o vídeo inteiro:
+
+    1. **O destino PRECISA da extensão `.mp4`** — o Remotion decide o container por ela, e sem
+       ela o processo sai sem gravar arquivo. Até aqui a extensão vinha por ACIDENTE: o token
+       era o nome do arquivo do trecho (`<id>-<ini>-<fim>.mp4`), então `edit-<token>` já
+       terminava em `.mp4`. Com o token virando o ID do vídeo o acidente acabou, e o desfecho
+       medido foi "O Remotion falhou: npm notice" — erro que não aponta para nada.
+    2. **O sufixo aleatório** — o token é o MESMO para todos os cortes da fonte, então dois
+       "Baixar vídeo editado" do mesmo vídeo escreviam no mesmo `props-<token>.json`: o
+       segundo sobrescrevia o primeiro ANTES da trava de render, e o primeiro renderizava o
+       trecho do segundo. Arquivo errado, e nada errado na tela.
+
+    Inline, nenhum dos dois é testável sem rodar o Remotion (minutos, `npx`, Chrome headless);
+    aqui o teste CHAMA e confere. É a lição do `renderBody`, que deixou `title: ''` cravado com
+    a suíte verde porque o corpo era montado dentro do `fetch`.
+    """
+    marca = uuid.uuid4().hex[:8]
+    base = worker.safe_component(token, fallback="clipe", max_len=80)
+    return (os.path.join(folder, "props-%s-%s.json" % (base, marca)),
+            os.path.join(folder, "edit-%s-%s.mp4" % (base, marca)))
+
+
+def still_frame(duration_sec) -> int:
+    """Duracao do corte -> o quadro do MEIO dele. PURA e no nivel do modulo.
+
+    O MEIO, e nao o comeco: os primeiros 4 s sao o card do titulo, entao um still no quadro
+    0 mostraria a placa e nao a legenda -- ou seja, a previa nao responderia a pergunta que
+    a fez existir. Duracao torta, zero ou negativa cai no quadro 0, que sempre existe:
+    levantar aqui derrubaria a conferencia por causa de uma leitura ruim de duracao.
+    """
+    try:
+        segundos = float(duration_sec)
+    except (TypeError, ValueError):
+        return 0
+    if segundos != segundos or segundos in (float("inf"), float("-inf")) or segundos <= 0:
+        return 0
+    total = max(1, int(round(segundos * STILL_FPS)))
+    return min(total - 1, total // 2)
+
+
+def still_path(folder: str, props: dict) -> str:
+    """Caminho do PNG de UM conjunto de props. O nome E o hash dos props.
+
+    Cache por CONTEUDO, e nao por token: reapertar o botao sem mexer em nada tem de ser de
+    graca, e mexer em qualquer controle tem de dar outro arquivo. Um nome por token faria o
+    quadro antigo ser servido depois de trocar a fonte da legenda -- previa mentindo, que e
+    pior que previa ausente.
+
+    `sort_keys` porque dicionario com a mesma informacao em outra ordem e o MESMO quadro: sem
+    isso o cache erraria para mais (renderiza de novo), o que e so lento, mas tambem tornaria
+    o teste do cache nao-deterministico.
+    """
+    assinatura = json.dumps(props, sort_keys=True, ensure_ascii=False, default=str)
+    return os.path.join(folder, "still-%s.png"
+                        % hashlib.sha1(assinatura.encode("utf-8")).hexdigest()[:16])
+
+
+def edited_name(token: str, body: dict) -> str:
+    """Nome do MP4 editado que a rota guarda em disco (`_keep`).
+
+    Sai do TOKEN e do intervalo, não do nome do arquivo temporário: desde que o trecho passou
+    a ser recortado da fonte na hora, aquele nome carrega um sufixo aleatório (que existe para
+    dois renders simultâneos não colidirem) e ele apareceria na pasta de cortes do operador.
+    Sem intervalo no corpo — o caminho do trecho já baixado — o nome não inventa números.
+    """
+    base = worker.safe_component(token, fallback="clipe", max_len=60)
+    if os.path.splitext(base)[1].lower() == ".mp4":
+        base = os.path.splitext(base)[0]
+    try:
+        inicio, fim = float(body.get("start")), float(body.get("end"))
+    except (TypeError, ValueError):
+        return base + "-editado.mp4"
+    if not (fim > inicio >= 0):
+        return base + "-editado.mp4"
+    return "%s-%d-%d-editado.mp4" % (base, int(inicio), int(fim))
+
+
+def clip_args(src: str, dest: str, start: float, duration: float,
+              has_audio: bool) -> List[str]:
+    """Recorte ACURADO do trecho da fonte, na resolução nativa, para alimentar o Remotion.
+
+    `-ss` ANTES do `-i` de propósito, e a razão é medida em horas: é o seek rápido (pula para
+    o keyframe anterior sem decodificar o arquivo inteiro) e, porque este passe RECODIFICA, o
+    FFmpeg ainda decodifica e descarta até o instante exato — o trecho sai começando no quadro
+    pedido, com o relógio em zero. Com `-ss` DEPOIS do `-i` o corte também sairia exato, mas
+    decodificando desde o começo: num podcast de 3 h, um trecho em 2:30:00 custaria duas horas
+    e meia de decode. É o mesmo arranjo do `horizontal_args` e do `worker.render_cut`.
+
+    Sem `scale`: a fonte entra no Remotion como ela é. Reescalar aqui gastaria qualidade duas
+    vezes (subir um 720p para 1080 e o Remotion baixar de volta) sem comprar nada.
+
+    `-crf 16` é mais caro que os 18 do arquivo final de propósito: este é um INTERMEDIÁRIO que
+    o Remotion vai recodificar, e perda em cascata é o que se paga quando o primeiro passe já
+    é econômico. Sem tag de cor: quem tagueia a saída é o `--color-space` do Remotion.
+    """
+    args = ["-hide_banner", "-loglevel", "error", "-y",
+            "-ss", "%.3f" % start, "-i", src, "-t", "%.3f" % duration,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
+            "-pix_fmt", "yuv420p"]
+    args += (["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+             if has_audio else ["-an"])
+    # "-f mp4" é obrigatório: escrevendo em ".part" o FFmpeg não deduz o container.
+    args += ["-movflags", "+faststart", "-f", "mp4", dest]
+    return args
 
 
 def background_ok(path):
@@ -841,7 +1170,7 @@ def _background_state(valor):
     return valor if valor in BACKGROUND_STATES else BACKGROUND_UNREADABLE
 
 
-def cut_captions(name, start, end, video_h=None, override=None):
+def cut_captions(name, start, end, video_h=None, override=None, edit=None):
     """Nome do original + intervalo -> (documento ASS, estado). NUNCA levanta.
 
     Legenda e opcional em todo ramo: o 9:16 tem de sair mesmo sem ela. Por isso os estados
@@ -860,7 +1189,14 @@ def cut_captions(name, start, end, video_h=None, override=None):
 
     `video_h` e a altura do video visivel no quadro; vai direto ao `captions.to_ass`, que
     ancora a legenda dentro da imagem.
+
+    `edit` e o ajuste MANUAL (ja validado pelo `edit_of`). O que o ASS consegue vestir esta
+    no `captions.estilo_ass`; o que ele NAO reproduz esta no `captions.ASS_NAO_REPRODUZ` e
+    a tela mostra a lista ao lado do botao deste caminho (BP-008) -- um renderizador que
+    entrega outra coisa CALADO e exatamente o defeito que estes checks existem para matar.
     """
+    manual = (edit or {}).get("legenda") if isinstance(edit, dict) else None
+    estilo = captions.estilo_ass(legenda_style((manual or {}).get("style")), manual)
     # `is not None`, NUNCA `if override:`. Uma correcao que ficou VAZIA (o operador apagou o
     # texto de todas as falas, que e como se remove legenda inventada pelo YouTube) e um
     # pedido explicito de "sem legenda". Com o teste de verdade, lista vazia caia no ramo do
@@ -869,13 +1205,14 @@ def cut_captions(name, start, end, video_h=None, override=None):
     if override is not None:
         try:
             recorte = ytclip.cues_for_range(override, 0.0, float(end) - float(start))
-            documento = captions.to_ass(recorte, video_h=video_h)
+            documento = captions.to_ass(recorte, video_h=video_h, estilo=estilo)
         except Exception as err:
             print("[CAPTIONS_EXTRACTION_FAILED] legenda corrigida: %s" % err, file=sys.stderr)
             return "", ytclip.CAPTIONS_FAILED
         if not documento:
             return "", CAPTIONS_EDITED_EMPTY
-        return documento, "burned" if captions.font_available() else "burned-sem-inter"
+        return documento, ("burned" if captions.font_available(estilo["arquivo"])
+                           else "burned-sem-inter")
     if not str(name or "").strip():
         return "", ytclip.CAPTIONS_NONE
     try:
@@ -892,7 +1229,7 @@ def cut_captions(name, start, end, video_h=None, override=None):
         # Palavra quando o sidecar tem (v4), cue grossa quando nao tem: a preferencia mora
         # no `cues_for_range`, que e a fronteira unica de cue de clipe.
         recorte = ytclip.cues_for_range(bloco["cues"], start, end, bloco["words"])
-        documento = captions.to_ass(recorte, video_h=video_h)
+        documento = captions.to_ass(recorte, video_h=video_h, estilo=estilo)
     except Exception as err:
         print("[CAPTIONS_EXTRACTION_FAILED] %s: %s" % (name, err), file=sys.stderr)
         return "", ytclip.CAPTIONS_FAILED
@@ -900,7 +1237,8 @@ def cut_captions(name, start, end, video_h=None, override=None):
         return "", CAPTIONS_OUT_OF_RANGE
     # O libass troca a fonte ausente por Arial sem reclamar. Se a Inter nao esta instalada, a
     # legenda entra -- mas em OUTRA tipografia, e isso e dito em vez de passar calado.
-    return documento, "burned" if captions.font_available() else "burned-sem-inter"
+    return documento, ("burned" if captions.font_available(estilo["arquivo"])
+                       else "burned-sem-inter")
 
 
 def _most_replayed_safe(heatmap, video_id):
@@ -949,6 +1287,12 @@ class CutHandler(SimpleHTTPRequestHandler):
     # cada servidor — dois servidores num teste não trocam legenda.
     caption_edits: Dict[str, list] = {}
     caption_lock = threading.Lock()
+    # Andamento das importações, por videoId. Vive na SESSÃO do servidor como o cache e a
+    # legenda corrigida: o ARQUIVO é a verdade durável, isto é só o que a barra de progresso
+    # precisa ler enquanto o download corre. Servidor reiniciado perde o dicionário e o
+    # `_handle_import_state` redescobre a fonte pelo disco.
+    imports: Dict[str, dict] = {}
+    imports_lock = threading.Lock()
 
     # ------------------------------------------------------------ vez no renderizador
     @contextlib.contextmanager
@@ -993,6 +1337,12 @@ class CutHandler(SimpleHTTPRequestHandler):
         esquecer.
         """
         self.send_header("Cache-Control", "no-store")
+        # `Accept-Ranges` no caminho da fonte. Sem ele o Chrome nem TENTA pedir Range: a barra
+        # do player só deixa arrastar para dentro do que já baixou, e num arquivo de 2 GB isso
+        # é o mesmo que não deixar arrastar. Vive aqui pelo mesmo motivo do Cache-Control —
+        # `end_headers` é por onde TODA resposta passa, então nenhuma rota pode esquecer.
+        if urlparse(self.path).path.startswith(SOURCES_URL):
+            self.send_header("Accept-Ranges", "bytes")
         SimpleHTTPRequestHandler.end_headers(self)
 
     # ---------------------------------------------------------------- estático
@@ -1015,7 +1365,92 @@ class CutHandler(SimpleHTTPRequestHandler):
         limpo = urlparse(path).path
         if limpo.startswith(CLIPS_URL):
             return os.path.join(self._clips_dir(), os.path.basename(unquote(limpo)))
+        # A FONTE importada. Mesma guarda e mesma razão do /clips/: `basename` mata travessia
+        # (o basename de `../../x` é `x`) e o guarda de componente com ponto do `send_head`
+        # roda antes. A pasta é a do sidecar porque é lá que a fonte e a legenda dela moram.
+        if limpo.startswith(SOURCES_URL):
+            return os.path.join(_sidecar_dir(), os.path.basename(unquote(limpo)))
         return SimpleHTTPRequestHandler.translate_path(self, path)
+
+    # Só a forma simples de Range, que é a que todo `<video>` manda. Múltiplas faixas numa
+    # requisição (`bytes=0-9,20-29`) não aparecem em player de vídeo, e responder errado a
+    # elas seria pior que não responder: sem casar aqui, o caminho normal (200 com o arquivo
+    # inteiro) assume, que é sempre correto, só mais caro.
+    RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+    def do_GET(self):
+        """Estático, mais Range no vídeo da fonte.
+
+        O `SimpleHTTPRequestHandler` NÃO implementa Range: ele responde 200 com o arquivo
+        inteiro e ignora o cabeçalho. Num `<video>` isso não é detalhe — arrastar para
+        02:10:00 de um arquivo de 2 GB faria o navegador rebaixar os 2 GB desde o começo (ou
+        simplesmente não deixar arrastar). Sem 206 não existe "navegar pela duração inteira",
+        que é o pedido desta entrega.
+
+        Ponto de entrada ÚNICO do GET, de propósito: duas rotas de navegação (o login e o
+        callback do TikTok) precisam sair antes do estático, e um SEGUNDO `do_GET` na mesma
+        classe apagaria este calado — foi o que aconteceu ao juntar as duas entregas, e o
+        Range morreu sem erro nenhum até a suíte pegar.
+        """
+        caminho_get = urlparse(self.path).path
+        if caminho_get in (ROUTE_TT_LOGIN, ROUTE_TT_CALLBACK):
+            self._get_tiktok(caminho_get)
+            return
+        if self.headers.get("Range") and urlparse(self.path).path.startswith(SOURCES_URL):
+            try:
+                if self._send_partial(self.translate_path(self.path)):
+                    return
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # O player aborta leitura a cada arrasto da barra — é o caso NORMAL aqui, não
+                # falha do servidor, e não pode virar traceback no console.
+                self.log_message("player desligou no meio da faixa")
+                return
+        SimpleHTTPRequestHandler.do_GET(self)
+
+    def _send_partial(self, path: str) -> bool:
+        """206 com a fatia pedida. False = "não sei responder isto", e o caminho normal assume."""
+        casou = self.RANGE_RE.match((self.headers.get("Range") or "").strip())
+        if not casou or not os.path.isfile(path):
+            return False
+        try:
+            tamanho = os.path.getsize(path)
+        except OSError:
+            return False
+        ini, fim = casou.group(1), casou.group(2)
+        if ini == "":
+            # `bytes=-N` = os N últimos bytes. É como o navegador lê o índice do MP4 quando o
+            # `moov` está no fim — sem este ramo, um arquivo sem `+faststart` não abre.
+            if fim == "" or int(fim) == 0:
+                return False
+            comeca, termina = max(0, tamanho - int(fim)), tamanho - 1
+        else:
+            comeca = int(ini)
+            termina = tamanho - 1 if fim == "" else min(int(fim), tamanho - 1)
+        if comeca >= tamanho or termina < comeca:
+            self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+            self.send_header("Content-Range", "bytes */%d" % tamanho)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        resta = termina - comeca + 1
+        self.send_response(HTTPStatus.PARTIAL_CONTENT)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", "bytes %d-%d/%d" % (comeca, termina, tamanho))
+        self.send_header("Content-Length", str(resta))
+        # `Accept-Ranges` sai do end_headers, que é o dono dele — repetir aqui mandaria o
+        # cabeçalho duas vezes.
+        self.end_headers()
+        if self.command == "HEAD":
+            return True
+        with open(path, "rb") as fh:
+            fh.seek(comeca)
+            while resta > 0:
+                pedaco = fh.read(min(RANGE_CHUNK, resta))
+                if not pedaco:
+                    break
+                self.wfile.write(pedaco)
+                resta -= len(pedaco)
+        return True
 
     def _clips_dir(self) -> str:
         return self.clips_folder or default_clips_dir()
@@ -1055,17 +1490,13 @@ class CutHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
-    def do_GET(self) -> None:
-        """Duas rotas de navegação antes do estático; o resto segue para o handler de arquivo.
+    def _get_tiktok(self, caminho: str) -> None:
+        """As duas rotas de navegação do OAuth, desviadas do estático pelo `do_GET`.
 
         Precisa existir porque o `SimpleHTTPRequestHandler` trata TODO GET como pedido de
         arquivo — sem este desvio, `/tiktok/callback/` daria 404 e o código de autorização
         se perderia.
         """
-        caminho = urlparse(self.path).path
-        if caminho not in (ROUTE_TT_LOGIN, ROUTE_TT_CALLBACK):
-            SimpleHTTPRequestHandler.do_GET(self)
-            return
         try:
             if caminho == ROUTE_TT_LOGIN:
                 self.send_response(HTTPStatus.FOUND)
@@ -1101,9 +1532,12 @@ class CutHandler(SimpleHTTPRequestHandler):
             ROUTE_PROBE: self._handle_probe,
             ROUTE_FETCH: self._handle_fetch,
             ROUTE_RENDER: self._handle_render,
+            ROUTE_STILL: self._handle_still,
             ROUTE_MR: self._handle_most_replayed,
             ROUTE_CAPS: self._handle_clip_captions,
             ROUTE_CLIP_STATUS: self._handle_clip_status,
+            ROUTE_IMPORT: self._handle_import,
+            ROUTE_IMPORT_STATE: self._handle_import_state,
             ROUTE_TT_STATUS: self._handle_tiktok_status,
             ROUTE_TT_PUBLISH: self._handle_tiktok_publish,
             ROUTE_TT_PUBLISH_STATUS: self._handle_tiktok_publish_status,
@@ -1289,6 +1723,198 @@ class CutHandler(SimpleHTTPRequestHandler):
         self._send_json({"cues": recorte, "language": bloco["language"],
                          "kind": bloco["kind"],
                          "state": "ok" if recorte else CAPTIONS_OUT_OF_RANGE})
+
+    # --------------------------------------------------- fonte importada (vídeo inteiro)
+    def _source_payload(self, video_id: str, path: str, media: dict) -> dict:
+        nome = os.path.basename(path)
+        return {
+            "state": IMPORT_READY, "stage": IMPORT_STAGE_PREPARE, "percent": 100,
+            "videoId": video_id,
+            # O token da fonte É o id do vídeo, e isso é escolha: ele passa no TOKEN_RE (que o
+            # /api/video-cut exige) e é ESTÁVEL, então o mesmo original serve dois cortes
+            # seguidos sem subir nem rebaixar um byte.
+            "sourceToken": video_id,
+            "sourceName": nome,
+            # Endereço que o player interno do site toca. Servido com Range (ver do_GET), que
+            # é o que permite arrastar a barra para qualquer ponto de um arquivo de 2 GB.
+            "sourceUrl": SOURCES_URL + quote(nome),
+            "bytes": os.path.getsize(path),
+            "durationSec": media.get("durationSec"),
+            "width": media.get("width"), "height": media.get("height"),
+            "hasAudio": bool(media.get("audioCodec")),
+            "error": "",
+        }
+
+    def _register_source(self, video_id: str, path: str, media: dict) -> dict:
+        """Põe a fonte no cache da sessão e devolve o que a tela precisa.
+
+        Registrar é o que faz o /api/video-cut aceitar corpo vazio para esta fonte: a rota
+        acha o arquivo pelo token em vez de exigir upload. Sem isto o primeiro corte pediria o
+        original de novo — que é justamente o que esta entrega existe para acabar.
+        """
+        self.cache.put(video_id, path, media)
+        pronto = self._source_payload(video_id, path, media)
+        with self.imports_lock:
+            self.imports[video_id] = pronto
+        return pronto
+
+    def _import_set(self, video_id: str, **campos) -> dict:
+        with self.imports_lock:
+            atual = dict(self.imports.get(video_id) or {})
+            atual.update(campos)
+            self.imports[video_id] = atual
+            return atual
+
+    def _handle_import(self) -> None:
+        """Começa (ou reaproveita) o download do vídeo INTEIRO, que passa a ser a fonte.
+
+        O portão de direitos autorais fica no navegador (o ytFetchGate do video-ops.js só
+        chama esta rota com a declaração marcada, e a confere DE NOVO na volta) — a mesma
+        divisão do /api/yt-fetch, que esta rota substitui no fluxo normal.
+
+        Responde na hora, sem esperar o download: 2 GB não cabem numa requisição HTTP sem o
+        navegador desistir no meio, e sem resposta imediata a barra não teria de onde tirar o
+        primeiro número. Quem conta o resto é /api/yt-import-state.
+
+        Idempotente de propósito: fonte já pronta no disco volta PRONTA, sem rede. É isso que
+        faz o segundo corte — e o projeto reaberto amanhã — não rebaixar o original.
+        """
+        body = self._json_body()
+        vid = ytclip.video_id(body.get("url"))
+        pasta = _sidecar_dir()
+        caminho, _nome = source_media_on_disk(pasta, vid)
+        if caminho:
+            try:
+                media = worker.validate_input(caminho)
+            except worker.WorkerError as err:
+                # Arquivo no disco mas ilegível (download interrompido, setor ruim): não é
+                # pronto e não é erro de rota — é motivo para baixar de novo, e o console diz
+                # por quê em vez de a tela prometer uma fonte que não abre.
+                self.log_message("fonte no disco recusada, vai baixar de novo: %s", err.message)
+            else:
+                self._send_json(self._register_source(vid, caminho, media))
+                return
+        with self.imports_lock:
+            atual = self.imports.get(vid)
+            if atual and atual.get("state") == IMPORT_RUNNING:
+                # Dois cliques no botão não viram dois downloads do mesmo vídeo.
+                self._send_json(dict(atual))
+                return
+            self.imports[vid] = {
+                "state": IMPORT_RUNNING, "stage": IMPORT_STAGE_PROBE, "percent": 0,
+                "videoId": vid, "sourceToken": "", "sourceName": "", "sourceUrl": "",
+                "bytes": 0, "durationSec": 0.0, "width": 0, "height": 0,
+                "hasAudio": False, "error": ""}
+            inicial = dict(self.imports[vid])
+        # FORA do _render_slot, e isto é decisão, não esquecimento. O /api/yt-fetch pega a
+        # trava porque recodifica as pontas do trecho e dois FFmpeg brigariam pela máquina;
+        # aqui não há encode nenhum (o fetch_full só remuxa), o gargalo é a rede, e segurar a
+        # trava por vinte minutos deixaria o operador sem poder exportar NADA durante a
+        # importação — pior que a briga que ela evita.
+        threading.Thread(target=self._import_worker,
+                         args=(vid, "https://www.youtube.com/watch?v=" + vid, pasta),
+                         daemon=True).start()
+        self._send_json(inicial)
+
+    def _import_worker(self, video_id: str, url: str, pasta: str) -> None:
+        """O download do vídeo inteiro, fora da requisição. NUNCA levanta para fora.
+
+        Toda saída passa pelo dicionário de estado: sucesso vira `ready` com o token, falha
+        vira `error` com a frase. Exceção escapando daqui mataria a thread e deixaria o estado
+        em `importing` para sempre — barra andando sem nada do outro lado, que é exatamente o
+        defeito que este bloco existe para não ter (BP-008).
+        """
+        try:
+            # A análise vem ANTES do download e é a mesma de sempre (metadados, capítulos,
+            # legenda, heatmap): é dela que sai o sidecar, e sem sidecar a fonte nasce sem
+            # legenda e sem miniatura.
+            dados = ytclip.probe(url)
+            worker.ensure_space(pasta, 0, int(float(dados.get("durationSec") or 0.0)
+                                              * IMPORT_BYTES_PER_SEC))
+            self._import_set(video_id, stage=IMPORT_STAGE_DOWNLOAD,
+                             durationSec=float(dados.get("durationSec") or 0.0))
+            got = ytclip.fetch_full(url, pasta, on_progress=lambda f: self._import_set(
+                video_id, percent=int(f * 100)))
+            self._import_set(video_id, stage=IMPORT_STAGE_PREPARE, percent=99)
+            nome = os.path.basename(got["path"])
+            # O sidecar ANTES de anunciar pronto: é ele que carrega a legenda e a miniatura, e
+            # anunciar a fonte antes dele faria o primeiro corte sair sem legenda, calado.
+            write_source_sidecar(pasta, nome, dados)
+            self._register_source(video_id, got["path"], got["media"])
+        except worker.WorkerError as err:
+            self._import_set(video_id, state=IMPORT_ERROR, error=err.message)
+        except Exception as err:      # noqa: BLE001 — ver a docstring: nada escapa daqui
+            self._import_set(video_id, state=IMPORT_ERROR,
+                             error="Falha inesperada ao importar: %s" % err)
+
+    def _handle_import_state(self) -> None:
+        """Andamento da importação DESTE vídeo.
+
+        O `videoId` volta sempre, e ele é a chave da corrida: o navegador compara com a URL
+        que está na tela e descarta resposta de vídeo que já não é o pedido — o operador pode
+        colar outro link no meio de uma importação, e o resultado do anterior não pode assumir
+        o lugar do novo.
+        """
+        vid = str(self._json_body().get("videoId") or "")
+        if not ytclip.VIDEO_ID_RE.match(vid):
+            raise worker.WorkerError("job_invalid", "Id de vídeo inválido.")
+        with self.imports_lock:
+            atual = self.imports.get(vid)
+        if atual:
+            self._send_json(dict(atual))
+            return
+        # Servidor reiniciado no meio: o dicionário morreu, o ARQUIVO não. Reconhecer isso
+        # aqui é o que faz a tela voltar sozinha para pronto em vez de pedir outra importação
+        # de 2 GB.
+        caminho, _nome = source_media_on_disk(_sidecar_dir(), vid)
+        if caminho:
+            try:
+                self._send_json(self._register_source(vid, caminho,
+                                                      worker.validate_input(caminho)))
+                return
+            except worker.WorkerError as err:
+                self.log_message("fonte no disco recusada: %s", err.message)
+        self._send_json({"state": IMPORT_IDLE, "stage": "", "percent": 0, "videoId": vid,
+                         "sourceToken": "", "sourceName": "", "sourceUrl": "", "bytes": 0,
+                         "durationSec": 0.0, "width": 0, "height": 0, "hasAudio": False,
+                         "error": ""})
+
+    def _cut_for_render(self, src: str, media: dict, start: float, end: float,
+                        token: str) -> Tuple[str, dict, List[str]]:
+        """Extrai o trecho da fonte e devolve (caminho, media, temporários a apagar).
+
+        ponytail: um encode intermediário por exportação editada. O caminho sem encode seria
+        mandar o offset ao Remotion e deixá-lo ler a fonte inteira — e ele é MAIS caro, não
+        menos: o Chrome headless busca quadro a quadro, e buscar dentro de um arquivo de 3 h
+        custa muito mais que os segundos deste recorte. Se um dia o @remotion/media ganhar
+        leitura sequencial com offset barato, é aqui que este passe sai.
+        """
+        base = worker.safe_component(token, fallback="fonte", max_len=40)
+        destino = os.path.join(self.cache.folder, "trecho-%s-%d-%d-%s.mp4"
+                               % (base, int(start), int(end), uuid.uuid4().hex[:8]))
+        duracao = end - start
+        com_audio = bool(media.get("audioCodec"))
+        with self._render_slot():
+            worker.write_atomic(destino, lambda part: worker.run_ffmpeg(
+                clip_args(src, part, start, duracao, com_audio),
+                timeout=self.ffmpeg_timeout))
+        recortado = worker.validate_input(destino)
+        sobras = [destino]
+        # A miniatura viaja com o recorte: o `render_background` a descobre pelo STEM do
+        # arquivo que o Remotion recebe, e sem esta cópia TODO vídeo editado de fonte
+        # importada cairia no letterbox — com o estado dizendo "não havia miniatura", o que
+        # seria verdade sobre o recorte e mentira sobre o vídeo. Falhar aqui não derruba o
+        # render: volta o fundo chapado, e o estado já diz isso.
+        pasta_fonte = os.path.dirname(src)
+        capa = ytclip.thumbnail_beside(pasta_fonte, os.path.basename(src))
+        if capa:
+            copia = os.path.splitext(destino)[0] + os.path.splitext(capa)[1]
+            try:
+                shutil.copy2(os.path.join(pasta_fonte, capa), copia)
+                sobras.append(copia)
+            except OSError as err:
+                self.log_message("miniatura nao acompanhou o recorte: %s", err)
+        return destino, recortado, sobras
 
     def _canonical_clip_filename(self, video_id: str, start: float, end: float) -> str:
         """Nome canônico do arquivo permanente: videoId-inMs-outMs.mp4.
@@ -1482,7 +2108,42 @@ class CutHandler(SimpleHTTPRequestHandler):
             "path": got["path"],
         })
 
-    def _handle_render(self) -> None:
+    def _send_still(self, path: str, props: dict) -> None:
+        """O PNG do quadro real, mais os numeros que a TELA nao pode calcular sozinha.
+
+        `X-Clip-Legenda-Base` e a ancora que o `captions.margem_inferior` resolveu para este
+        corte: e a unica forma de a tela saber onde a legenda automatica cai sem repetir a
+        formula em JavaScript -- que e proibido, e por um defeito ja pago (a legenda saiu
+        61 px abaixo da imagem). `X-Clip-Video-Altura` fecha o par, porque a ancora so faz
+        sentido contra a altura do video visivel.
+        """
+        with open(path, "rb") as handle:
+            dados = handle.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(dados)))
+        # `no-store`: o navegador nunca deve reusar este PNG por conta propria -- quem
+        # decide se o quadro ainda vale e o cache por hash de props, no servidor.
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Clip-Legenda-Base", str(props.get("legendaBase", "")))
+        self.send_header("X-Clip-Video-Altura", str(props.get("videoAltura", "")))
+        # Sem `X-Clip-Background` aqui de proposito: o `_deliver_video` e o emissor UNICO
+        # daquele estado (check 30e), e num STILL a pergunta nem se coloca -- o operador esta
+        # OLHANDO o fundo que saiu.
+        self.end_headers()
+        self.wfile.write(dados)
+
+    def _handle_still(self) -> None:
+        """O QUADRO REAL deste corte, em PNG. Mesma composicao, MESMOS props do MP4.
+
+        Existe porque a previa em CSS do site e uma aproximacao declarada da tipografia: ela
+        nao sabe onde o `captions.margem_inferior` ancora a legenda nem como a composicao
+        quebra a pagina. Esta rota responde essas duas perguntas com o renderizador de
+        verdade, num quadro, em vez de minutos de render.
+        """
+        self._handle_render(still=True)
+
+    def _handle_render(self, still: bool = False) -> None:
         """Manda o trecho aprovado para o Remotion e devolve o MP4 editado.
 
         Divisão de responsabilidade (o pedido do usuário é explícito nisto): a DESCOBERTA
@@ -1537,42 +2198,103 @@ class CutHandler(SimpleHTTPRequestHandler):
         if not npx:
             raise worker.WorkerError("job_invalid", "npx não encontrado no PATH.")
 
+        # O trecho DENTRO da fonte importada. Presente, o arquivo que o Remotion recebe é um
+        # recorte desta requisição; ausente, a fonte é o clipe inteiro e nada muda — é o que
+        # mantém funcionando o trecho baixado por /api/yt-fetch antes desta entrega.
+        temporarios: List[str] = []
+        if body.get("start") is not None and body.get("end") is not None:
+            comeca = _finite(str(body.get("start")), "start")
+            termina = _finite(str(body.get("end")), "end")
+            if comeca < 0:
+                raise worker.WorkerError("cut_invalid", "O início do trecho não pode ser negativo.")
+            if termina <= comeca:
+                raise worker.WorkerError("cut_invalid",
+                                         "O fim do trecho tem de ser depois do início.")
+            if termina - comeca > worker.MAX_CUT_SEC:
+                raise worker.WorkerError(
+                    "cut_invalid", "Trecho de %.0fs passa do teto de %.0fs."
+                    % (termina - comeca, worker.MAX_CUT_SEC))
+            fonte_dur = media.get("durationSec")
+            if fonte_dur is not None and termina > fonte_dur + worker.TOLERANCE_SEC:
+                raise worker.WorkerError(
+                    "cut_invalid", "O trecho termina em %.1fs, depois do fim do vídeo (%.1fs)."
+                    % (termina, fonte_dur))
+            worker.ensure_space(self.cache.folder, termina - comeca)
+            src, media, temporarios = self._cut_for_render(src, media, comeca, termina, token)
+
         props = render_props(self.cache.folder, os.path.basename(src), media, body)
 
-        props_path = os.path.join(self.cache.folder, "props-" + token + ".json")
-        dest = os.path.join(self.cache.folder, "edit-" + token)
+        # Sufixo aleatório, e não só o token: desde que a fonte passou a ser o vídeo inteiro o
+        # token é o MESMO para todos os cortes dele, então dois "Baixar vídeo editado" do
+        # mesmo vídeo escreviam no mesmo props-*.json. O segundo sobrescrevia o primeiro ANTES
+        # da trava de render, e o primeiro renderizava o trecho do segundo — arquivo errado,
+        # nada errado na tela. Mesma razão e mesma família do sufixo do `.ass`.
+        props_path, dest = render_paths(self.cache.folder, token)
+        if still:
+            # Cache por CONTEUDO dos props: reapertar sem mexer em nada nao paga um render.
+            # O PNG NAO entra em `temporarios` -- e o cache, e apaga-lo no `finally` faria o
+            # botao custar o mesmo toda vez.
+            dest = still_path(self.cache.folder, props)
+            if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+                for sobra in temporarios:
+                    remove_quietly(sobra)
+                self._send_still(dest, props)
+                return
+            temporarios += [props_path]
+        else:
+            temporarios += [props_path, dest]
         with open(props_path, "w", encoding="utf-8") as handle:
             json.dump(props, handle, ensure_ascii=False)
         # O teto acompanha o tamanho do clipe: com um número fixo, todo trecho acima de
         # ~48 s morria no meio do render e o operador só via a espera acabar sem arquivo.
-        limite = render_budget(props["durationSec"], self.render_timeout)
+        limite = STILL_TIMEOUT if still else render_budget(props["durationSec"],
+                                                            self.render_timeout)
+        if still:
+            args = [npx, "remotion", "still", STUDIO_ENTRY, STUDIO_COMPOSITION, dest,
+                    "--props=" + props_path,
+                    "--public-dir=" + self.cache.folder,
+                    "--frame=" + str(still_frame(props["durationSec"])),
+                    "--image-format=png",
+                    "--log=error"]
+        else:
+            args = [npx, "remotion", "render", STUDIO_ENTRY, STUDIO_COMPOSITION, dest,
+                    "--props=" + props_path,
+                    "--public-dir=" + self.cache.folder,
+                    "--color-space=" + RENDER_COLOR_SPACE,
+                    "--image-format=" + RENDER_IMAGE_FORMAT,
+                    "--jpeg-quality=" + str(RENDER_JPEG_QUALITY),
+                    "--log=error"]
         try:
             with self._render_slot():
-                proc = subprocess.run(
-                    [npx, "remotion", "render", STUDIO_ENTRY, STUDIO_COMPOSITION, dest,
-                     "--props=" + props_path,
-                     "--public-dir=" + self.cache.folder,
-                     "--color-space=" + RENDER_COLOR_SPACE,
-                     "--image-format=" + RENDER_IMAGE_FORMAT,
-                     "--jpeg-quality=" + str(RENDER_JPEG_QUALITY),
-                     "--log=error"],
-                    cwd=STUDIO_DIR, capture_output=True, timeout=limite)
+                proc = subprocess.run(args, cwd=STUDIO_DIR, capture_output=True,
+                                      timeout=limite)
             if proc.returncode != 0 or not os.path.exists(dest):
-                tail = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace").strip()
+                # O still apaga o proprio arquivo vazio: um PNG de 0 byte no cache faria a
+                # proxima chamada servir o fracasso de graca, para sempre.
+                if still:
+                    remove_quietly(dest)
+                raise worker.WorkerError(
+                    "ffmpeg_failed", "O Remotion falhou: %s" % _falha_render(proc))
+            if still:
+                self._send_still(dest, props)
+            else:
+                self._send_video(dest, edited_name(token, body),
+                                 background_state=props["backgroundState"])
+        except subprocess.TimeoutExpired:
+            if still:
+                remove_quietly(dest)
                 raise worker.WorkerError(
                     "ffmpeg_failed",
-                    "O Remotion falhou: %s" % (tail.splitlines()[-1][:400] if tail else "sem detalhe"))
-            self._send_video(dest, os.path.basename(src).replace(".mp4", "") + "-editado.mp4",
-                             background_state=props["backgroundState"])
-        except subprocess.TimeoutExpired:
+                    "O quadro real passou de %.0fs e foi encerrado. O Chrome do Remotion "
+                    "pode estar abrindo pela primeira vez; tente de novo." % limite)
             raise worker.WorkerError(
                 "ffmpeg_failed",
                 "O render passou de %.0f min e foi encerrado. Este trecho tem %.0fs; "
                 "corte um pedaço menor ou use o download normal do Passo 3, que usa "
                 "FFmpeg e leva segundos." % (limite / 60.0, props["durationSec"]))
         finally:
-            remove_quietly(props_path)
-            remove_quietly(dest)
+            for sobra in temporarios:
+                remove_quietly(sobra)
 
     def _handle_cut(self) -> None:
         # A query é conferida ANTES de ler o corpo: recusar 4 GB de upload por causa de um
@@ -1632,7 +2354,7 @@ class CutHandler(SimpleHTTPRequestHandler):
             # dimensionar a tarja onde a miniatura entra. Uma leitura, um número.
             altura_video = video_box(req.profile, media)
             documento, legenda = cut_captions(req.name, req.start, req.end,
-                                              altura_video, corrigida)
+                                              altura_video, corrigida, req.edit)
             banda = worker.band_height(altura_video)
             caminho_fundo = cut_background(req.name) or ""
             fundo = caminho_fundo if caminho_fundo and background_ok(caminho_fundo) else None
@@ -1893,6 +2615,8 @@ def build_server(root: str, port: int = 0, max_seconds: float = DEFAULT_MAX_SECO
         "clips_folder": clips or default_clips_dir(),
         "caption_edits": {},
         "caption_lock": threading.Lock(),
+        "imports": {},
+        "imports_lock": threading.Lock(),
     })
     server = ThreadingHTTPServer(("127.0.0.1", port), functools.partial(bound, directory=root))
     server.daemon_threads = True

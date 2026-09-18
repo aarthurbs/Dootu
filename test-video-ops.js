@@ -1,6 +1,6 @@
 // Provas da lógica pura do Estúdio de Vídeos (video-ops.js) — sem DOM e sem rede.
 //
-// O Estúdio tem cinco telas: 1 Vídeo, 2 Cortes, 3 Clips, Central e YouTube. O pipeline de
+// O Estúdio tem três telas: Central, Meus projetos e YouTube. O pipeline de
 // publicação (contas, material, direitos, posts, relatórios) saiu em 2026-08-21, e com ele
 // saíram as provas de aprovação/variante/CSV/Drive. O que sobrou é o que ainda existe:
 // tempo, marcação, nome de arquivo, comando do FFmpeg, o registro da Central e o portão de
@@ -982,22 +982,361 @@ ok('a ordem da grade e estavel nas duas opcoes', () => {
   ops.__setCandidates([]);
 });
 
-/* Estado do arquivo local: cada caso com a SUA frase. Botao morto e mudo e bug (BP-008). */
-ok('clipStatusOf explica cada estado do arquivo, inclusive quando nao deixa baixar', () => {
+/* Estado do que se pode FAZER com o trecho: cada caso com a SUA frase. Botao morto e mudo e
+   bug (BP-008).
+
+   A pergunta mudou em 2026-09-15: era "o MP4 deste trecho esta no disco?" e passou a ser
+   "a FONTE esta pronta?", porque todo corte sai do video inteiro importado. Os estados
+   `missing`/`helper_offline` por trecho sairam com o `validateProjectClips`, que era quem os
+   escrevia -- nao ha mais como um trecho estar "sem arquivo" e a fonte estar pronta. */
+ok('clipStatusOf cobre os QUATRO estados da fonte, cada um com o seu motivo', () => {
   const liberado = { allowed: true, reason: '' };
   const travado = { allowed: false, reason: 'voce ainda nao declarou ter autorizacao' };
-  assert.strictEqual(ops.clipStatusOf({ id: 'x' }, travado).podeBaixar, false);
-  assert.ok(ops.clipStatusOf({ id: 'x' }, travado).motivo.length > 0, 'com o motivo escrito');
-  assert.strictEqual(ops.clipStatusOf({ id: 'x' }, liberado).podeBaixar, true);
-  assert.strictEqual(ops.clipStatusOf({ id: 'x' }, liberado).pronto, false,
-    'trecho sem arquivo nao esta pronto para editar');
+  const trecho = { id: 'x' };
+
+  ops.srcReset();
+  const semFonte = ops.clipStatusOf(trecho, liberado);
+  assert.strictEqual(semFonte.pronto, false, 'sem video importado nao ha o que exportar');
+  assert.strictEqual(semFonte.podeBaixar, false);
+  assert.ok(semFonte.motivo.length > 0, 'e o motivo esta escrito');
+  assert.ok(semFonte.nota.indexOf('Importe') >= 0, 'dizendo o que FAZER, nao so o que falta');
+
+  ops.__setSource({ state: 'importing', percent: 42 });
+  const importando = ops.clipStatusOf(trecho, liberado);
+  assert.strictEqual(importando.podeBaixar, false, 'nao oferece corte de video que nao chegou');
+  assert.ok(importando.chip.indexOf('42') > 0, 'e o chip mostra a porcentagem real');
+  assert.ok(importando.motivo.length > 0);
+
+  ops.__setSource({ state: 'error', error: 'o yt-dlp recusou o video' });
+  const falhou = ops.clipStatusOf(trecho, liberado);
+  assert.strictEqual(falhou.podeBaixar, false);
+  assert.ok(falhou.nota.indexOf('yt-dlp') > 0, 'a nota repete o motivo REAL da falha');
+
+  ops.__setSource({ state: 'ready', token: 'abcdefghijk', url: '/sources/abcdefghijk.mp4' });
+  const pronta = ops.clipStatusOf(trecho, liberado);
+  assert.strictEqual(pronta.pronto, true, 'fonte pronta basta: o trecho nao precisa de arquivo');
+  assert.strictEqual(pronta.podeBaixar, true);
+  /* O portao de direitos continua mandando mesmo com a fonte pronta. */
+  const semDireito = ops.clipStatusOf(trecho, travado);
+  assert.strictEqual(semDireito.podeBaixar, false, 'portao de direitos vence a fonte pronta');
+  assert.ok(semDireito.motivo.length > 0, 'com o motivo escrito');
+  /* O arquivo JA EXPORTADO aparece como tal -- nao como "o trecho esta no disco". */
+  const jaSaiu = ops.clipStatusOf({ id: 'x', clipFilename: 'c.mp4', clipBytes: 10 }, liberado);
+  assert.ok(jaSaiu.chip.indexOf('exportado') > 0, 'o chip fala de EXPORTACAO, nao de fonte');
+  ops.srcReset();
+});
+
+/* A fronteira de entrada da importacao, nos DOIS ramos (BP-014). O ramo que interessa e o de
+   quem trocou a URL no meio: o defeito que este check existe para impedir e o video antigo
+   chegando DEPOIS e assumindo a tela do video recem-pedido. */
+ok('srcApply aplica a fonte pedida e DESCARTA a de outra URL', () => {
+  const YT = ops.__ytState();
+  YT.url = 'https://www.youtube.com/watch?v=aaaaaaaaaaa';
+  YT.authorized = true;
+  ops.srcReset();
+  const pronto = (vid) => ({
+    state: 'ready', videoId: vid, percent: 100, stage: 'preparando',
+    sourceToken: vid, sourceName: vid + '.mp4', sourceUrl: '/sources/' + vid + '.mp4',
+    bytes: 1234, durationSec: 7200, width: 1920, height: 1080, hasAudio: true
+  });
+  const seq = ops.__srcSeq();
+
+  // 1) resposta de OUTRO video, na sequencia certa: descartada.
+  assert.strictEqual(ops.srcApply(pronto('bbbbbbbbbbb'), seq, 'bbbbbbbbbbb'), false);
+  assert.strictEqual(ops.srcReady(), false, 'video de outra URL nao assume a tela');
+  // 2) sequencia VELHA do video certo: tambem descartada.
+  assert.strictEqual(ops.srcApply(pronto('aaaaaaaaaaa'), seq - 1, 'aaaaaaaaaaa'), false);
+  assert.strictEqual(ops.srcReady(), false, 'resposta de importacao ja invalidada nao entra');
+  // 3) o video pedido, na sequencia certa: entra, com o endereco e a duracao do ARQUIVO.
+  assert.strictEqual(ops.srcApply(pronto('aaaaaaaaaaa'), seq, 'aaaaaaaaaaa'), false,
+    'pronto nao pede mais acompanhamento');
+  assert.strictEqual(ops.srcReady(), true);
+  assert.strictEqual(ops.__srcState().url, '/sources/aaaaaaaaaaa.mp4');
+  assert.strictEqual(YT.duration, 7200, 'a duracao do arquivo passa a ser o teto do corte');
+  // 4) `importing` pede acompanhamento; estado desconhecido cai em erro COM frase.
   assert.strictEqual(
-    ops.clipStatusOf({ id: 'x', clipToken: 'tok', clipBytes: 10 }, liberado).pronto, true);
-  assert.ok(ops.clipStatusOf({ id: 'x', clipStatus: 'missing' }, liberado).nota.length > 0,
-    'arquivo que saiu do disco DIZ isso, em vez de sumir calado');
-  const off = ops.clipStatusOf({ id: 'x', clipStatus: 'helper_offline' }, liberado);
-  assert.ok(off.nota.indexOf('estudio.ps1') > 0, 'renderizador desligado diz o que rodar');
-  assert.strictEqual(off.podeBaixar, false, 'e nao oferece download que nao vai funcionar');
+    ops.srcApply({ state: 'importing', videoId: 'aaaaaaaaaaa', percent: 12 }, seq, 'aaaaaaaaaaa'),
+    true, 'importando = continue acompanhando');
+  assert.strictEqual(
+    ops.srcApply({ state: 'inventado', videoId: 'aaaaaaaaaaa' }, seq, 'aaaaaaaaaaa'), false);
+  assert.strictEqual(ops.__srcState().state, 'error', 'estado fora do conjunto fechado = erro');
+  ops.srcReset();
+});
+
+/* O portao de direitos vale para a IMPORTACAO tambem, e e conferido na VOLTA: desmarcar a
+   caixa durante os minutos do download nao pode deixar a midia entrar na sessao. */
+ok('srcApply recusa a fonte quando a declaracao caiu durante a importacao', () => {
+  const YT = ops.__ytState();
+  YT.url = 'https://www.youtube.com/watch?v=aaaaaaaaaaa';
+  YT.authorized = false;
+  ops.srcReset();
+  const seq = ops.__srcSeq();
+  ops.srcApply({
+    state: 'ready', videoId: 'aaaaaaaaaaa', percent: 100,
+    sourceToken: 'aaaaaaaaaaa', sourceName: 'aaaaaaaaaaa.mp4',
+    sourceUrl: '/sources/aaaaaaaaaaa.mp4', bytes: 1, durationSec: 10
+  }, seq, 'aaaaaaaaaaa');
+  assert.strictEqual(ops.srcReady(), false, 'sem declaracao a fonte NAO entra na sessao');
+  assert.strictEqual(ops.__srcState().state, 'error');
+  assert.ok(ops.__srcState().error.indexOf('direito') > 0, 'e o motivo diz que foi o direito');
+  ops.srcReset();
+});
+
+/* Cada estado e cada etapa da importacao tem frase. Conjunto FECHADO espelhado do serve.py:
+   estado que sai do servidor sem frase aqui e o erro mudo que o conjunto existe para
+   impedir -- a mesma regra do CAPTION_STATES. */
+ok('todo estado e toda etapa da importacao tem frase na tela', () => {
+  ops.IMPORT_STATES.forEach((e) => {
+    assert.ok((ops.IMPORT_MSG[e] || '').length > 0, 'estado sem frase: ' + e);
+  });
+  ops.IMPORT_STAGES.forEach((e) => {
+    assert.ok((ops.IMPORT_STAGE_MSG[e] || '').length > 0, 'etapa sem frase: ' + e);
+  });
+});
+
+/* A faixa de importacao DIZ o progresso real e oferece saida no erro. */
+ok('a faixa de importacao mostra porcentagem, barra e retentativa', () => {
+  ops.srcReset();
+  const parado = ops.srcStripHTML();
+  assert.ok(parado.indexOf('data-state="idle"') > 0, 'idle tambem tem faixa (nao fica muda)');
+
+  ops.__setSource({ state: 'importing', stage: 'baixando', percent: 37 });
+  const andando = ops.srcStripHTML();
+  assert.ok(andando.indexOf('37%') > 0, 'a porcentagem aparece em texto');
+  assert.ok(andando.indexOf('Baixando o vídeo inteiro') > 0, 'com a etapa por extenso');
+  assert.ok(/role="progressbar"[^>]*aria-valuenow="37"/.test(andando),
+    'e a barra expoe o valor para leitor de tela');
+  assert.ok(/scaleX\(0\.370\)/.test(andando),
+    'a barra anda por transform (nunca width: transform nao dispara layout)');
+
+  ops.__setSource({ state: 'error', error: 'sem espaco em disco' });
+  const errado = ops.srcStripHTML();
+  assert.ok(errado.indexOf('sem espaco em disco') > 0, 'o erro diz o motivo real');
+  assert.ok(errado.indexOf('data-act="yt-import"') > 0, 'e oferece tentar de novo');
+  ops.srcReset();
+});
+
+/* O player e do SITE: a fonte importada, num <video>, sem nada do YouTube. */
+ok('o painel da fonte toca a midia importada, sem embed de terceiro', () => {
+  ops.srcReset();
+  ops.__setSource({
+    state: 'ready', token: 'abcdefghijk', name: 'abcdefghijk.mp4',
+    url: '/sources/abcdefghijk.mp4', bytes: 2000000000, durationSec: 7200,
+    width: 1920, height: 1080, hasAudio: true
+  });
+  const html = ops.srcPanelHTML();
+  assert.ok(/<video[^>]*data-src-video/.test(html), 'e um <video> do proprio site');
+  assert.ok(html.indexOf('/sources/abcdefghijk.mp4') > 0, 'apontando para a midia importada');
+  assert.ok(html.indexOf('controls') > 0, 'com controles de play, pausa e volume');
+  assert.strictEqual(html.indexOf('youtube.com'), -1, 'e NADA do YouTube no player');
+  assert.strictEqual(html.indexOf('iframe'), -1, 'nenhum iframe');
+  assert.ok(html.indexOf('data-act="yt-manual"') > 0, 'com o caminho para marcar trecho a mao');
+  assert.ok(html.indexOf('2:00:00') > 0, 'e a duracao inteira do video a vista');
+  ops.srcReset();
+});
+
+/* O corpo do render tem de dizer QUAL pedaco da fonte cortar. Os dois campos andam juntos:
+   token da fonte sem intervalo faria o servidor renderizar o video INTEIRO -- duas horas de
+   podcast no lugar de um corte de 40 s, depois de horas de render. */
+ok('renderBody manda o intervalo quando a fonte e o video inteiro', () => {
+  const clip = { id: 'c-src', topic: 'Manchete', inSec: 600, outSec: 640, clipToken: 'velho' };
+  const corpo = ops.renderBody(clip, true, { token: 'abcdefghijk', name: 'abcdefghijk.mp4' });
+  assert.strictEqual(corpo.clipToken, 'abcdefghijk', 'o token e o da FONTE, nao o do trecho');
+  assert.strictEqual(corpo.start, 600);
+  assert.strictEqual(corpo.end, 640);
+  assert.strictEqual(corpo.name, 'abcdefghijk.mp4', 'e o nome da fonte, chave do sidecar dela');
+  /* Sem fonte o corpo e o de antes: trecho baixado antes desta entrega continua renderizando. */
+  const antigo = ops.renderBody(clip, true);
+  assert.strictEqual(antigo.clipToken, 'velho');
+  assert.strictEqual(antigo.start, undefined, 'sem fonte NAO vai intervalo');
+  assert.strictEqual(antigo.end, undefined);
+});
+
+/* `srcCuesLoad` tem de devolver PROMESSA nos dois ramos. O export editado espera por ela
+   (`esperaLegenda.then(...)`) antes de mandar o render, porque quem exporta pelo menu da grade
+   nunca abriu o editor e as falas ainda nao foram lidas. Devolvendo `undefined` no ramo de
+   saida antecipada, o `.then` levanta TypeError e o export NUNCA comeca -- botao travado em
+   "Renderizando..." e nada acontecendo. E a familia do BP-014: o ramo que quebra e o do
+   atalho, nao o do caminho feliz. */
+ok('srcCuesLoad devolve promessa mesmo quando nao ha fonte para consultar', () => {
+  ops.srcReset();
+  const semFonte = ops.srcCuesLoad({ id: 'x', inSec: 0, outSec: 5, rev: 1 });
+  assert.ok(semFonte && typeof semFonte.then === 'function',
+    'sem fonte tem de devolver thenable, nao undefined');
+  const semTrecho = ops.srcCuesLoad(null);
+  assert.ok(semTrecho && typeof semTrecho.then === 'function',
+    'sem trecho tambem');
+  return Promise.all([semFonte, semTrecho]);
+});
+
+/* Mudar a borda invalida o EXPORTADO, nunca a fonte. E o pedido em pessoa. */
+ok('ytApplyTrim descarta o video exportado e NAO mexe no video importado', () => {
+  ops.srcReset();
+  ops.__setSource({
+    state: 'ready', token: 'abcdefghijk', name: 'abcdefghijk.mp4',
+    url: '/sources/abcdefghijk.mp4', durationSec: 7200
+  });
+  const clip = {
+    id: 'cand-src', inSec: 600, outSec: 640, rev: 1,
+    clipToken: 'abcdefghijk', clipFilename: 'corte.mp4', clipBytes: 999,
+    clipCues: [{ start: 0, end: 1, text: 'x' }]
+  };
+  assert.strictEqual(ops.ytApplyTrim(clip, 610, 650, 7200), '');
+  assert.strictEqual(clip.clipFilename, '', 'o arquivo exportado do intervalo antigo saiu');
+  assert.strictEqual(clip.clipBytes, 0);
+  assert.deepStrictEqual(clip.clipCues, [], 'e a legenda rebaseada no comeco antigo tambem');
+  assert.strictEqual(clip.id, 'cand-src', 'a identidade do trecho NAO muda');
+  assert.strictEqual(ops.srcReady(), true, 'a FONTE continua pronta — nada a invalidou');
+  assert.strictEqual(ops.__srcState().url, '/sources/abcdefghijk.mp4');
+  /* E o teto do corte e a duracao do video inteiro: pode-se ir a qualquer ponto dele. */
+  assert.strictEqual(ops.ytApplyTrim(clip, 7000, 7100, 7200), '',
+    'trecho no fim de um video de 2 h e aceito');
+  assert.ok(ops.ytApplyTrim(clip, 7000, 7300, 7200).length > 0,
+    'e passar do fim do video e recusado com frase');
+  ops.srcReset();
+});
+
+ok('editOf ausente ou malformado mantém automático sem migrar o clip', () => {
+  for (const edit of [undefined, null, [], 'x', { v: 2 }, { v: 1, legenda: [], enquadramento: [] }]) {
+    const clip = { legendaStyle: 'impacto', reframe: 'crop45', edit };
+    const before = JSON.stringify(clip);
+    assert.deepStrictEqual(ops.editOf(clip), { v: 1, legenda: {}, enquadramento: {} });
+    assert.strictEqual(ops.legendaStyleOf(clip), 'impacto');
+    assert.strictEqual(ops.reframeOf(clip), 'crop45');
+    assert.strictEqual(ops.renderBody(clip, true).edit, undefined);
+    assert.strictEqual(JSON.stringify(clip), before);
+  }
+});
+ok('editOf valida escolhas, booleano falso e limites sem aceitar strings numéricas', () => {
+  const clip = { edit: { v: 1, legenda: { style: 'impacto', familia: 'montserrat',
+    tamanho: 999, largura: 10, posicaoPct: 200, caixaAlta: false,
+    cor: 'texto', destaqueCor: '#ff00ff', alinhamento: 'left' }, enquadramento: { reframe: 'crop11' } } };
+  assert.deepStrictEqual(ops.editOf(clip), { v: 1, legenda: { style: 'impacto', familia: 'montserrat',
+    cor: 'texto', alinhamento: 'left', caixaAlta: false, tamanho: 96, largura: 360, posicaoPct: 100 },
+    enquadramento: { reframe: 'crop11' } });
+  assert.deepStrictEqual(ops.editOf({ edit: { v: 1, legenda: { tamanho: '58', largura: Infinity,
+    posicaoPct: NaN, familia: 'Inter', caixaAlta: 'false' } } }).legenda, {});
+});
+ok('edit manual chega ao export e reset por campo preserva os outros controles', () => {
+  const clip = { legendaStyle: 'classico', reframe: 'blur' };
+  ops.editFieldWrite(clip, 'legenda', 'style', 'impacto');
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', 72);
+  ops.editFieldWrite(clip, 'enquadramento', 'reframe', 'crop45');
+  const body = ops.renderBody(clip, true);
+  assert.strictEqual(body.legendaStyle, 'impacto');
+  assert.strictEqual(body.reframe, 'crop45');
+  assert.strictEqual(body.edit.legenda.tamanho, 72);
+  ops.editFieldWrite(clip, 'legenda', 'style', null);
+  assert.strictEqual(ops.legendaStyleOf(clip), 'classico');
+  assert.strictEqual(clip.edit.legenda.tamanho, 72);
+  assert.strictEqual(ops.editFieldWrite(clip, 'unknown', 'x', 3), false);
+});
+ok('trim e armazenamento preservam ajuste manual com e sem artefato exportado', () => {
+  for (const exported of [false, true]) {
+    const clip = { id: 'edited', inSec: 10, outSec: 30, edit: { v: 1,
+      legenda: { caixaAlta: false, posicaoPct: 60 }, enquadramento: { reframe: 'crop11' } } };
+    if (exported) Object.assign(clip, { clipToken: 'old', clipFilename: 'old.mp4', clipBytes: 99 });
+    const before = JSON.stringify(clip.edit);
+    assert.strictEqual(ops.ytApplyTrim(clip, 11, 31, 120), '');
+    assert.strictEqual(JSON.stringify(clip.edit), before);
+    const project = ops.projectsSanitize({ projects: [{ id: 'p', videoId: 'abcdefghijk', candidates: [clip] }] });
+    assert.strictEqual(JSON.stringify(project.projects[0].candidates[0].edit), before);
+  }
+});
+
+/* --- o painel MANUAL da legenda ------------------------------------------------------
+   O que estes checks cobram é a distinção que o BP-008 exige: um controle automático e um
+   controle escolhido à mão não podem parecer a mesma coisa, e o slider tem de mostrar o
+   número que o automático usaria — senão encostar nele pula um valor que ninguém pediu. */
+ok('legendaValor mostra o automático do ESTILO, e marca o que é manual', () => {
+  const classico = { id: 'c' };
+  const impacto = { id: 'i', legendaStyle: 'impacto' };
+  assert.deepStrictEqual(ops.legendaValor(classico, 'tamanho'), { valor: 58, manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'tamanho'), { valor: 72, manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'familia'), { valor: 'montserrat', manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'caixaAlta'), { valor: true, manual: false });
+  /* Os que não dependem do estilo vêm da tabela comum; a posição vertical NASCE nula porque
+     a âncora automática é calculada no servidor e uma fórmula equivalente aqui é proibida. */
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'largura'), { valor: 820, manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'alinhamento'), { valor: 'center', manual: false });
+  assert.deepStrictEqual(ops.legendaValor(impacto, 'posicaoPct'), { valor: null, manual: false });
+});
+ok('um override marca só o SEU controle, e caixaAlta false conta como escolha', () => {
+  const clip = { id: 'c', legendaStyle: 'impacto' };
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', 90);
+  assert.deepStrictEqual(ops.legendaValor(clip, 'tamanho'), { valor: 90, manual: true });
+  assert.deepStrictEqual(ops.legendaValor(clip, 'largura'), { valor: 820, manual: false });
+  ops.editFieldWrite(clip, 'legenda', 'caixaAlta', false);
+  assert.deepStrictEqual(ops.legendaValor(clip, 'caixaAlta'), { valor: false, manual: true });
+  assert.strictEqual(ops.legendaManuais(clip), 2);
+  ops.editFieldWrite(clip, 'enquadramento', 'reframe', 'crop45');
+  assert.strictEqual(ops.legendaManuais(clip), 3);
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', null);
+  assert.deepStrictEqual(ops.legendaValor(clip, 'tamanho'), { valor: 72, manual: false });
+  assert.strictEqual(ops.legendaManuais(clip), 2);
+});
+ok('a tabela de automáticos cobre os dois estilos e só o que a tela mostra', () => {
+  assert.deepStrictEqual(Object.keys(ops.LEGENDA_AUTO).sort(), ops.LEGENDA_STYLES.slice().sort());
+  for (const estilo of ops.LEGENDA_STYLES) {
+    const a = ops.LEGENDA_AUTO[estilo];
+    assert.ok(ops.LEGENDA_FONTES.indexOf(a.familia) >= 0);
+    assert.ok(ops.LEGENDA_CORES.indexOf(a.destaqueCor) >= 0);
+    assert.strictEqual(typeof a.caixaAlta, 'boolean');
+    assert.ok(a.tamanho >= 32 && a.tamanho <= 96);
+  }
+  /* Nenhuma chave dos dois lados pode faltar: um controle sem automático mostraria
+     `undefined` no slider, que é pior que mostrar o número errado. */
+  assert.deepStrictEqual(Object.keys(ops.LEGENDA_AUTO_COMUM).sort(),
+    ['alinhamento', 'cor', 'largura', 'posicaoPct']);
+  assert.ok(ops.LEGENDA_CORES.every(c => /^#[0-9A-F]{6}$/.test(ops.LEGENDA_COR_HEX[c])));
+});
+ok('o painel marca a linha ajustada e desabilita o "auto" que não tem o que desfazer', () => {
+  const clip = { id: 'abc', legendaStyle: 'classico' };
+  const limpo = ops.legendaPanelHTML(clip);
+  assert.ok(limpo.indexOf('Tudo automático') > 0, 'o ramo que NÃO age também fala (BP-008)');
+  assert.strictEqual((limpo.match(/data-manual="1"/g) || []).length, 0);
+  /* Um botão por linha, todos desabilitados quando nada foi ajustado. */
+  assert.strictEqual((limpo.match(/data-act="leg-auto"/g) || []).length,
+    (limpo.match(/data-leg-row=/g) || []).length);
+  assert.strictEqual((limpo.match(/disabled/g) || []).length,
+    (limpo.match(/data-leg-row=/g) || []).length);
+  ops.editFieldWrite(clip, 'legenda', 'cor', 'destaque');
+  const sujo = ops.legendaPanelHTML(clip);
+  assert.ok(sujo.indexOf('1 controle ajustado') > 0);
+  assert.strictEqual((sujo.match(/data-manual="1"/g) || []).length, 1);
+  assert.ok(sujo.indexOf('data-leg-row="cor" data-manual="1"') > 0);
+});
+ok('a posição vertical só vira slider depois que o operador assume o controle', () => {
+  const clip = { id: 'p' };
+  const auto = ops.legendaPanelHTML(clip);
+  assert.ok(auto.indexOf('data-act="leg-posicao"') > 0);
+  assert.ok(auto.indexOf('automática — o servidor ancora dentro da imagem') > 0);
+  assert.ok(auto.indexOf('data-leg-field="posicaoPct"') < 0, 'sem slider enquanto é automática');
+  ops.editFieldWrite(clip, 'legenda', 'posicaoPct', 62);
+  const manual = ops.legendaPanelHTML(clip);
+  assert.ok(manual.indexOf('data-leg-field="posicaoPct"') > 0);
+  assert.ok(manual.indexOf('data-act="leg-posicao"') < 0);
+});
+ok('a prévia veste o resolvido e só passa NÚMEROS do quadro (ela não pagina)', () => {
+  const clip = { id: 'v', legendaStyle: 'impacto',
+    clipCues: [{ start: 0, end: 2, text: 'A maioria não vai conseguir' }] };
+  const html = ops.legendaPreviewHTML(clip);
+  assert.ok(html.indexOf('--leg-fonte:72;') > 0 && html.indexOf('--leg-col:820;') > 0);
+  assert.ok(html.indexOf('data-familia="montserrat"') > 0);
+  assert.ok(html.indexOf('data-caixa="1"') > 0 && html.indexOf('data-auto="1"') > 0);
+  assert.ok(html.indexOf('A maioria não vai conseguir') > 0, 'mostra a fala REAL do trecho');
+  /* Sem `px` nas custom properties: o CSS multiplica o número pelo tamanho de UM pixel do
+     quadro, e `calc(px * px)` seria inválido — a conversão mora num lugar só. */
+  assert.ok(!/--leg-(fonte|col):\d+px/.test(html));
+  ops.editFieldWrite(clip, 'legenda', 'posicaoPct', 40);
+  const movida = ops.legendaPreviewHTML(clip);
+  assert.ok(movida.indexOf('--leg-pos:40%') > 0 && movida.indexOf('data-auto="0"') > 0);
+  /* Trecho sem fala usa amostra em vez de caixa vazia — ramo que não age também fala. */
+  assert.ok(ops.legendaPreviewHTML({ id: 'x' }).indexOf('Assim fica a legenda') > 0);
+});
+ok('o caminho ASS declara na tela o que ele não reproduz', () => {
+  assert.ok(Array.isArray(ops.ASS_NAO_REPRODUZ) && ops.ASS_NAO_REPRODUZ.length >= 3);
+  assert.ok(ops.ASS_NAO_REPRODUZ.every(f => typeof f === 'string' && f.trim().length > 10));
 });
 
 /* --- TikTok: enviar um clip pronto para os RASCUNHOS ---------------------------------

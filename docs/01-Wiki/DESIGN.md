@@ -1,5 +1,15 @@
 # HUBI — Design System
 
+> **Aviso de atualidade (conferido em 2026-09-14).** O corpo abaixo é o contrato visual
+> escrito antes das remoções de 2026-08-17 e 2026-09-08 e **cita elementos que não existem
+> mais**: "Fluxos" (§Espaçamento), "Novo prompt", a busca do cabeçalho e a sidebar de
+> categorias (§Responsivo) saíram com os módulos Prompts salvos / Fluxos — ver `CLAUDE.md`,
+> "Módulos REMOVIDOS". As **regras** (escala, cor, forma, tipografia, breakpoints) seguem
+> valendo; só os exemplos morreram. Os valores de breakpoint **não foram reverificados**
+> contra o `design-system.css` atual — tratar como *não verificado*, não como medido.
+> Preferência visual em vigor: `appearance.js` + `pp_appearance_v1`
+> (`.claude/rules/modulos-index-html.md`).
+
 Este documento é o contrato visual do Seller-Arthur. Ele combina a clareza
 editorial do Perplexity com uma presença discreta do Washington Wizards.
 

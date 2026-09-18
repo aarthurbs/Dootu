@@ -29,7 +29,9 @@ import {
 import {
   LEGENDA_STYLES, LEGENDA_PADRAO, LEGENDA_LABELS, LEGENDA_PRESETS, LEGENDA_FAMILIAS,
   legendaStyleOf, legendaPreset, tetoDaPagina, charsPorLinhaLegenda,
-  AVANCO_INTER, AVANCO_INTER_CAIXA_ALTA, AVANCO_ARCHIVO_BLACK, MAX_CHARS_LINHA,
+  AVANCO_INTER, AVANCO_INTER_CAIXA_ALTA, AVANCO_MONTSERRAT_CAIXA_ALTA,
+  AVANCO_MONTSERRAT_LEGENDA, MAX_CHARS_LINHA,
+  LEGENDA_FONTES, LEGENDA_CORES, LEGENDA_ALINHAMENTOS, editOf, resolveLegenda,
 } from './src/preset.js';
 
 let n = 0;
@@ -642,7 +644,7 @@ const tagCard = (clipJsx.match(/<CardTitulo[\s\S]*?\/>/) || [''])[0];
 const jsxSemComentario = clipJsx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 ok('9v. e o span do gate chega ao card (sem isto o destaque nunca aparece)',
   /destaque=\{destaque\.span\}/.test(tagCard));
-/* A Montserrat SAIU: o titulo passou a Inter Black, que a legenda ja carregava. Sem o 900
+/* O título usa Inter Black, que a legenda já carregava. Sem o 900
    no `loadFont` o navegador SINTETIZA o peso a partir do 700 e sai um engrossamento borrado
    que so aparece olhando o frame — mesma armadilha de antes, outra familia. */
 /* O 800 entrou com a segunda identidade (no Ecommerce Puro o destaque e PESO, 800 -> 900,
@@ -653,17 +655,17 @@ const pesosInter = (clipJsx.match(/carregarInter\([\s\S]*?weights: \[([^\]]*)\]/
 ok('9w. os pesos que as duas identidades usam estao TODOS no loadFont',
   ['600', '700', '800', '900'].every((p) => pesosInter.includes(p)));
 /* O CARD continua sem familia propria: o 800 dele e peso novo, nao fonte nova. A familia
-   que entrou (Archivo Black) veio do estilo `impacto` da LEGENDA, e cada familia carregada
+   Montserrat vem do estilo `impacto` da LEGENDA, e cada familia carregada
    e um arquivo a mais que o render espera antes do primeiro quadro.
    O check deixou de contar um numero fixo e passou a cobrar a RELACAO: o Clip.jsx carrega
    exatamente as familias que algum estilo pede. Assim ele reprova nos dois erros que
    importam — fonte carregada que estilo nenhum usa (peso morto no render) e estilo pedindo
    familia que ninguem carregou (legenda na fonte padrao do Chrome, sem erro). */
 ok('9w2. so entram as FAMILIAS que algum estilo de legenda pede (o card nao traz nenhuma)',
-  !/carregarMontserrat/.test(clipJsx)
-  && !/google-fonts\/Montserrat/.test(clipJsx)
-  && (clipJsx.match(/from "@remotion\/google-fonts\//g) || []).length
-     === new Set(LEGENDA_STYLES.map((e) => LEGENDA_PRESETS[e].familia)).size);
+  !/ArchivoBlack|archivo_black/.test(clipJsx)
+  && JSON.stringify([...clipJsx.matchAll(/from "@remotion\/google-fonts\/([^"]+)"/g)]
+    .map((m) => m[1].toLowerCase()).sort())
+    === JSON.stringify([...new Set(LEGENDA_STYLES.map((e) => LEGENDA_PRESETS[e].familia))].sort()));
 /* A APARENCIA do destaque virou coisa da MARCA (o card ganhou uma segunda identidade), e
    por isso ela saiu do TOKENS: um valor global nao consegue ser laranja num card e peso no
    outro. O que sobra aqui e a metade do 9x que continua valendo — nenhum peso e nenhuma cor
@@ -1395,10 +1397,9 @@ ok('15c3. estilo torto resolve para o preset de hoje, nunca para `undefined`',
 
 /* --- o estilo novo. */
 const IMPACTO = legendaPreset('impacto');
-ok('15d. impacto e caixa alta, na familia black, com UM peso (400)',
-  IMPACTO.caixaAlta === true && IMPACTO.familia === 'archivo_black' && IMPACTO.peso === 400);
-/* A familia Archivo Black tem um peso so: pedir 700/900 dela faz o Chrome sintetizar
-   negrito borrado sobre um preto que ja e maximo — visivel so no frame. */
+ok('15d. impacto e caixa alta, Montserrat ExtraBold com peso 800',
+  IMPACTO.caixaAlta === true && IMPACTO.familia === 'montserrat' && IMPACTO.peso === 800);
+/* Corpo e destaque usam o peso que o renderer efetivamente carrega. */
 ok('15d2. e a enfase estatica dele NAO pede peso que a familia nao tem',
   IMPACTO.pesoDestaque === IMPACTO.peso);
 ok('15d3. corpo maior e entrelinha menor que a do classico (corpo grande pede linha justa)',
@@ -1423,8 +1424,10 @@ eq('15e. o avanco medido da Inter e o numero que o MAX_CHARS_LINHA ja usava',
   Math.round(AVANCO_INTER * 100) / 100, 0.55);
 ok('15e2. caixa alta e mais larga que caixa baixa na MESMA fonte (medido: +22%)',
   AVANCO_INTER_CAIXA_ALTA > AVANCO_INTER * 1.15);
-ok('15e3. a estimativa da black e mais conservadora que a caixa alta medida da Inter',
-  AVANCO_ARCHIVO_BLACK > AVANCO_INTER_CAIXA_ALTA);
+ok('15e3. Montserrat800 usa o avanco uppercase medido, sem herdar o titulo',
+  AVANCO_MONTSERRAT_CAIXA_ALTA === 0.731
+  && AVANCO_MONTSERRAT_CAIXA_ALTA > AVANCO_INTER_CAIXA_ALTA
+  && AVANCO_MONTSERRAT_CAIXA_ALTA !== AVANCO_MONTSERRAT);
 eq('15e4. a conta do classico devolve o MAX_CHARS_LINHA de sempre',
   charsPorLinhaLegenda(CLASSICO.fonte, CLASSICO.avanco), MAX_CHARS_LINHA);
 /* Entrada torta nao pode virar teto 0: pagina de zero caractere e laco infinito no
@@ -1476,10 +1479,10 @@ ok('15h. nenhum preset traz largura, ancora ou numero de linhas proprios',
 ok('15i. toda familia declarada tem entrada no mapa de fontes do Clip.jsx',
   LEGENDA_FAMILIAS.every((id) => new RegExp(`\\b${id}:`).test(clipJsx))
   && LEGENDA_STYLES.every((e) => LEGENDA_FAMILIAS.includes(LEGENDA_PRESETS[e].familia)));
-ok('15i2. a Archivo Black e carregada com o unico peso que ela tem',
-  /carregarArchivoBlack\("normal", \{\s*weights: \["400"\]/.test(clipJsx));
+ok('15i2. Montserrat carrega exatamente o 800 que corpo e destaque pedem',
+  /carregarMontserrat\("normal", \{\s*weights: \["800"\]/.test(clipJsx));
 ok('15i3. o Clip resolve a aparencia UMA vez e corta as paginas com o teto DELA',
-  /const aparencia = legendaPreset\(legendaStyle\);/.test(clipJsx)
+  /const aparencia = resolveLegenda\(legendaStyle, edit\);/.test(clipJsx)
   && /toCaptionPages\(cues, tetoDaPagina\(aparencia\)\)/.test(clipJsx));
 ok('15i4. e a Legenda recebe a aparencia (sem isso ela lê `undefined` e o render cai)',
   /aparencia=\{aparencia\}/.test(clipJsx)
@@ -1506,4 +1509,63 @@ for (const estilo of LEGENDA_STYLES) {
   ok(`15j2. [${estilo}] e a base do card do titulo nao encosta no topo dela (${baseCard.toFixed(0)} < ${(TOKENS.altura - LEGENDA_BASE_PADRAO - alto).toFixed(0)})`,
     baseCard < TOKENS.altura - LEGENDA_BASE_PADRAO - alto);
 }
+
+/* BP-014: o estado persistido é exercitado presente, ausente e malformado. */
+const automatico = { v: 1, legenda: {}, enquadramento: {} };
+eq('16a. edit ausente ou de versao desconhecida continua automatico',
+  [undefined, {}, { edit: null }, { edit: { v: 2 } }, { edit: [] }].map(editOf),
+  Array(5).fill(automatico));
+const editCompleto = { v: 1, legenda: {
+  style: 'impacto', familia: 'inter', tamanho: 84, caixaAlta: false,
+  cor: 'destaqueGanho', destaqueCor: 'destaquePerda', largura: 600,
+  alinhamento: 'left', posicaoPct: 72,
+}, enquadramento: { reframe: 'crop45' } };
+eq('16b. todos os overrides validos sobrevivem sem mutar a origem',
+  editOf({ edit: structuredClone(editCompleto) }), editCompleto);
+eq('16c. arrays, tipos errados, cor livre e valores fora dos conjuntos caem no automatico',
+  editOf({ edit: { v: 1, legenda: { tamanho: '80', caixaAlta: 1, cor: '#ff00ff',
+    familia: 'Montserrat', alinhamento: 'justify', largura: NaN }, enquadramento: [] } }), automatico);
+eq('16d. limites numericos sao clampados, inclusive zero de posicao',
+  editOf({ edit: { v: 1, legenda: { tamanho: 1000, largura: 1, posicaoPct: -5 } } }).legenda,
+  { tamanho: 96, largura: 360, posicaoPct: 0 });
+ok('16e. sem overrides o classico devolve o MESMO objeto e o mesmo teto anterior',
+  resolveLegenda(undefined) === CLASSICO
+  && resolveLegenda('classico', { v: 2 }) === CLASSICO
+  && tetoDaPagina(resolveLegenda(undefined)) === MAX_CHARS_PAGINA);
+const manualResolvido = resolveLegenda('classico', editCompleto);
+eq('16f. resolver aplica estilo, tipografia, cores e geometria manualResolvido',
+  [manualResolvido.familia, manualResolvido.fonte, manualResolvido.caixaAlta, manualResolvido.cor, manualResolvido.palavraCor,
+    manualResolvido.destaqueCor, manualResolvido.largura, manualResolvido.alinhamento],
+  ['inter', 84, false, TOKENS.destaqueGanho, TOKENS.destaquePerda,
+    TOKENS.destaquePerda, 600, 'left']);
+ok('16g. intencao vertical nao vira formula ou ancora JavaScript',
+  !('legendaBase' in manualResolvido) && !('posicaoPct' in manualResolvido) && !('base' in manualResolvido));
+const montserratBaixa = resolveLegenda('classico', { v: 1, legenda: { familia: 'montserrat' } });
+eq('16h. trocar so a familia nao sintetiza os pesos700/900 do classico na Montserrat',
+  [montserratBaixa.peso, montserratBaixa.pesoDestaque, montserratBaixa.avanco],
+  [800, 800, AVANCO_MONTSERRAT_LEGENDA]);
+const montserratAlta = resolveLegenda('impacto', { v: 1, legenda: { caixaAlta: true } });
+ok('16i. caixa baixa e alta usam suas metricas medidas e alteram a capacidade da pagina',
+  AVANCO_MONTSERRAT_LEGENDA === 0.610
+  && montserratAlta.avanco === AVANCO_MONTSERRAT_CAIXA_ALTA
+  && tetoDaPagina(resolveLegenda('impacto', { v: 1, legenda: { caixaAlta: false } }))
+    > tetoDaPagina(montserratAlta));
+const estreita = resolveLegenda('classico', { v: 1, legenda: { largura: 360 } });
+ok('16j. diminuir a coluna muda a paginacao real pelo mesmo dono',
+  tetoDaPagina(estreita) < tetoDaPagina(CLASSICO)
+  && toCaptionPages(longa, tetoDaPagina(estreita)).length > toCaptionPages(longa).length);
+eq('16k. limites de pagina usam a largura manualResolvido e guardam largura invalida',
+  [charsPorLinhaLegenda(58, 0.55, 360), charsPorLinhaLegenda(58, 0.55, NaN)], [11, 25]);
+ok('16l. cada familia manualResolvido tem arquivo carregado e so cores/alinhamentos fechados entram',
+  LEGENDA_FONTES.every((f) => LEGENDA_FAMILIAS.includes(f))
+  && LEGENDA_CORES.every((c) => /^#[0-9A-Fa-f]{6}$/.test(TOKENS[c]))
+  && LEGENDA_ALINHAMENTOS.join(',') === 'left,center,right');
+/* O `reframe` NAO e re-resolvido aqui: o prop ja chega resolvido pelo `reframeOf` do site e
+   revalidado pelo `reframe_profile` do servidor. Uma terceira resolucao dentro da composicao
+   seria o quarto dono do mesmo conjunto, e o 14p cobra a linha literal do Palco. */
+ok('16m. composicao consome edit e a largura/alinhamento resolvidos, sem re-resolver reframe',
+  /videoAltura, edit,/.test(clipJsx)
+  && /width: aparencia\.largura \|\| TOKENS\.legendaLargura/.test(clipJsx)
+  && /textAlign: aparencia\.alinhamento \|\| "center"/.test(clipJsx)
+  && !/editOf/.test(clipJsx));
 console.log(`\nok - ${n} verificacoes passaram (tipografia, quebra de linha, enfase, fundo, destaque de titulo e as duas identidades do card do BUSINESS_SERIOUS).`);

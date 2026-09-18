@@ -37,10 +37,28 @@ porque o tempo passou**. Movimento só com razão semântica.
   o IGNORA (só um aviso no meio do log). `palcoGeometria` o devolve separado.
 - **`Img` do Remotion, nunca `<img>`** — o `Img` segura a captura com `delayRender`
   até a imagem carregar; senão os primeiros quadros saem sem fundo.
-- **Nenhuma FAMÍLIA de fonte nova.** Inter (400/700/800/900) via
-  `@remotion/google-fonts`. **Montserrat saiu do projeto** (check 9w cobra as duas
-  pontas). Peso ausente do `loadFont` é SINTETIZADO pelo navegador e sai borrado —
-  só aparece OLHANDO o frame.
+- **DUAS famílias, e só as que algum estilo pede.** Inter (600/700/800/900) e
+  **Montserrat 800** (estilo `impacto`, desde 2026-09-16 — substituiu a Archivo
+  Black por decisão do usuário), as duas via `@remotion/google-fonts`, sem
+  dependência nova. O check **9w2** cobra a RELAÇÃO, não um número: o `Clip.jsx`
+  carrega exatamente as famílias que o `LEGENDA_PRESETS` pede — família carregada que
+  estilo nenhum usa é peso morto no render, e estilo pedindo família que ninguém
+  carregou desenha na fonte padrão do Chrome, sem erro. Peso ausente do `loadFont` é
+  SINTETIZADO pelo navegador e sai borrado — só aparece OLHANDO o frame.
+- **O avanço de cada família é MEDIDO, nunca estimado.** `AVANCO_MONTSERRAT_CAIXA_ALTA`
+  = 0,731 e `AVANCO_MONTSERRAT_LEGENDA` = 0,610 (fontTools, `instantiateVariableFont`
+  em wght=800, `cmap` → `hmtx`/`unitsPerEm`, média ponderada pela frequência das letras
+  do português; arredondados PARA CIMA). O mesmo método devolve 0,683160 para a Inter
+  Bold em caixa alta, que é o número que já estava lá — é essa reprodução que valida o
+  método. **Não reaproveitar o `AVANCO_MONTSERRAT` (0,58) do TÍTULO:** ele mede outro
+  texto, em caixa baixa, e usá-lo aqui faria a estimativa de quebra mentir e a linha
+  estourar a coluna de 820px, sem erro nenhum.
+- **A aparência da legenda é resolvida UMA vez, por `resolveLegenda(legendaStyle, edit)`.**
+  Ela junta o preset com o ajuste MANUAL do operador (prop `edit`) e devolve o objeto que
+  alimenta a página, a composição e o teto de caracteres. Resolver duas vezes deixaria a
+  página ser cortada com um corpo e desenhada com outro. O `reframe` NÃO é re-resolvido
+  aqui: o prop já chega validado pelo `reframeOf` do site e pelo `reframe_profile` do
+  servidor, e uma terceira resolução seria o quarto dono do mesmo conjunto.
 - **Ênfase por `fontSize`, nunca `transform: scale`** em texto que tem vizinha:
   scale cresce o glifo e **não** a caixa de layout (a armadilha do "Faturamentonão").
   Exceção viva: `TOKENS.palavraEscala` (1,12) no karaokê — folga medida APERTADA
@@ -95,6 +113,15 @@ porque o tempo passou**. Movimento só com razão semântica.
   karaokê inteiro desligado — tudo com a suíte verde.
 - Sabote numa **CÓPIA em temporário**, com o controle passando antes.
 - Verificação visual é obrigatória para tipografia/geometria: `cd studio && node preview-titulo.mjs`.
+
+## Conferir OLHANDO (tipografia não se prova por asserção)
+`cd studio && node preview-titulo.mjs` — os stills do CARD.
+`cd studio && node preview-legenda.mjs [pasta]` — os stills da LEGENDA: o `classico` de
+controle, o `impacto` em Montserrat, dois ajustes manuais (família/corpo/coluna/alinhamento)
+e a posição vertical manual. Os DOIS ficam **fora** do `provas.ps1`: eles precisam de FFmpeg
+e do Chrome do Remotion, e o que provam é o que nenhuma asserção pega — peso SINTETIZADO
+pelo navegador sai como engrossamento borrado e passa em qualquer check. Rode ao mexer em
+`AVANCO_*`, no `LEGENDA_PRESETS` ou no `loadFont`, e **olhe o frame**.
 
 ## Validação
 `node studio/test-preset.mjs` — ou, preferido, `.\provas.ps1` na raiz.

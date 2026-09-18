@@ -7,7 +7,11 @@
   <link rel="icon" type="image/png" href="assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Montserrat 800 entra por causa da PREVIA da legenda do Estudio: o estilo `impacto`
+       e desenhado nela, e uma previa em Inter mentiria sobre a largura do desenho, que e
+       justamente o que muda de um estilo para o outro. Um peso so, subset latino: a mesma
+       disciplina do `loadFont` do Clip.jsx, e nenhuma dependencia nova (BP-005). -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@800&display=swap" rel="stylesheet">
   <!-- Aparência (Preto + gelo · Grafite · Claro). Síncrono e no <head> de propósito: põe
        <html data-appearance> ANTES do primeiro paint, senão a tela pisca no tema errado. -->
   <script src="appearance.js"></script>
@@ -966,6 +970,7 @@
   setWorld('central');       // mostra todos os mundos ao entrar
 </script>
 <script src="empreendedor.js"></script>
+<script src="video-results.js"></script>
 <script src="video-ops.js"></script>
 
 <!-- Supabase: somente configuração pública + Auth/RLS + snapshot de metadados do Estúdio. -->

@@ -90,6 +90,11 @@ export const TOKENS = {
   destaqueGanho: '#8FB573',
   destaquePerda: '#C0554A',
 
+  /* O verde que era a cor ÚNICA da palavra ativa antes do leque. Continua na paleta porque
+     o editor manual o oferece (`LEGENDA_CORES`, espelhado no site e no `captions.py`): virou
+     tinta que o operador ESCOLHE, e deixou de ser a que o render pinta sozinho. Tirar daqui
+     deixaria a opção "Verde-claro" da tela apontando para `undefined`. */
+  palavraCor: '#59E36A',
   /* --- palavra sendo DITA agora (o "karaoke") ---------------------------------------
      LEQUE de cores, pedido explicito do operador em 2026-09-11: o verde unico (#59E36A) foi
      considerado apagado demais, e o pedido foi "amarelo neon, algo assim, mas nao so amarelo
@@ -1172,27 +1177,28 @@ export const AVANCO_INTER = 0.55;
    em caixa alta não pode herdar o teto de caracteres do estilo em caixa baixa. */
 export const AVANCO_INTER_CAIXA_ALTA = 0.683;
 
-/* ESTIMADO, não medido — e o comentário existe para ninguém tratá-lo como medição: a
-   Archivo Black NÃO está em disco neste projeto (o Remotion a busca no Google na hora do
-   render), então o número sai da medição acima (0,683em) mais 15% de folga por ser um
-   desenho black e largo contra um bold.
-   É CONSERVADOR de propósito, e a assimetria importa: superestimar o avanço fecha a página
-   mais cedo — página curta, que é justamente o efeito deste estilo; subestimar deixa a
-   linha estourar a coluna de 820px e a página vira três linhas altas demais para a folga
-   dentro do vídeo. Na dúvida, para cima.
-   BOTÃO DE CALIBRAGEM: com o arquivo da fonte em mãos, medir e trocar este número. */
-export const AVANCO_ARCHIVO_BLACK = 0.78;
+/* MEDIDO: Montserrat Version 9.000, TTF oficial google/fonts/ofl/montserrat,
+   fontTools instantiateVariableFont(wght=800), cmap -> hmtx / unitsPerEm,
+   média de A-Z ponderada pela frequência PT (a14.63, e12.57, o10.73 etc.).
+   Resultado: 0.73003519648em em caixa alta, 0.60915418458em em caixa baixa.
+   Arredondados PARA CIMA a 0.001em. O mesmo método dá 0.683160 para a Inter
+   Bold acima. Não reutilizar o 0.58 do título: aquele mede outro texto/peso.
+   Corpo e destaque Montserrat usam 800, portanto o avanço já cobre o peso máximo. */
+export const AVANCO_MONTSERRAT_CAIXA_ALTA = 0.731;
+export const AVANCO_MONTSERRAT_LEGENDA = 0.610;
 
 /* Quantos caracteres cabem numa linha da coluna da legenda com ESTE corpo e ESTA fonte.
    É a conta do `MAX_CHARS_LINHA` com os dois parâmetros à mostra em vez de cravados: o
    estilo novo muda o corpo E a fonte ao mesmo tempo, e um dos dois esquecido dá uma legenda
    que estoura a coluna sem erro nenhum. Entrada torta devolve o teto de hoje em vez de
    `NaN`, que viraria página de zero caractere e laço infinito no `toCaptionPages`. */
-export function charsPorLinhaLegenda(fonte, avanco) {
+export function charsPorLinhaLegenda(fonte, avanco, largura = TOKENS.legendaLargura) {
   var corpo = Number(fonte);
   var a = Number(avanco);
   if (!isFinite(corpo) || corpo <= 0 || !isFinite(a) || a <= 0) return MAX_CHARS_LINHA;
-  return Math.max(1, Math.floor(TOKENS.legendaLargura / (corpo * a)));
+  var coluna = Number(largura);
+  if (!isFinite(coluna) || coluna <= 0) coluna = TOKENS.legendaLargura;
+  return Math.max(1, Math.floor(coluna / (corpo * a)));
 }
 
 /* Teto de caracteres de uma PÁGINA deste estilo — é o argumento do `toCaptionPages`, que
@@ -1201,7 +1207,7 @@ export function charsPorLinhaLegenda(fonte, avanco) {
    alguém ajustasse o corpo da fonte e esquecesse o teto. */
 export function tetoDaPagina(estilo) {
   var e = estilo || LEGENDA_PRESETS[LEGENDA_PADRAO];
-  return charsPorLinhaLegenda(e.fonte, e.avanco) * MAX_LINHAS;
+  return charsPorLinhaLegenda(e.fonte, e.avanco, e.largura) * MAX_LINHAS;
 }
 
 /* --------------------------------------------------------- o registro */
@@ -1231,29 +1237,22 @@ export const LEGENDA_PRESETS = {
     palavraSubida: TOKENS.palavraSubida,
   },
 
-  /* ---- Impacto: caixa alta, corpo grande, uma grotesca black. É o estilo de canal de
+  /* ---- Impacto: caixa alta, corpo grande, Montserrat ExtraBold. É o estilo de canal de
      negócio que o operador pediu, e a direção continua a mesma — o que muda é a ESCALA da
      tipografia, não a quantidade de efeito: nenhuma animação nova entra aqui, a página
      segue estática e quem se mexe continua sendo só a palavra sendo dita.
 
-     Archivo Black, e não Inter 900 em caixa alta: a diferença que se vê no frame é a
-     LARGURA do desenho, não o peso — uma black larga preenche a coluna, e é isso que dá a
-     leitura de "letreiro" da referência. E não uma condensada (Anton e parecidas): a
-     referência é larga, e condensada em caixa alta a 72px vira manchete de jornal.
-
-     Peso 400 NÃO é engano: a família Archivo Black tem UM peso, e o preto já está no
-     desenho. Pedir 700 ou 900 aqui faz o Chrome SINTETIZAR o negrito por cima de um peso
-     que já é máximo — engrossamento borrado que só aparece olhando o frame, a mesma
-     armadilha que o comentário do peso 800 da Inter registra no `Clip.jsx`. */
+     O operador escolheu Montserrat. Não há linha secundária neste componente;
+     carregar 500/600/900 sem consumidor só faria o primeiro quadro esperar mais. */
   impacto: {
-    familia: 'archivo_black',
+    familia: 'montserrat',
     caixaAlta: true,
-    /* 72px contra os 58 do clássico. Com 820px de coluna e o avanço estimado, dá 14
+    /* 72px contra os 58 do clássico. Com 820px de coluna e o avanço medido, dá 15
        caracteres por linha: "A MAIORIA / NÃO VAI" cabe em duas linhas, que é o formato da
        referência. BOTÃO DE CALIBRAGEM do estilo — e note que subir daqui ENCURTA a página
        sozinho, porque o teto de caracteres é derivado do corpo. */
     fonte: 72,
-    peso: 400,
+    peso: 800,
     /* 1.10 e não os 1.18 do clássico: corpo grande pede entrelinha proporcionalmente menor,
        senão as duas linhas parecem dois blocos soltos. E não menos que isto: em caixa alta
        o Ã e o Õ do português ocupam a folga que o `A` não usa, e abaixo de ~1.06 o til da
@@ -1262,17 +1261,17 @@ export const LEGENDA_PRESETS = {
     /* Fecha 1% do avanço. A fonte já é larga; tracking negativo forte aqui gruda as
        hastes. */
     tracking: '-0.01em',
-    avanco: AVANCO_ARCHIVO_BLACK,
+    avanco: AVANCO_MONTSERRAT_CAIXA_ALTA,
     cor: TOKENS.texto,
     /* Sombra mais densa que a do clássico, e pelo mesmo motivo de sempre: leitura, não
        efeito. Um bloco de caixa alta a 72px cobre muito mais imagem, então a chance de cair
        sobre parede clara é maior. Continua sem brilho colorido e sem contorno — contorno
        grosso é a assinatura do editor automático que a direção do projeto evita. */
     sombra: '0 4px 18px rgba(0,0,0,.9), 0 2px 4px rgba(0,0,0,.92)',
-    /* MESMO peso do resto (a família só tem um), então a ênfase estática aqui é COR — a
+    /* MESMO peso do resto, então a ênfase estática aqui é COR — a
        mesma escolha do card `primo_rico`, pelo mesmo motivo: empilhar três sinais para
        dizer uma coisa só é o que vira cara de template. */
-    pesoDestaque: 400,
+    pesoDestaque: 800,
     /* O MESMO leque do clássico, e de propósito: o pedido de 2026-09-11 é do recurso, não de
        um estilo. Aqui ele era o amarelo queimado sozinho (`TOKENS.destaque`) — que continua
        sendo a ênfase ESTÁTICA da direção, e por isso a tinta não sumiu do projeto, só deixou
@@ -1302,4 +1301,66 @@ export function legendaPreset(valor) {
    no registro sem o carregamento correspondente deixaria a legenda cair na fonte de
    fallback do Chrome — legível, sem erro, e completamente fora da identidade. O check 15g
    amarra as duas pontas. */
-export const LEGENDA_FAMILIAS = ['inter', 'archivo_black'];
+export const LEGENDA_FONTES = ['inter', 'montserrat'];
+export const LEGENDA_FAMILIAS = LEGENDA_FONTES;
+export const LEGENDA_CORES = ['texto', 'destaque', 'destaqueGanho', 'destaquePerda', 'palavraCor'];
+export const LEGENDA_ALINHAMENTOS = ['left', 'center', 'right'];
+
+/* Espelhado literalmente no site e no servidor. Só valores manuais válidos sobrevivem;
+   a ausência continua automática e a leitura nunca modifica o clip salvo. */
+export function editOf(clip) {
+  var out = { v: 1, legenda: {}, enquadramento: {} };
+  var edit = clip && clip.edit;
+  if (!edit || edit.v !== 1 || Array.isArray(edit)) return out;
+  var legenda = edit.legenda;
+  if (legenda && typeof legenda === 'object' && !Array.isArray(legenda)) {
+    var sets = { style: LEGENDA_STYLES, familia: LEGENDA_FONTES,
+      cor: LEGENDA_CORES, destaqueCor: LEGENDA_CORES, alinhamento: LEGENDA_ALINHAMENTOS };
+    Object.keys(sets).forEach(function (key) {
+      if (sets[key].indexOf(legenda[key]) >= 0) out.legenda[key] = legenda[key];
+    });
+    if (typeof legenda.caixaAlta === 'boolean') out.legenda.caixaAlta = legenda.caixaAlta;
+    var ranges = { tamanho: [32, 96], largura: [360, 1000], posicaoPct: [0, 100] };
+    Object.keys(ranges).forEach(function (key) {
+      var value = legenda[key];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        /* Math.round porque o espelho em Python grampeia com int(round(...)): sem ele um
+           corpo 72.5 viraria 72.5 na tela e 72 no .ass, e os dois renderizadores
+           desenhariam tamanhos diferentes do MESMO ajuste, calados. */
+        out.legenda[key] = Math.round(
+          Math.min(ranges[key][1], Math.max(ranges[key][0], value)));
+      }
+    });
+  }
+  var quadro = edit.enquadramento;
+  if (quadro && !Array.isArray(quadro) && REFRAMES.indexOf(quadro.reframe) >= 0) {
+    out.enquadramento.reframe = quadro.reframe;
+  }
+  return out;
+}
+
+/* A mesma aparência alimenta paginação, composição e prévia CSS. A posição NÃO é
+   resolvida aqui: só Python transforma a intenção posicaoPct em legendaBase. */
+export function resolveLegenda(legendaStyle, edit) {
+  var manual = editOf({ edit }).legenda;
+  var preset = legendaPreset(manual.style || legendaStyle);
+  if (!Object.keys(manual).length) return preset;
+  var out = { ...preset };
+  if (manual.familia) out.familia = manual.familia;
+  if (out.familia === 'montserrat') out.peso = out.pesoDestaque = 800;
+  if (manual.tamanho !== undefined) out.fonte = manual.tamanho;
+  if (manual.caixaAlta !== undefined) out.caixaAlta = manual.caixaAlta;
+  if (manual.cor) out.cor = TOKENS[manual.cor];
+  if (manual.destaqueCor) {
+    out.destaqueCor = TOKENS[manual.destaqueCor];
+    out.palavraCor = out.destaqueCor;
+  }
+  if (manual.largura !== undefined) out.largura = manual.largura;
+  if (manual.alinhamento) out.alinhamento = manual.alinhamento;
+  if (out.familia === 'montserrat') {
+    out.avanco = out.caixaAlta ? AVANCO_MONTSERRAT_CAIXA_ALTA : AVANCO_MONTSERRAT_LEGENDA;
+  } else if (manual.familia || manual.caixaAlta !== undefined) {
+    out.avanco = out.caixaAlta ? AVANCO_INTER_CAIXA_ALTA : AVANCO_INTER;
+  }
+  return out;
+}

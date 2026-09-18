@@ -40,16 +40,137 @@ import os
 import re
 
 FONTE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
-FONTE_ARQUIVO = "Inter-Bold.ttf"
 
 # --- espelho de studio/src/preset.js TOKENS -------------------------------------------
-FONTE = "Inter"
-FONTE_TAMANHO = 58            # TOKENS.legendaFonte
-NEGRITO = True                # TOKENS.legendaPeso = 700 -> Bold (o padrão pedido)
 COR = "&H00FFFFFF"            # TOKENS.texto '#FFFFFF' no formato ASS &HAABBGGRR
 LARGURA = 820                 # TOKENS.legendaLargura
 MAX_CHARS_LINHA = 25          # preset.js MAX_CHARS_LINHA
 MAX_LINHAS = 2                # preset.js MAX_LINHAS
+
+# --- espelho de studio/src/preset.js LEGENDA_PRESETS ----------------------------------
+# QUARTA copia de um conjunto fechado (preset.js e o dono, serve.py e video-ops.js sao as
+# outras duas), pela razao de sempre: este modulo e stdlib puro e nao ha import possivel
+# entre ele e um ES module. O `test_serve.py` LE o preset.js e compara -- divergir calado
+# faria o MESMO corte sair numa tipografia pelo FFmpeg e noutra pelo Remotion.
+#
+# `negrito` e por ARQUIVO, nao por estilo: o `Inter-Bold.ttf` se declara familia "Inter",
+# entao o libass precisa do `(Inter, 700)` para casar; o `Montserrat-ExtraBold.ttf` se
+# declara familia "Montserrat ExtraBold" e o peso JA esta no desenho -- pedir negrito dele
+# faz o libass SINTETIZAR por cima de um ExtraBold, o mesmo engrossamento borrado que o
+# comentario do peso no Clip.jsx registra, e que so aparece olhando o frame.
+LEGENDA_FONTES = {
+    "inter": {"nome": "Inter", "arquivo": "Inter-Bold.ttf", "negrito": True},
+    "montserrat": {"nome": "Montserrat ExtraBold",
+                   "arquivo": "Montserrat-ExtraBold.ttf", "negrito": False},
+}
+# O padrao mora AQUI e o serve.py o DERIVA (como o PROFILES deriva do worker.REFRAMES):
+# uma quinta copia escrita a mao seria mais um lugar para divergir calado.
+LEGENDA_PADRAO = "classico"
+LEGENDA_ESTILOS = {
+    "classico": {"familia": "inter", "tamanho": 58, "caixa_alta": False},
+    "impacto": {"familia": "montserrat", "tamanho": 72, "caixa_alta": True},
+}
+# Avanco medio em `em`, MEDIDO (fontTools, cmap -> hmtx / unitsPerEm, media ponderada pela
+# frequencia das letras do portugues). Espelha AVANCO_INTER/_CAIXA_ALTA e
+# AVANCO_MONTSERRAT_LEGENDA/_CAIXA_ALTA do preset.js -- o mesmo metodo devolve 0.683160
+# para a Inter Bold em caixa alta, que e o numero que ja estava la.
+AVANCOS = {("inter", False): 0.55, ("inter", True): 0.683,
+           ("montserrat", False): 0.610, ("montserrat", True): 0.731}
+# TOKENS de cor no formato ASS &HAABBGGRR (alfa invertido: 00 = opaco, e a ordem dos bytes
+# e a INVERSA do #RRGGBB). Paleta FECHADA do projeto, nao roda de cor livre -- a direcao
+# editorial proibe neon.
+CORES = {"texto": "&H00FFFFFF", "destaque": "&H0041A4D9", "destaqueGanho": "&H0073B58F",
+         "destaquePerda": "&H004A55C0", "palavraCor": "&H006AE359"}
+# `left|center|right` -> Alignment do ASS na linha de BAIXO (1, 2, 3).
+ALINHAMENTOS = {"left": 1, "center": 2, "right": 3}
+# O que o caminho ASS NAO consegue reproduzir do preset do Remotion. Conjunto FECHADO
+# porque a TELA mostra estas frases ao lado do botao que usa este caminho (BP-008): um
+# renderizador que entrega outra coisa CALADO e exatamente o defeito que estes checks
+# existem para impedir.
+ASS_NAO_REPRODUZ = (
+    "o destaque da palavra sendo dita (a pagina inteira sai na cor principal)",
+    "a animacao de entrada da palavra",
+    "o desfoque da sombra (o ASS so tem sombra dura, deslocada)",
+)
+
+# Os quatro nomes de sempre, agora DERIVADOS do estilo padrao em vez de escritos a mao: o
+# corte sem estilo escolhido tem de sair byte a byte como sempre saiu, e derivar e o que
+# garante isso quando alguem mexer na tabela. Continuam publicos porque o worker
+# (`_place_font`) e a tela leem o arquivo da fonte.
+_PADRAO = LEGENDA_ESTILOS[LEGENDA_PADRAO]
+FONTE_ARQUIVO = LEGENDA_FONTES[_PADRAO["familia"]]["arquivo"]
+FONTE = LEGENDA_FONTES[_PADRAO["familia"]]["nome"]
+NEGRITO = LEGENDA_FONTES[_PADRAO["familia"]]["negrito"]
+FONTE_TAMANHO = _PADRAO["tamanho"]
+
+
+def limite(valor, padrao, minimo, maximo):
+    """Numero do operador -> dentro da faixa. Texto, bool e nao-finito caem no padrao."""
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return padrao
+    if valor != valor or valor in (float("inf"), float("-inf")):
+        return padrao
+    return int(round(min(maximo, max(minimo, valor))))
+
+
+def chars_por_linha(fonte, avanco, largura=LARGURA):
+    """Porte do `charsPorLinhaLegenda()` do preset.js. Entrada torta devolve o teto de hoje.
+
+    Sem isto o caminho ASS pagina com 25 caracteres fixos enquanto o Remotion pagina com o
+    teto do ESTILO (o `impacto` cabe 15 por linha), e o mesmo corte sai com quebras
+    diferentes em cada renderizador -- calado.
+    """
+    try:
+        corpo, a = float(fonte), float(avanco)
+    except (TypeError, ValueError):
+        return MAX_CHARS_LINHA
+    if not (corpo > 0) or not (a > 0):
+        return MAX_CHARS_LINHA
+    try:
+        coluna = float(largura)
+    except (TypeError, ValueError):
+        coluna = float(LARGURA)
+    if not (coluna > 0) or coluna == float("inf"):
+        coluna = float(LARGURA)
+    return max(1, int(coluna // (corpo * a)))
+
+
+def estilo_ass(style=None, manual=None):
+    """Estilo de legenda + ajuste MANUAL -> o que o ASS consegue dizer. PURA e total.
+
+    Dona unica da traducao preset->ASS. Nada aqui levanta: entrada desconhecida, ausente,
+    de tipo errado ou fora da paleta cai no `classico`, que e a legenda que TODO corte ja
+    queima hoje -- corte salvo antes desta entrega nao manda chave nenhuma e tem de sair
+    exatamente como sempre saiu.
+
+    O que o ASS NAO expressa esta em `ASS_NAO_REPRODUZ`, e a tela mostra a lista ao lado do
+    botao que usa este caminho (BP-008).
+    """
+    m = manual if isinstance(manual, dict) else {}
+    escolhido = m.get("style") if m.get("style") in LEGENDA_ESTILOS else style
+    base = LEGENDA_ESTILOS.get(escolhido, LEGENDA_ESTILOS[LEGENDA_PADRAO])
+    familia = m["familia"] if m.get("familia") in LEGENDA_FONTES else base["familia"]
+    fonte = LEGENDA_FONTES[familia]
+    caixa = m["caixaAlta"] if isinstance(m.get("caixaAlta"), bool) else base["caixa_alta"]
+    tamanho = limite(m.get("tamanho"), base["tamanho"], 32, 96)
+    largura = limite(m.get("largura"), LARGURA, 360, 1000)
+    return {
+        "fonte": fonte["nome"],
+        "arquivo": fonte["arquivo"],
+        "negrito": fonte["negrito"],
+        "familia": familia,
+        "tamanho": tamanho,
+        "caixaAlta": caixa,
+        "cor": CORES.get(m.get("cor"), COR),
+        "largura": largura,
+        "alinhamento": ALINHAMENTOS.get(m.get("alinhamento"), 2),
+        # O teto de CARACTERES por linha sai do corpo, do avanco medido da familia/caixa e
+        # da coluna -- a mesma conta do `tetoDaPagina` do preset.js.
+        "max_linha": chars_por_linha(tamanho, AVANCOS[(familia, caixa)], largura),
+        # INTENCAO vertical, nunca a ancora: quem transforma isto em MarginV e o
+        # `margem_inferior`, que continua dono unico e e quem aplica o teto da zona de UI.
+        "posicaoPct": limite(m.get("posicaoPct"), None, 0, 100),
+    }
 # TOKENS.sombraTexto = '0 3px 14px rgba(0,0,0,.82)'. Sombra de LEITURA, não efeito: sem ela
 # a legenda branca some sobre camisa clara. O alfa do ASS é invertido (00 = opaco), então
 # 82% de opacidade vira round((1 - .82) * 255) = 46 = 0x2E.
@@ -128,7 +249,7 @@ def strip_artifacts(texto):
     return " ".join(ARTEFATOS_RE.sub(" ", str(texto or "")).split())
 
 
-def font_available():
+def font_available(arquivo=None):
     """O arquivo da fonte empacotada esta no repositorio?
 
     Substituiu o `font_installed`, que procurava a Inter instalada no Windows. A pergunta
@@ -145,7 +266,7 @@ def font_available():
     apagar o arquivo, quem chama transforma este False no aviso `burned-sem-inter` na tela,
     em vez de deixar a tipografia trocar sozinha (BP-008).
     """
-    return os.path.isfile(os.path.join(FONTE_DIR, FONTE_ARQUIVO))
+    return os.path.isfile(os.path.join(FONTE_DIR, arquivo or FONTE_ARQUIVO))
 
 
 def _num(valor):
@@ -479,7 +600,7 @@ def _escapa(texto):
     return limpo.replace("\r", "").replace("\n", "\\N")
 
 
-def margem_inferior(altura, video_h=None):
+def margem_inferior(altura, video_h=None, pct=None):
     """MarginV do Alignment 2: distância da borda de BAIXO do quadro até a base do texto.
 
     PÚBLICA e dona ÚNICA da âncora vertical da legenda, nos dois renderizadores: o FFmpeg/ASS
@@ -495,18 +616,28 @@ def margem_inferior(altura, video_h=None):
 
     `video_h` é a altura do vídeo VISÍVEL dentro do quadro (perfil `crop` ocupa o quadro
     inteiro; `blur` ocupa a caixa deitada). Ausente = ocupa tudo.
+
+    `pct` é a INTENÇÃO vertical que o operador arrastou na prévia: onde a BASE do texto
+    deve ficar, em % da altura do quadro contada do TOPO. Ausente = a âncora automática de
+    sempre. É intenção e não âncora de propósito — quem transforma percentual em MarginV é
+    esta função, aqui, e é ela que continua aplicando o teto da zona de botões do TikTok.
+    Uma fórmula equivalente em JavaScript é exatamente o defeito que esta função existe
+    para impedir (a legenda saía 61 px ABAIXO da imagem).
     """
     alt = int(altura)
     caixa = min(alt, int(video_h or alt))
-    # Base do texto: um respiro acima da borda de baixo do vídeo...
-    base = (alt + caixa) / 2.0 - caixa * RODAPE_PCT
+    if pct is None:
+        # Base do texto: um respiro acima da borda de baixo do vídeo...
+        base = (alt + caixa) / 2.0 - caixa * RODAPE_PCT
+    else:
+        base = alt * (min(100.0, max(0.0, float(pct))) / 100.0)
     # ...mas nunca dentro da faixa de botões do TikTok/Reels, que é o que aconteceria no
     # perfil `crop`, em que a borda de baixo do vídeo É a borda de baixo da tela.
     base = min(base, alt * ZONA_UI_PCT)
     return max(0, int(round(alt - base)))
 
 
-def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None):
+def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None, estilo=None):
     """Cues JÁ rebaseadas para o corte -> documento ASS completo (str), ou '' se não há nada.
 
     Espera o relógio do CORTE (0 = primeiro quadro), que é o que `ytclip.cues_for_range`
@@ -516,18 +647,25 @@ def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None):
     `video_h` é a altura, dentro do quadro de saída, do vídeo visível: é o que põe a legenda
     DENTRO da imagem em vez de na tarja de fundo (ver `margem_inferior`).
 
+    `estilo` é o que o `estilo_ass()` resolveu (preset + ajuste manual). Ausente = o
+    `classico`, byte a byte o documento que este módulo sempre gerou.
+
     Devolver '' quando não sobra página é o contrato: quem chama não deve gravar arquivo
     vazio nem pendurar um filtro `ass=` que não legenda nada.
     """
-    paginas = to_pages(cues)
+    e = estilo if isinstance(estilo, dict) else estilo_ass()
+    # O teto de caracteres vem do ESTILO, não da constante: paginar com 25 e desenhar a 72px
+    # em caixa alta é a linha estourando a coluna, sem erro nenhum — e é justamente a
+    # divergência entre os dois renderizadores que esta entrega veio matar.
+    paginas = to_pages(cues, e["max_linha"])
     if not paginas:
         return ""
     # Alignment 2 = base-centro. É de baixo para cima de propósito: com o texto pendurado
     # pelo TOPO (Alignment 8), uma página de duas linhas descia 68 px a mais que uma de uma
     # linha e vazava para fora do vídeo. Ancorado pela BASE, o pé da legenda fica no mesmo
     # lugar e é a página que cresce para cima.
-    margem = max(0, (int(largura) - LARGURA) // 2)
-    rodape = margem_inferior(altura, video_h)
+    margem = max(0, (int(largura) - e["largura"]) // 2)
+    rodape = margem_inferior(altura, video_h, e["posicaoPct"])
     cabecalho = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -544,14 +682,19 @@ def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None):
         " BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         # ScaleX/ScaleY ficam em 100: escalar glifo destacado foi medido e reprovado neste
         # projeto (a caixa de layout não acompanha e a palavra seguinte é comida).
-        "Style: Legenda,%s,%d,%s,%s,&H00000000,%s,%d,0,0,0,100,100,0,0,1,%d,%d,2,%d,%d,%d,1"
-        % (FONTE, FONTE_TAMANHO, COR, COR, SOMBRA_COR, -1 if NEGRITO else 0,
-           CONTORNO, SOMBRA, margem, margem, rodape),
+        "Style: Legenda,%s,%d,%s,%s,&H00000000,%s,%d,0,0,0,100,100,0,0,1,%d,%d,%d,%d,%d,%d,1"
+        % (e["fonte"], e["tamanho"], e["cor"], e["cor"], SOMBRA_COR,
+           -1 if e["negrito"] else 0, CONTORNO, SOMBRA, e["alinhamento"],
+           margem, margem, rodape),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
+    # A caixa alta é aplicada ao TEXTO porque o ASS não tem `text-transform`: o
+    # `textTransform: uppercase` do Clip.jsx é CSS e não viaja para cá. Sem isto o mesmo
+    # estilo sai em caixa alta num renderizador e em caixa baixa no outro.
     linhas = ["Dialogue: 0,%s,%s,Legenda,,0,0,0,,%s"
-              % (_tempo(p["start"]), _tempo(p["end"]), _escapa(p["text"]))
+              % (_tempo(p["start"]), _tempo(p["end"]),
+                 _escapa(p["text"].upper() if e["caixaAlta"] else p["text"]))
               for p in paginas]
     return "\n".join(cabecalho + linhas) + "\n"
