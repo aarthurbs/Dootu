@@ -1,9 +1,15 @@
 # Estado atual
 
-Última atualização: 2026-09-15
+Última atualização da base: 2026-09-18. Estado técnico abaixo registrado em 2026-09-15.
 Branch: `estudio/hub-recomendacoes` · commit base: `656dcd9`
 
-## Tarefa ativa
+## Descoberta do negócio
+
+Dootu é a marca geral do empreendimento. Em 2026-09-18, o fundador priorizou a descoberta de [trading com IA](TRADING-IA.md) com um parceiro. O Estúdio permanece como produto existente, com menor foco neste momento; a oportunidade de faturador fica em espera. O [Mapa do negócio](MAPA-DO-NEGOCIO.md) organiza as frentes e os [próximos passos](../02-Execution/DESCOBERTA-DO-NEGOCIO.md) guardam as perguntas abertas.
+
+Próximo passo: definir cliente, quem decide as operações e onde ficam os recursos, para distinguir ferramenta, gestão e produto de investimento. Oferta, estratégia e orçamento não estão definidos. Esta atualização é documental; o estado técnico abaixo é um registro datado, não uma revalidação do software atual.
+
+## Última tarefa técnica registrada
 
 - Objetivo: fazer o Estúdio trabalhar com o **vídeo inteiro importado** como mídia de
   edição — player interno no site, cortes marcados em qualquer ponto da duração, e todo

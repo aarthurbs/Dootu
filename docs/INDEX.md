@@ -1,6 +1,28 @@
 # Dootu — Índice da base de conhecimento
 
-Mapa de navegação do projeto. **Comece aqui** e abra só o que a tarefa pedir.
+Página inicial da base da empresa Dootu. **Comece aqui** e abra só o que a tarefa pedir.
+
+## Dootu — marca e negócio
+
+Dootu é a marca geral do empreendimento; o Estúdio de Vídeos é um de seus produtos. A constituição jurídica da empresa não foi verificada.
+
+### Frentes da empresa
+
+| Frente | Situação em 2026-09-18 | Onde continuar |
+|---|---|---|
+| Empresa e marca | Contexto comum às iniciativas | [Mapa do negócio](01-Wiki/MAPA-DO-NEGOCIO.md) |
+| Trading com IA | Foco atual de descoberta; produto e oferta ainda não definidos | [Visão da iniciativa](01-Wiki/TRADING-IA.md) · [Perguntas e próximos passos](02-Execution/DESCOBERTA-DO-NEGOCIO.md#trading-com-ia--foco-atual) |
+| Estúdio de Vídeos | Produto existente; menor foco neste momento, sem decisão de encerramento | [Estado técnico datado](01-Wiki/ESTADO-ATUAL.md#última-tarefa-técnica-registrada) · [Pendências técnicas](02-Execution/PENDENCIAS.md) |
+| Ferramentas para e-commerce | Oportunidade anterior em espera, sem descarte | [Contexto e evidências](01-Wiki/MAPA-DO-NEGOCIO.md#oportunidade-anterior-planilha-do-faturador-amazon) |
+
+**Próximo passo do negócio:** definir com o parceiro quem será o cliente, quem decide as operações e onde o dinheiro ficará. Ainda não há escolha entre software, gestão ou produto de investimento.
+
+- [Mapa do negócio](01-Wiki/MAPA-DO-NEGOCIO.md) — objetivo, experiência, recursos e frentes da empresa.
+- [Próximos passos do negócio](02-Execution/DESCOBERTA-DO-NEGOCIO.md) — perguntas abertas e testes propostos, com status.
+- [Decisão: Dootu como marca](03-Decisions/2026-09-17-dootu-marca-do-empreendimento.md) — escopo definido pelo fundador em 2026-09-17.
+- [Decisão: foco de descoberta em trading com IA](03-Decisions/2026-09-18-foco-trading-ia.md) — mudança de prioridade, preservando as outras frentes.
+
+## Governança
 
 - Protocolo de leitura e escrita: [`../AGENTS.md`](../AGENTS.md)
 - Governança Usee: [Constituição](Constituicao.md)

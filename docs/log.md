@@ -1,5 +1,9 @@
 # log — histórico cronológico
 
+- **2026-09-18 — Wiki / Execution / Decisions / Índice** — Base organizada por empresa e frentes: trading com IA passa a ser o foco de descoberta sob a marca Dootu; Estúdio preservado como produto e e-commerce em espera. Hipóteses, perguntas e decisão de prioridade separadas, sem registrar lucros, orçamento ou oferta como validados.
+
+- **2026-09-17 — Wiki / Execution / Decisions** — Dootu definido pelo fundador como marca do empreendimento; mapa do negócio e descoberta organizados com relatos, hipóteses e testes separados, sem presumir que a ferramenta de faturador esteja ativa neste repositório.
+
 Mais recente no topo. Uma linha por mudança que outra pessoa (ou outro agente)
 precisaria saber. Formato: `AAAA-MM-DD — camada — o que mudou e por quê`.
 
