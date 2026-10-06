@@ -32,6 +32,9 @@ Histórico, medições e armadilhas completas: `docs/01-Wiki/archive/HISTORICO-e
 - **`parse_json3` NÃO se toca.** O `candidates()` mede a pausa entre falas naquela
   grade para decidir onde o corte fecha; mexer ali muda a recomendação. Provas
   comportamentais: `test_ytclip` 17m, 18i, 19k.
+- **Até 20 cortes por link (2026-10-06):** toda âncora avaliada, corte no teto DEPOIS da nota,
+  segundo nível de gancho (12–15) só soma, pedido à MuAPI fica 12. Ver
+  `docs/03-Decisions/2026-10-06-mais-cortes-por-link.md`.
 - **`worker.REFRAMES` é a fonte; `serve.PROFILES` DERIVA dele.** Duas listas à mão
   divergem. `crop` mantém ramo dedicado — o segmento genérico o quebra (medido:
   1080x1918, e encode falhando em fonte 720p).
@@ -166,6 +169,77 @@ levanta. **O libass NÃO falha quando não acha a fonte — ele troca calado par
 - **O que o ASS NÃO reproduz está declarado em `captions.ASS_NAO_REPRODUZ`** e a TELA
   mostra as frases ao lado do botão que usa esse caminho (BP-008). O check 33j2 conta os
   dois lados.
+- **Contorno e caixa de fundo (2026-09-23).** Sem nenhum dos dois, o `Style:` sai byte a
+  byte o de sempre (check 34e). Com caixa: `BorderStyle 3` — o libass pinta a caixa na cor
+  do OUTLINE e usa o `Outline` como respiro, sem sombra; opacidade `FUNDO_ALFA` (0,88).
+  Com contorno: `Outline` = contorno VISÍVEL, `round(corpo × CONTORNO_FATOR)`. Os dois
+  fatores espelham o `TOKENS` do preset.js (check 34c). Caixa + contorno juntos: o ASS
+  desenha só a caixa, e isso está no `ASS_NAO_REPRODUZ` (junto dos cantos retos).
+- **Cor em `#RRGGBB` é aceita** (`cor_ass`), além dos nomes de token antigos — corte salvo
+  com `cor: 'destaque'` continua saindo igual (check 34e6).
+
+## Posição livre da legenda (decisão do usuário, 2026-09-28 — substitui as travas de 09-25)
+- **`captions.coluna_x(largura, coluna, pct, piso)`**: sem `pct`, byte a byte o centro de
+  sempre. Com `pct`, a coluna EFETIVA é a mais larga ≤ `coluna` que cabe centrada em X entre as
+  margens (`MARGEM_LATERAL` 40 dos dois lados); nunca abaixo do `piso`; só quando nem o piso
+  cabe o X para (`grampeado: palavra`). `trilha` (borda direita > `TRILHA_X`) é AVISO.
+- **Piso = palavra mais LARGA do corte × `palavra_escala`** (`layout_legenda`, dono único do ASS
+  e do Remotion). Largura por `AVANCO_CHAR` — avanço de CADA caractere, medido no Chrome
+  (`measureText`) sobre as MESMAS fontes do Google que o Remotion carrega (Inter variável: o
+  `papel` é Inter 800, que o repo não tem em TTF). Fora da tabela = maior avanço da face.
+  A soma por letra fica ~0,1% abaixo da palavra inteira (kerning); a escala cobre.
+- **`margem_inferior(..., topo)`**: manual entre `topo` e a margem de baixo; o teto
+  `ZONA_UI_PCT` vale só para a AUTOMÁTICA. No Remotion o topo sai de
+  `topo_das_paginas`: a página do `toCaptionPages` é cortada por caractere e o navegador pode
+  quebrá-la em 3 linhas (palavra longa sozinha) — medido no still, o "OS" saía pelo topo com a
+  guarda de 2 linhas. O ASS (páginas sempre ≤ 2 linhas) usa o `estilo_ass()["topo"]`.
+- **`LEGENDA_ESTILOS`** ganhou `peso`/`entrelinha`/`palavra_escala`, conferidos por VALOR contra
+  o `LEGENDA_PRESETS` importado pelo node (check 14m).
+- **`paginas_remotion`** é o porte PURO do `toCaptionPages` (inclusive o átomo por palavra e o
+  comprimento UTF-16); o check 14n roda o node e compara em falas reais e construídas. O
+  `to_pages` continua sendo a paginação do ASS — as duas divergem de propósito (28×30 páginas
+  num corte real).
+- **`serve.legenda_geometria(reframe, manual, media, cues, style)`** — rota e `render_props`:
+  coluna efetiva e máxima, piso e palavra, faixas, `zonas` (guias), `avisos`
+  (`trilha`/`rodape`/`estreitou`), `grampeado` (`topo`/`fundo`/`palavra`) e `paginas`. O corpo
+  da rota leva `cues`/`legendaStyle` como o do export (check 35e4: rota == render_props).
+  `legendaColuna` só viaja com X manual (35e5).
+- Clip antigo: sem `posicaoXPct` e `posicaoPct` entre a guarda do topo e 86 → props e ASS iguais.
+  `posicaoPct` > 86 (anterior a 09-25) passa a sair onde foi arrastado; abaixo da guarda do topo
+  (antes saía cortado acima do quadro), sobe até ela.
+
+## Capa do TikTok e música de fundo (decisão do usuário, 2026-09-30)
+- **`POST /api/capa-tiktok`**: `capa_tiktok_of` → quadro EXATO por FFmpeg (`-ss` antes do `-i`)
+  → `npx remotion still CapaTikTok` → `<vídeo>-<in>-<out>-capa-tiktok.png` na pasta dos cortes
+  (`capa_name`, mesmo radical do MP4). Quadro e PNG com nome pelo CONTEÚDO (cache). Entra no
+  `_render_slot` — por isso o 29i conta CINCO. Recusas com código próprio (`CAPA_ERROS`:
+  `capa_sem_fonte` · `capa_sem_quadro` · `capa_quadro_fora`), cada uma com frase na tela (37f).
+  Os códigos moram no `worker.ERROR_CODES` (conjunto fechado com assert).
+- **Música:** biblioteca em `default_music_dir()` (`~/Music/Estudio Musicas`), `POST
+  /api/musica-importar` (corpo cru, nome em `X-Musica-Nome`, teto PRÓPRIO `MUSICA_MAX_BYTES` 50 MB,
+  `MUSICA_EXTS` fechadas, id = sha256 do conteúdo, sidecar `{nome, durationSec, lufs, ext}` medido
+  por `medir_audio` — `ebur128`, sem ffprobe), `GET /api/musicas`, `/musicas/` com Range e só as
+  extensões de áudio (o sidecar dá 404). **Dono do ganho: `ganho_musica(voz, faixa, nivel)`**, com
+  a voz medida no RECORTE (`_musica_para_render`; sem áudio = `VOZ_NOMINAL_LUFS` -14) e teto 1
+  (nunca amplifica). `MUSICA_DB` **calibrado no MP4 final: 22/16** (a partida 20/14 deu vão de
+  ~18,2/11,9 dB porque o `loudnorm` de passe único comprime ~2 dB; medido com tom de 3 kHz,
+  corrigindo a voz que vaza na banda: 20,4/14,0 dB). Nunca corrigir no `loudnorm`.
+  `X-Clip-Musica` é CONDICIONAL (`MUSICA_STATES`); faixa sumida/ilegível sai SEM música, dita.
+  O still não leva música (mudaria o hash do cache à toa).
+- **Remover trechos — DONO ÚNICO do mapa de tempo: `captions.mapa_saida(in, out, remocoes)`**
+  (ms da FONTE; grade de `FPS_SAIDA` = `TOKENS.fps`, `round`; junta sobrepostas; ignora a que
+  encosta na borda, a < `REMOCAO_MIN_MS` 200 e a que deixaria pedaço < `PEDACO_MIN_MS` 300; teto
+  `REMOCOES_MAX` 30). Dele saem: `concat_args` (UM encode, `fps` antes do `trim`, fade de áudio
+  `JUNCAO_FADE_SEC` 12 ms só nas junções; sem remoção = `clip_args` de sempre), `remapear_cues`
+  (palavra dentro sai, parcial apara, resto desloca — no `render_props` E na rota da geometria),
+  `paginas_na_fonte` (`fonteStart/fonteEnd` para a prévia, que toca a FONTE) e a duração (o
+  recorte já sai com a soma). `remocoes_of` só confere a forma. Medido: corte real de 12 s com
+  2 s removidos = 300 quadros (10,00 s) e a fala seguinte entra em 5,0 s, como o mapa diz.
+- **Texto fixo e zoom:** `textos_of`/`zooms_of` (forma, padrões, sem sobreposição, tetos 3/5,
+  janela ≥ 1 s) e `janelas_props` → `captions.intervalos_saida` sobre o MESMO mapa (com ou sem
+  remoção): parcial apara e fica contínuo, inteiro removido sai. Props `textos`/`zooms` só com
+  itens (corte sem eles = props de sempre). `ASS_NAO_REPRODUZ` declara música, remoções, texto e
+  zoom (33j2).
 
 ## Prazos (botões de calibragem)
 `RENDER_SEC_PER_CLIP_SEC` (guarda o DOBRO do medido) · `DEFAULT_RENDER_TIMEOUT` é

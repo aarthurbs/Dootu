@@ -36,6 +36,7 @@ OUT_H = 1920
 # "Inter"; o `Inter-ExtraBold.ttf` se declara familia "Inter ExtraBold", e o libass NAO o
 # casaria com o `(Inter, 700)` que o estilo pede -- cairia em Arial calado, o MESMO
 # defeito. Por isso o test_captions le a tabela `name` em vez de confiar no nome do arquivo.
+import math
 import os
 import re
 
@@ -67,15 +68,84 @@ LEGENDA_FONTES = {
 # uma quinta copia escrita a mao seria mais um lugar para divergir calado.
 LEGENDA_PADRAO = "classico"
 LEGENDA_ESTILOS = {
-    "classico": {"familia": "inter", "tamanho": 58, "caixa_alta": False},
-    "impacto": {"familia": "montserrat", "tamanho": 72, "caixa_alta": True},
+    # `peso`, `entrelinha` e `palavra_escala` espelham `peso`/`entrelinha`/`palavraEscala` do
+    # LEGENDA_PRESETS (check 34a3): sao eles que decidem a largura da palavra mais longa e a
+    # altura de uma pagina de 2 linhas -- o piso da coluna e a guarda do topo (2026-09-28).
+    "classico": {"familia": "inter", "tamanho": 58, "caixa_alta": False,
+                 "peso": 700, "entrelinha": 1.18, "palavra_escala": 1.12},
+    "impacto": {"familia": "montserrat", "tamanho": 72, "caixa_alta": True,
+                "peso": 800, "entrelinha": 1.10, "palavra_escala": 1.06},
+    # Os estilos prontos de 2026-09-23. `cor`/`contorno`/`fundo` em #RRGGBB, como no
+    # preset.js (o check 34a compara); ausente = branco, sem contorno, sem caixa.
+    "faixa": {"familia": "inter", "tamanho": 54, "caixa_alta": False,
+              "fundo": "#0E0E10", "peso": 700, "entrelinha": 1.3, "palavra_escala": 1.06},
+    "podcast": {"familia": "montserrat", "tamanho": 66, "caixa_alta": True,
+                "contorno": "#000000", "peso": 800, "entrelinha": 1.10, "palavra_escala": 1.06},
+    "papel": {"familia": "inter", "tamanho": 56, "caixa_alta": False,
+              "cor": "#141414", "fundo": "#FFFFFF",
+              "peso": 800, "entrelinha": 1.3, "palavra_escala": 1.04},
+    "discreta": {"familia": "inter", "tamanho": 48, "caixa_alta": False,
+                 "cor": "#F5F1E8", "peso": 700, "entrelinha": 1.2, "palavra_escala": 1.0},
 }
+# TOKENS.legendaContornoFator / legendaFundoAlfa do preset.js (check 34c).
+CONTORNO_FATOR = 0.06
+FUNDO_ALFA = 0.88
+SEM = "nenhum"
 # Avanco medio em `em`, MEDIDO (fontTools, cmap -> hmtx / unitsPerEm, media ponderada pela
 # frequencia das letras do portugues). Espelha AVANCO_INTER/_CAIXA_ALTA e
 # AVANCO_MONTSERRAT_LEGENDA/_CAIXA_ALTA do preset.js -- o mesmo metodo devolve 0.683160
 # para a Inter Bold em caixa alta, que e o numero que ja estava la.
 AVANCOS = {("inter", False): 0.55, ("inter", True): 0.683,
            ("montserrat", False): 0.610, ("montserrat", True): 0.731}
+# Avanco de CADA caractere, em milesimos de `em`, para medir a palavra MAIS LONGA de um corte
+# (o piso da coluna, 2026-09-28). A media acima serve para paginar; para "esta palavra cabe
+# nesta coluna?" a media mente para menos em palavra de letra larga (M, W, O).
+# MEDIDO no Chrome (`measureText` a 1000px) sobre as MESMAS fontes do Google que o Remotion
+# carrega (`@remotion/google-fonts`: a Inter e variavel, e 700 != 800 -- o `papel` e Inter
+# 800) e que o site carrega. Letter-spacing negativo do estilo NAO entra: a soma sai uns 1%
+# larga, que e o lado seguro de um piso. Caractere fora da tabela vale o MAIOR da face.
+AVANCO_ORDEM = ("0123456789!\"#$%&'()*+,-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
+                "abcdefghijklmnopqrstuvwxyz{|}~ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞß"
+                "àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ“”‘’–—…")
+AVANCO_ESPACO = {("inter", 700): 237, ("inter", 800): 219, ("montserrat", 800): 291}
+AVANCO_CHAR = {
+    ("inter", 700): (
+        674, 431, 630, 646, 676, 622, 649, 582, 651, 649, 338, 552, 649, 655, 1016, 672,
+        339, 377, 377, 559, 679, 334, 468, 334, 388, 334, 343, 679, 679, 679, 560, 1016,
+        747, 662, 740, 722, 607, 587, 750, 747, 281, 584, 719, 565, 932, 762, 771, 648,
+        777, 657, 655, 667, 732, 747, 1038, 738, 731, 664, 377, 388, 377, 487, 476, 365,
+        581, 630, 588, 630, 596, 398, 632, 623, 271, 271, 580, 271, 913, 623, 613, 630,
+        630, 407, 560, 366, 623, 600, 850, 580, 602, 573, 469, 372, 469, 679, 747, 747,
+        747, 747, 747, 747, 1022, 740, 607, 607, 607, 607, 281, 281, 281, 281, 760, 762,
+        771, 771, 771, 771, 771, 771, 732, 732, 732, 732, 731, 669, 657, 581, 581, 581,
+        581, 581, 581, 910, 588, 596, 596, 596, 596, 271, 271, 271, 271, 599, 623, 613,
+        613, 613, 613, 613, 613, 623, 623, 623, 623, 602, 630, 602, 540, 532, 311, 311,
+        500, 1000, 1002),
+    ("inter", 800): (
+        692, 441, 638, 657, 688, 634, 662, 588, 664, 662, 358, 586, 655, 660, 1029, 683,
+        354, 382, 382, 583, 686, 353, 471, 353, 400, 353, 360, 686, 686, 686, 579, 1036,
+        770, 665, 744, 723, 610, 585, 752, 749, 286, 590, 738, 565, 943, 766, 773, 652,
+        782, 662, 660, 677, 727, 770, 1059, 761, 752, 679, 382, 400, 382, 493, 484, 382,
+        588, 638, 595, 638, 601, 410, 639, 635, 283, 283, 593, 283, 927, 635, 619, 638,
+        638, 420, 573, 382, 635, 615, 863, 594, 618, 581, 486, 388, 486, 686, 770, 770,
+        770, 770, 770, 770, 1035, 744, 610, 610, 610, 610, 286, 286, 286, 286, 770, 766,
+        773, 773, 773, 773, 773, 773, 727, 727, 727, 727, 752, 683, 674, 588, 588, 588,
+        588, 588, 588, 907, 595, 601, 601, 601, 601, 283, 283, 283, 283, 606, 635, 619,
+        619, 619, 619, 619, 619, 635, 635, 635, 635, 618, 638, 618, 581, 569, 331, 331,
+        500, 1000, 1058),
+    ("montserrat", 800): (
+        685, 405, 599, 603, 700, 607, 649, 632, 669, 649, 301, 462, 730, 647, 897, 752,
+        242, 369, 369, 453, 609, 283, 388, 283, 415, 283, 283, 609, 609, 609, 597, 1036,
+        786, 769, 730, 826, 672, 642, 770, 806, 339, 557, 752, 610, 954, 806, 846, 737,
+        846, 740, 647, 635, 786, 766, 1184, 737, 693, 679, 389, 415, 389, 610, 500, 600,
+        628, 695, 603, 698, 642, 406, 705, 696, 313, 320, 677, 313, 1045, 696, 666, 695,
+        695, 443, 547, 447, 692, 620, 956, 619, 620, 556, 414, 314, 414, 609, 786, 786,
+        786, 786, 786, 786, 1099, 730, 672, 672, 672, 672, 339, 339, 339, 339, 843, 806,
+        846, 846, 846, 846, 846, 846, 786, 786, 786, 786, 693, 737, 703, 628, 628, 628,
+        628, 628, 628, 999, 603, 642, 642, 642, 642, 313, 313, 313, 313, 622, 696, 666,
+        666, 666, 666, 666, 666, 692, 692, 692, 692, 620, 695, 620, 545, 545, 283, 283,
+        500, 1000, 858),
+}
 # TOKENS de cor no formato ASS &HAABBGGRR (alfa invertido: 00 = opaco, e a ordem dos bytes
 # e a INVERSA do #RRGGBB). Paleta FECHADA do projeto, nao roda de cor livre -- a direcao
 # editorial proibe neon.
@@ -91,7 +161,27 @@ ASS_NAO_REPRODUZ = (
     "o destaque da palavra sendo dita (a pagina inteira sai na cor principal)",
     "a animacao de entrada da palavra",
     "o desfoque da sombra (o ASS so tem sombra dura, deslocada)",
+    "os cantos arredondados da caixa de fundo, e o contorno quando ha caixa",
+    "a inclinacao e o volume da Profundidade (o texto sai reto e sem espessura)",
+    "a musica de fundo (sai so a voz)",
+    "os trechos removidos (sai o corte inteiro)",
+    "o texto fixo na tela",
+    "o zoom pontual",
 )
+_HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def cor_ass(valor, alfa=0):
+    """Nome de token ou #RRGGBB -> &HAABBGGRR. Qualquer outra coisa -> None.
+
+    `alfa` e OPACIDADE (0..1) quando dado; 0 = opaco, que e o de sempre.
+    """
+    if valor in CORES and not alfa:
+        return CORES[valor]
+    if not isinstance(valor, str) or not _HEX.match(valor):
+        return None
+    aa = int(round((1 - alfa) * 255)) if alfa else 0
+    return "&H%02X%s%s%s" % (aa, valor[5:7], valor[3:5], valor[1:3])
 
 # Os quatro nomes de sempre, agora DERIVADOS do estilo padrao em vez de escritos a mao: o
 # corte sem estilo escolhido tem de sair byte a byte como sempre saiu, e derivar e o que
@@ -154,6 +244,16 @@ def estilo_ass(style=None, manual=None):
     caixa = m["caixaAlta"] if isinstance(m.get("caixaAlta"), bool) else base["caixa_alta"]
     tamanho = limite(m.get("tamanho"), base["tamanho"], 32, 96)
     largura = limite(m.get("largura"), LARGURA, 360, 1000)
+
+    def _tinta(chave):
+        # Manual valido vence; `nenhum` desliga; senao o do estilo.
+        v = m.get(chave)
+        if v == SEM:
+            return None
+        return v if cor_ass(v) else base.get(chave)
+    contorno, fundo = _tinta("contorno"), _tinta("fundo")
+    # Mesma regra do `resolveLegenda`: Montserrat so existe em 800; a Inter usa o do estilo.
+    peso = 800 if familia == "montserrat" else base["peso"]
     return {
         "fonte": fonte["nome"],
         "arquivo": fonte["arquivo"],
@@ -161,15 +261,28 @@ def estilo_ass(style=None, manual=None):
         "familia": familia,
         "tamanho": tamanho,
         "caixaAlta": caixa,
-        "cor": CORES.get(m.get("cor"), COR),
+        "cor": cor_ass(m.get("cor")) or cor_ass(base.get("cor")) or COR,
+        # Visivel em px (o `Outline` do ASS ja e o que aparece fora da letra).
+        "contorno": cor_ass(contorno),
+        "contorno_px": max(1, int(round(tamanho * CONTORNO_FATOR))),
+        "fundo": cor_ass(fundo, FUNDO_ALFA),
         "largura": largura,
         "alinhamento": ALINHAMENTOS.get(m.get("alinhamento"), 2),
         # O teto de CARACTERES por linha sai do corpo, do avanco medido da familia/caixa e
         # da coluna -- a mesma conta do `tetoDaPagina` do preset.js.
         "max_linha": chars_por_linha(tamanho, AVANCOS[(familia, caixa)], largura),
+        "peso": peso,
+        "entrelinha": base["entrelinha"],
+        "palavra_escala": base["palavra_escala"],
+        # A base mais ALTA que ainda cabe uma pagina inteira (2 linhas) dentro do quadro:
+        # a margem do quadro + duas linhas no corpo e na entrelinha do estilo.
+        "topo": MARGEM_LATERAL + int(math.ceil(MAX_LINHAS * tamanho * base["entrelinha"])),
         # INTENCAO vertical, nunca a ancora: quem transforma isto em MarginV e o
         # `margem_inferior`, que continua dono unico e e quem aplica o teto da zona de UI.
         "posicaoPct": limite(m.get("posicaoPct"), None, 0, 100),
+        # INTENCAO horizontal (centro da coluna em % da largura do quadro). Quem a vira
+        # MarginL/MarginR e o `coluna_x`, que tambem e quem grampeia contra a trilha.
+        "posicaoXPct": limite(m.get("posicaoXPct"), None, 0, 100),
     }
 # TOKENS.sombraTexto = '0 3px 14px rgba(0,0,0,.82)'. Sombra de LEITURA, não efeito: sem ela
 # a legenda branca some sobre camisa clara. O alfa do ASS é invertido (00 = opaco), então
@@ -600,7 +713,7 @@ def _escapa(texto):
     return limpo.replace("\r", "").replace("\n", "\\N")
 
 
-def margem_inferior(altura, video_h=None, pct=None):
+def margem_inferior(altura, video_h=None, pct=None, topo=None):
     """MarginV do Alignment 2: distância da borda de BAIXO do quadro até a base do texto.
 
     PÚBLICA e dona ÚNICA da âncora vertical da legenda, nos dois renderizadores: o FFmpeg/ASS
@@ -623,18 +736,251 @@ def margem_inferior(altura, video_h=None, pct=None):
     esta função, aqui, e é ela que continua aplicando o teto da zona de botões do TikTok.
     Uma fórmula equivalente em JavaScript é exatamente o defeito que esta função existe
     para impedir (a legenda saía 61 px ABAIXO da imagem).
+
+    MANUAL é LIVRE (decisão do usuário, 2026-09-28): o único limite duro é a página não sair
+    do quadro — base entre `topo` (a base mais alta que ainda cabe 2 linhas, do
+    `estilo_ass`) e a margem do quadro embaixo. A zona de botões do TikTok virou AVISO
+    (`serve.legenda_geometria` diz quando a base entra nela), não trava. A AUTOMÁTICA continua
+    fugindo dela exatamente como antes.
     """
     alt = int(altura)
     caixa = min(alt, int(video_h or alt))
     if pct is None:
         # Base do texto: um respiro acima da borda de baixo do vídeo...
         base = (alt + caixa) / 2.0 - caixa * RODAPE_PCT
+        # ...mas nunca dentro da faixa de botões do TikTok/Reels, que é o que aconteceria no
+        # perfil `crop`, em que a borda de baixo do vídeo É a borda de baixo da tela.
+        base = min(base, alt * ZONA_UI_PCT)
     else:
         base = alt * (min(100.0, max(0.0, float(pct))) / 100.0)
-    # ...mas nunca dentro da faixa de botões do TikTok/Reels, que é o que aconteceria no
-    # perfil `crop`, em que a borda de baixo do vídeo É a borda de baixo da tela.
-    base = min(base, alt * ZONA_UI_PCT)
+        piso = MARGEM_LATERAL if topo is None else int(topo)
+        base = min(alt - MARGEM_LATERAL, max(piso, base))
     return max(0, int(round(alt - base)))
+
+
+# Limites da posicao LATERAL, os dois ja existentes no projeto (nenhum numero de zona segura
+# inventado): 40 px e a margem que a coluna MAIS LARGA que o editor aceita (1000 num quadro
+# de 1080) ja deixa de cada lado; 930 e onde comeca a trilha de botoes do TikTok, anotada ao
+# lado do `legendaLargura` no TOKENS do preset.js.
+MARGEM_LATERAL = 40
+TRILHA_X = 930
+
+
+# A coluna mais estreita que o editor aceita (`largura` 360..1000). So serve de piso quando o
+# corte nao tem palavra nenhuma para medir.
+COLUNA_MIN = 360
+
+
+def _u16(texto):
+    # Comprimento em unidades UTF-16, que e o `.length` do JavaScript: a paginacao do Remotion
+    # conta assim, e o porte tem de contar igual (emoji vale 2 la).
+    return len(texto.encode("utf-16-le")) // 2
+
+
+def _face(familia, peso):
+    return (familia, 800) if (familia, peso) not in AVANCO_CHAR else (familia, peso)
+
+
+def largura_texto(texto, familia, peso, caixa, tamanho):
+    """Largura estimada de `texto` (uma palavra) em px do quadro, pela `AVANCO_CHAR`. PURA."""
+    face = _face(familia, peso)
+    tabela = AVANCO_CHAR.get(face) or AVANCO_CHAR[("inter", 700)]
+    maior = max(tabela)
+    s = str(texto or "")
+    if caixa:
+        s = s.upper()
+    total = 0
+    for ch in s:
+        i = AVANCO_ORDEM.find(ch)
+        total += AVANCO_ESPACO.get(face, maior) if ch == " " else (tabela[i] if i >= 0 else maior)
+    return total / 1000.0 * float(tamanho)
+
+
+def palavra_mais_longa(cues, estilo):
+    """(palavra, px) mais LARGA das falas do corte, no corpo/familia/caixa do estilo.
+
+    Mede o TOKEN como ele e desenhado (pontuacao inclusa: "EMPREENDEDORES," e o que ocupa a
+    linha). Sem palavra nenhuma: ("", 0.0).
+    """
+    melhor = ("", 0.0)
+    for cue in normalize_cues(cues) if isinstance(cues, list) else []:
+        for palavra in str(cue.get("text") or "").split():
+            px = largura_texto(palavra, estilo["familia"], estilo["peso"], estilo["caixaAlta"],
+                               estilo["tamanho"])
+            if px > melhor[1]:
+                melhor = (palavra.upper() if estilo["caixaAlta"] else palavra, px)
+    return melhor
+
+
+def linhas_da_pagina(texto, estilo, coluna):
+    """Quantas linhas uma PAGINA ocupa na coluna, quebrando por palavra como o CSS. PURA.
+
+    O Remotion corta a pagina por CARACTERES (`toCaptionPages`) e deixa o navegador quebrar
+    a linha: uma palavra longa sozinha numa linha faz a pagina de "2 linhas" virar 3 (medido
+    no still: "OS / EMPREENDEDORES, / QUE" no impacto). A guarda do topo precisa do numero
+    de VERDADE. Folga de 1%: linha que encosta na coluna conta como cheia.
+    """
+    face = _face(estilo["familia"], estilo["peso"])
+    espaco = AVANCO_ESPACO.get(face, 300) / 1000.0 * float(estilo["tamanho"])
+    linhas, atual = 0, 0.0
+    for palavra in str(texto or "").split():
+        w = largura_texto(palavra, estilo["familia"], estilo["peso"], estilo["caixaAlta"],
+                          estilo["tamanho"])
+        if linhas and atual + espaco + w <= coluna * 0.99:
+            atual += espaco + w
+        else:
+            linhas, atual = linhas + 1, w
+    return linhas
+
+
+def topo_das_paginas(estilo, paginas, coluna):
+    """A base mais alta em que a pagina MAIS ALTA deste corte ainda cabe no quadro. PURA.
+
+    Nunca menos que as 2 linhas do `estilo["topo"]` (sem paginas, a guarda de sempre)."""
+    linhas = max([MAX_LINHAS] + [linhas_da_pagina(p.get("text"), estilo, coluna) for p in paginas])
+    return MARGEM_LATERAL + int(math.ceil(linhas * estilo["tamanho"] * estilo["entrelinha"]))
+
+
+def coluna_x(largura, coluna, pct=None, piso=None):
+    """Intencao horizontal -> borda esquerda/direita e LARGURA da coluna, em px. PURA.
+
+    Dona UNICA da posicao lateral nos dois renderizadores: o ASS usa `esquerda`/`direita`
+    como MarginL/MarginR (o Alignment 2 centra entre as margens, entao o X sai exato) e o
+    Remotion recebe `esquerda` e `largura` pelos props `legendaEsquerda`/`legendaColuna`,
+    montados no `serve.render_props`.
+
+    `pct` e o CENTRO da coluna em % da largura do quadro. Ausente = centralizada, com as
+    duas margens iguais a `(largura - coluna) // 2` -- byte a byte o `to_ass` de sempre.
+
+    COLUNA ELASTICA (decisao do usuario, 2026-09-28; substitui o grampo `borda`/`trilha`):
+    com X manual, a coluna efetiva e a MAIS LARGA <= `coluna` que cabe centrada em X entre
+    as margens do quadro (`MARGEM_LATERAL` dos dois lados). Andar para a borda ESTREITA a
+    coluna (as linhas ficam mais curtas) em vez de parar; voltar para o centro a alarga ate
+    `coluna`, que vira o MAXIMO do operador. Nunca abaixo de `piso` (a palavra mais longa,
+    ja com a escala da palavra acesa -- ver `layout_legenda`): so quando nem o piso cabe e
+    que o X para, e `grampeado` diz `palavra` (ou `borda`, sem palavra medida).
+    A trilha de botoes do TikTok virou AVISO (`trilha`: a borda direita passou de `TRILHA_X`).
+    `faixa` = (min, max) do `pct` inteiro em que o piso cabe, ou None quando nao ha curso.
+    """
+    quadro = int(largura)
+    col = max(1, min(quadro, int(coluna)))
+    centro = (quadro - col) // 2
+    medido = bool(piso)
+    p = int(math.ceil(piso)) if medido else min(col, COLUNA_MIN)
+    p = max(1, min(p, quadro - 2 * MARGEM_LATERAL))
+    lo_px, hi_px = MARGEM_LATERAL + p / 2.0, quadro - MARGEM_LATERAL - p / 2.0
+    lo = int(math.ceil(lo_px / quadro * 100.0 - 1e-9))
+    hi = int(math.floor(hi_px / quadro * 100.0 + 1e-9))
+    faixa = (lo, hi) if lo < hi else None
+    if pct is None:
+        return {"esquerda": centro, "direita": centro, "largura": col, "piso": p,
+                "faixa": faixa, "grampeado": None, "trilha": False, "estreitou": False}
+    desejado = float(pct) / 100.0 * quadro
+    cx = min(hi_px, max(lo_px, desejado))
+    grampeado = None if abs(cx - desejado) < 1e-9 else ("palavra" if medido else "borda")
+    cabe = int(math.floor(2 * min(cx - MARGEM_LATERAL, quadro - MARGEM_LATERAL - cx) + 1e-9))
+    efetiva = min(cabe, max(p, min(col, cabe)))
+    esquerda = int(math.floor(cx - efetiva / 2.0 + 0.5))
+    esquerda = min(quadro - MARGEM_LATERAL - efetiva, max(MARGEM_LATERAL, esquerda))
+    return {"esquerda": esquerda, "direita": quadro - efetiva - esquerda, "largura": efetiva,
+            "piso": p, "faixa": faixa, "grampeado": grampeado,
+            "trilha": esquerda + efetiva > TRILHA_X, "estreitou": efetiva < col}
+
+
+def layout_legenda(estilo, cues, largura=OUT_W):
+    """Estilo resolvido + falas do corte -> a coluna que os DOIS renderizadores usam. PURA.
+
+    Uma chamada so para o ASS (`to_ass`) e para o Remotion (`serve.legenda_geometria`): o
+    piso sai da palavra mais longa DESTE corte, no corpo/familia/caixa do estilo, vezes a
+    escala da palavra acesa (`palavra_escala`) -- a palavra sendo dita cresce, e sem a
+    escala ela passaria da margem do quadro encostada na borda. O teto de caracteres por
+    linha acompanha a coluna EFETIVA (coluna mais estreita = linha mais curta).
+    """
+    palavra, px = palavra_mais_longa(cues, estilo)
+    piso = int(math.ceil(px * float(estilo.get("palavra_escala") or 1.0))) if px else None
+    col = coluna_x(largura, estilo["largura"], estilo.get("posicaoXPct"), piso)
+    col["palavra"] = palavra
+    col["max_linha"] = chars_por_linha(estilo["tamanho"],
+                                       AVANCOS[(estilo["familia"], estilo["caixaAlta"])],
+                                       col["largura"])
+    return col
+
+
+def _palavras_alinhadas(cue, texto):
+    # Porte do `palavrasAlinhadas` do preset.js: as palavras so valem se a JUNCAO delas for
+    # exatamente o texto da fala.
+    lista = cue.get("words") if isinstance(cue, dict) else None
+    if not isinstance(lista, list) or not lista:
+        return None
+    limpa = []
+    for palavra in lista:
+        if not palavra or not isinstance(palavra, dict):
+            return None
+        termo = re.sub(r"\s+", " ", str(palavra.get("text") or "")).strip()
+        if not termo:
+            return None
+        limpa.append({"start": _numero(palavra.get("start")), "text": termo})
+    return limpa if " ".join(p["text"] for p in limpa) == texto else None
+
+
+def _numero(valor):
+    # `Number(v) || 0` do JavaScript, para o que chega numa cue.
+    if isinstance(valor, bool):
+        return float(valor)
+    try:
+        n = float(valor)
+    except (TypeError, ValueError):
+        return 0.0
+    return n if n == n else 0.0
+
+
+def paginas_remotion(cues, teto):
+    """Porte PURO do `toCaptionPages(cues, teto)` do preset.js: as paginas que o MP4 mostra.
+
+    Existe para a PREVIA mostrar a pagina do export (decisao do usuario, 2026-09-28). O
+    `to_pages` acima e a paginacao do ASS e corta POR LINHA; o Remotion corta POR PAGINA de
+    `teto` caracteres e usa a palavra do reconhecedor como atomo -- medido num corte real:
+    28 x 30 paginas no classico, 97 x 83 no impacto a 360. O check 36p roda o node e compara
+    este porte com o `toCaptionPages` de verdade; mexeu num, mexe no outro.
+    Devolve `{start, end, text}` (sem as palavras: a previa nao anima).
+    """
+    paginas = []
+    for cue in cues if isinstance(cues, list) else []:
+        if not isinstance(cue, dict):
+            continue
+        texto = re.sub(r"\s+", " ", str(cue.get("text") or "")).strip()
+        if not texto:
+            continue
+        inicio, fim = _numero(cue.get("start")), _numero(cue.get("end"))
+        if not fim > inicio:
+            continue
+        com_tempo = _palavras_alinhadas(cue, texto)
+        if com_tempo and any(_u16(p["text"]) > teto for p in com_tempo):
+            com_tempo = None
+        termos = [p["text"] for p in com_tempo] if com_tempo else texto.split(" ")
+        blocos, contagens, atual, conta = [], [], "", 0
+        for palavra in termos:
+            tentativa = atual + " " + palavra if atual else palavra
+            if _u16(tentativa) <= teto or not atual:
+                atual, conta = tentativa, conta + 1
+            else:
+                blocos.append(atual)
+                contagens.append(conta)
+                atual, conta = palavra, 1
+        if atual:
+            blocos.append(atual)
+            contagens.append(conta)
+        fatias = [com_tempo[sum(contagens[:i])]["start"] for i in range(len(blocos))] \
+            if com_tempo else None
+        total = sum(_u16(b) for b in blocos) or 1
+        relogio = inicio
+        for indice, bloco in enumerate(blocos):
+            fatia = (fim - inicio) * (_u16(bloco) / total)
+            termina = fim if indice == len(blocos) - 1 \
+                else (fatias[indice + 1] if fatias else relogio + fatia)
+            paginas.append({"start": relogio, "end": termina, "text": bloco})
+            relogio = termina
+    return paginas
 
 
 def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None, estilo=None):
@@ -657,15 +1003,18 @@ def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None, estilo=None):
     # O teto de caracteres vem do ESTILO, não da constante: paginar com 25 e desenhar a 72px
     # em caixa alta é a linha estourando a coluna, sem erro nenhum — e é justamente a
     # divergência entre os dois renderizadores que esta entrega veio matar.
-    paginas = to_pages(cues, e["max_linha"])
+    # A coluna (e o teto de caracteres que sai dela) do MESMO dono do Remotion: com X manual
+    # ela estreita perto da borda, e paginar com o teto da coluna cheia estouraria a margem.
+    lay = layout_legenda(e, cues, largura)
+    paginas = to_pages(cues, lay["max_linha"])
     if not paginas:
         return ""
     # Alignment 2 = base-centro. É de baixo para cima de propósito: com o texto pendurado
     # pelo TOPO (Alignment 8), uma página de duas linhas descia 68 px a mais que uma de uma
     # linha e vazava para fora do vídeo. Ancorado pela BASE, o pé da legenda fica no mesmo
     # lugar e é a página que cresce para cima.
-    margem = max(0, (int(largura) - e["largura"]) // 2)
-    rodape = margem_inferior(altura, video_h, e["posicaoPct"])
+    margem, margem_dir = max(0, lay["esquerda"]), max(0, lay["direita"])
+    rodape = margem_inferior(altura, video_h, e["posicaoPct"], e.get("topo"))
     cabecalho = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -682,10 +1031,19 @@ def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None, estilo=None):
         " BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         # ScaleX/ScaleY ficam em 100: escalar glifo destacado foi medido e reprovado neste
         # projeto (a caixa de layout não acompanha e a palavra seguinte é comida).
-        "Style: Legenda,%s,%d,%s,%s,&H00000000,%s,%d,0,0,0,100,100,0,0,1,%d,%d,%d,%d,%d,%d,1"
-        % (e["fonte"], e["tamanho"], e["cor"], e["cor"], SOMBRA_COR,
-           -1 if e["negrito"] else 0, CONTORNO, SOMBRA, e["alinhamento"],
-           margem, margem, rodape),
+        # Tres casos, e o de sempre (sem contorno, sem caixa) sai byte a byte igual:
+        # caixa = BorderStyle 3 (o libass pinta a caixa na cor do OUTLINE e usa o Outline
+        # como respiro; sem sombra, que sobre caixa e borrao); contorno = Outline visivel.
+        "Style: Legenda,%s,%d,%s,%s,%s,%s,%d,0,0,0,100,100,0,0,%d,%d,%d,%d,%d,%d,%d,1"
+        % ((e["fonte"], e["tamanho"], e["cor"], e["cor"])
+           + ((e["fundo"], e["fundo"], -1 if e["negrito"] else 0, 3,
+               max(1, int(round(e["tamanho"] * 0.18))), 0)
+              if e.get("fundo") else
+              (e["contorno"], SOMBRA_COR, -1 if e["negrito"] else 0, 1,
+               e["contorno_px"], SOMBRA)
+              if e.get("contorno") else
+              ("&H00000000", SOMBRA_COR, -1 if e["negrito"] else 0, 1, CONTORNO, SOMBRA))
+           + (e["alinhamento"], margem, margem_dir, rodape)),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -698,3 +1056,165 @@ def to_ass(cues, largura=OUT_W, altura=OUT_H, video_h=None, estilo=None):
                  _escapa(p["text"].upper() if e["caixaAlta"] else p["text"]))
               for p in paginas]
     return "\n".join(cabecalho + linhas) + "\n"
+
+
+# ------------------------------------------------------------------------------------------
+# REMOVER TRECHOS DO MEIO (2026-09-30, decisão do usuário): DONO ÚNICO do mapa de tempo.
+# Remoções chegam em ms da FONTE (`clip.edit.remocoes`), estritamente dentro do corte. Daqui saem
+# os pedaços mantidos (que o `_cut_for_render` concatena num encode), a duração da saída e o
+# remapeamento de falas, palavras, páginas da prévia, textos e zooms. Nenhuma fórmula de remapear
+# existe em JS/JSX: a tela só PULA os trechos na prévia.
+# As pontas caem na grade dos quadros da SAÍDA (espelho de `TOKENS.fps`, uma regra: round).
+FPS_SAIDA = 30
+REMOCAO_MIN_MS = 200
+REMOCOES_MAX = 30
+PEDACO_MIN_MS = 300
+
+
+def mapa_saida(in_ms, out_ms, remocoes, fps=FPS_SAIDA):
+    """`(in, out, [{deMs, ateMs}])` -> `{remocoes, pedacos, duracao_ms}`. PURA.
+
+    Ordena, prende à grade, junta sobrepostas/encostadas, descarta a que toca a borda do corte
+    (mover a borda é o gesto certo — a tela diz isso), a menor que `REMOCAO_MIN_MS` e a que
+    deixaria um pedaço mantido menor que `PEDACO_MIN_MS`; no máximo `REMOCOES_MAX`. Sem remoção
+    válida: um pedaço só, o corte inteiro.
+    """
+    passo = 1000.0 / fps
+    grade = lambda t: in_ms + round((t - in_ms) / passo) * passo  # noqa: E731
+    brutas = []
+    for r in remocoes or []:
+        try:
+            de, ate = float(r["deMs"]), float(r["ateMs"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(de) and math.isfinite(ate)) or ate <= de:
+            continue
+        de, ate = grade(de), grade(ate)
+        if de <= in_ms or ate >= out_ms:
+            continue
+        brutas.append([de, ate])
+    brutas.sort()
+    juntas = []
+    for de, ate in brutas:
+        if juntas and de <= juntas[-1][1]:
+            juntas[-1][1] = max(juntas[-1][1], ate)
+        else:
+            juntas.append([de, ate])
+    aceitas, cursor = [], in_ms
+    for de, ate in juntas:
+        if len(aceitas) >= REMOCOES_MAX or ate - de < REMOCAO_MIN_MS - 1e-6:
+            continue
+        if de - cursor < PEDACO_MIN_MS - 1e-6 or out_ms - ate < PEDACO_MIN_MS - 1e-6:
+            continue
+        aceitas.append((round(de, 3), round(ate, 3)))
+        cursor = ate
+    pedacos, cursor = [], float(in_ms)
+    for de, ate in aceitas:
+        pedacos.append((round(cursor, 3), de))
+        cursor = ate
+    pedacos.append((round(cursor, 3), float(out_ms)))
+    return {"remocoes": aceitas, "pedacos": pedacos,
+            "duracao_ms": round(sum(b - a for a, b in pedacos), 3)}
+
+
+def saida_de(mapa, ms):
+    """ms da FONTE -> ms da SAÍDA, ou None se o instante foi removido (ou está fora do corte)."""
+    acumulado = 0.0
+    for a, b in mapa["pedacos"]:
+        if a <= ms <= b:
+            return acumulado + (ms - a)
+        acumulado += b - a
+    return None
+
+
+def fonte_de(mapa, ms_saida):
+    """ms da SAÍDA -> ms da FONTE (o inverso). É o que a prévia, que toca a FONTE, usa para
+    achar a página — o site não tem fórmula de mapa."""
+    # Na fronteira EXATA entre dois pedaços vence o começo do seguinte (é onde a página começa).
+    acumulado = 0.0
+    for a, b in mapa["pedacos"]:
+        if ms_saida < acumulado + (b - a) - 1e-6:
+            return a + max(0.0, ms_saida - acumulado)
+        acumulado += b - a
+    return mapa["pedacos"][-1][1]
+
+
+def _mantido(mapa, de, ate):
+    """O maior intervalo de [de, ate] (ms da fonte) que cai INTEIRO num pedaço mantido."""
+    melhor = None
+    for a, b in mapa["pedacos"]:
+        x, y = max(a, de), min(b, ate)
+        if y > x and (melhor is None or y - x > melhor[1] - melhor[0]):
+            melhor = (x, y)
+    return melhor
+
+
+def remapear_cues(cues, mapa):
+    """Falas em s RELATIVOS ao corte (como o render as recebe) -> no relógio da SAÍDA. PURA.
+
+    Palavra inteira dentro de remoção SAI; palavra parcial é aparada ao pedaço mantido; o resto
+    desloca. Fala com palavras é refeita a partir delas (o texto é a junção, como o karaokê
+    exige); fala sem palavras vira o trecho entre o primeiro e o último instante mantidos.
+    Sem remoção, devolve as falas como vieram.
+    """
+    if not mapa or not mapa["remocoes"]:
+        return cues
+    in_ms = mapa["pedacos"][0][0]
+    fonte = lambda s: in_ms + float(s) * 1000.0  # noqa: E731
+    saida = lambda ms: round(saida_de(mapa, ms) / 1000.0, 3)  # noqa: E731
+    novas = []
+    for cue in cues or []:
+        if not isinstance(cue, dict):
+            continue
+        palavras = cue.get("words")
+        if isinstance(palavras, list) and palavras:
+            ficam = []
+            for w in palavras:
+                try:
+                    parte = _mantido(mapa, fonte(w["start"]), fonte(w["end"]))
+                except (KeyError, TypeError, ValueError):
+                    parte = None
+                if parte:
+                    ficam.append(dict(w, start=saida(parte[0]), end=saida(parte[1])))
+            if ficam:
+                novas.append(dict(cue, start=ficam[0]["start"], end=ficam[-1]["end"],
+                                  text=" ".join(str(w.get("text", "")) for w in ficam), words=ficam))
+            continue
+        try:
+            de, ate = fonte(cue["start"]), fonte(cue["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        partes = [(max(a, de), min(b, ate)) for a, b in mapa["pedacos"] if min(b, ate) > max(a, de)]
+        if partes:
+            novas.append(dict(cue, start=saida(partes[0][0]), end=saida(partes[-1][1])))
+    return novas
+
+
+def paginas_na_fonte(paginas, mapa):
+    """Cada página (relógio da SAÍDA) ganha `fonteStart`/`fonteEnd` (s relativos ao corte, na
+    FONTE): a prévia toca a fonte pulando os trechos, e escolhe a página por estes números."""
+    if not mapa or not mapa["remocoes"]:
+        return paginas
+    in_ms = mapa["pedacos"][0][0]
+    rel = lambda ms: round((ms - in_ms) / 1000.0, 3)  # noqa: E731
+    return [dict(p, fonteStart=rel(fonte_de(mapa, p["start"] * 1000.0)),
+                 fonteEnd=rel(fonte_de(mapa, p["end"] * 1000.0))) for p in paginas]
+
+
+def intervalos_saida(itens, mapa):
+    """Itens com `deMs/ateMs` na FONTE (textos fixos, zooms) -> `(ficam, removidos)` no relógio
+    da SAÍDA, em s relativos ao corte. PURA; o MESMO mapa das falas (`mapa_saida`, com ou sem
+    remoção). Parcialmente removido = aparado ao que sobra (ele atravessa a junção contínuo);
+    inteiramente removido = sai, e o id volta em `removidos` para a tela poder dizer."""
+    ficam, removidos = [], []
+    for it in itens or []:
+        de, ate = float(it["deMs"]), float(it["ateMs"])
+        partes = [(max(a, de), min(b, ate)) for a, b in mapa["pedacos"] if min(b, ate) > max(a, de)]
+        if not partes:
+            removidos.append(it.get("id"))
+            continue
+        saida = dict(it)
+        saida["deSec"] = round(saida_de(mapa, partes[0][0]) / 1000.0, 3)
+        saida["ateSec"] = round(saida_de(mapa, partes[-1][1]) / 1000.0, 3)
+        ficam.append(saida)
+    return ficam, removidos

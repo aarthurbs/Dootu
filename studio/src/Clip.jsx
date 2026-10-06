@@ -3,7 +3,7 @@ import {
   AbsoluteFill, Easing, Img, Sequence, spring, staticFile, useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { Video } from "@remotion/media";
+import { Audio, Video } from "@remotion/media";
 import { loadFont as carregarInter } from "@remotion/google-fonts/Inter";
 /* A segunda FAMILIA do projeto, e a primeira que nao e Inter: ela e o estilo `impacto` da
    legenda. Nenhuma dependencia nova entra por causa dela — o `@remotion/google-fonts` ja
@@ -15,25 +15,20 @@ import {
   activeWordIndex, popPalavra, corDaPalavra, MOLA_PALAVRA,
   palavrasDaPagina, resolveTitleHighlight, splitTitleHighlight,
   tituloEscalonado, entradaCard, presencaCard,
-  titleCardPreset, TITLE_CARD_PADRAO, TITULO_FILETE_REF,
+  cardOf, titleCardStyleOf, TITLE_CARD_PADRAO, TITLE_CARD_SEM, CARD_EXEMPLO,
+  TITULO_FILETE_REF,
   palcoGeometria, REFRAME_PADRAO, VIDEO_ALTURA_PADRAO,
-  resolveLegenda, tetoDaPagina, LEGENDA_PADRAO,
+  resolveLegenda, tetoDaPagina, LEGENDA_PADRAO, contornoPx, caixaLegenda,
+  profundidadeLegenda, esquerdaLegenda,
+  CAPA_ESTILO_DEF, CAPA_ENTRELINHA, CAPA_FOLGA_DEGRADE, CAPA_ZONAS, capaTitulo, capaBloco,
+  volumeMusica, textoFixoEstilo, opacidadeTexto, escalaZoom,
 } from "./preset.js";
-/* O REGISTRO das marcas, nunca uma marca solta. Enquanto isto era
-   `import { MARCA_BADGE, ... }`, um segundo card só poderia escolher o asset com um `if` de
-   marca escrito à mão aqui dentro — e fiação escrita à mão neste arquivo é exatamente o que
-   já passou verde e saiu errada no frame três vezes (`ancoraLegenda`, `palavrasDaPagina`,
-   `presencaCard`). Agora quem escolhe é o `titleCardPreset` do preset.js, provado por
-   execução, e o componente recebe UMA entrada — sem alcance nenhum à outra. */
-import { MARCAS } from "./marca.js";
-
 /* Só os pesos usados. Cada peso extra é um arquivo a mais que o render espera carregar antes
    do primeiro frame.
-   O 800 entrou com a segunda identidade do card: no Ecommerce Puro o destaque do título é
-   PESO (800 -> 900), porque a marca é monocromática e não há cor de marca para usar. Sem o
-   arquivo do 800 o navegador SINTETIZA o peso a partir do 700 e sai um engrossamento
-   borrado que só aparece OLHANDO o frame — a mesma armadilha que o 900 já teve. Mesma
-   FAMÍLIA (Inter), nenhuma dependência nova. */
+   Esta lista É o `CARD_PESOS` do preset.js, e o check 9w amarra as duas pontas: o editor de
+   cards oferece exatamente estes números porque um peso NÃO carregado é SINTETIZADO pelo
+   Chrome — sai um engrossamento borrado, sem erro e sem check reprovando, visível só olhando
+   o quadro. Mesma FAMÍLIA (Inter), nenhuma dependência nova. */
 const { fontFamily: INTER } = carregarInter("normal", {
   weights: ["600", "700", "800", "900"], subsets: ["latin"],
 });
@@ -95,11 +90,15 @@ export const defaultProps = {
   highlightText: "",
   /* Interruptor do automático. `false` = título liso, aconteça o que acontecer. */
   autoHighlight: true,
-  /* Qual das duas identidades o card veste. O padrão é o `primo_rico` do preset.js — a
-     marca que TODO corte já renderiza hoje —, e é o que faz clip antigo (sem a chave no
-     `pp_video_projects`) sair exatamente como saía. Valor torto não chega ao JSX: o
-     `titleCardPreset` o normaliza. */
+  /* SE este corte tem card. Conjunto fechado (`personalizado` | `nenhum`), padrão do
+     preset.js, e valor torto não chega ao JSX: o `titleCardStyleOf` o normaliza. */
   titleCardStyle: TITLE_CARD_PADRAO,
+  /* QUAL card ele veste — dado, e não enum: a biblioteca é do operador e mora no navegador.
+     Este exemplo existe para o Remotion Studio abrir MOSTRANDO um card (o mesmo motivo do
+     `title` acima) e é só TEXTO: nenhum asset de marca volta ao repositório por esta porta.
+     Não vaza para render nenhum — o `render_props` do serve.py SEMPRE manda a chave `card`,
+     e prop mandado vence defaultProp. Valor torto não chega ao JSX: o `cardOf` o valida. */
+  card: CARD_EXEMPLO,
   /* Qual aparencia a legenda veste. O padrao e o `classico` do preset.js — a legenda que
      TODO corte ja renderiza hoje —, e e o que faz clip salvo antes desta entrega (sem a
      chave no `pp_video_projects`) sair exatamente como saia. Valor torto nao chega ao JSX:
@@ -194,15 +193,26 @@ const Fundo = ({ imagem, banda }) => (
    2026-08-27, quando a prova era regex sobre o texto deste arquivo. `blur` devolve a
    geometria de sempre; `crop11`/`crop45` devolvem uma caixa de 1080 x videoAltura com o
    vídeo em `cover`, recortando a FONTE. */
-const Palco = ({ src, reframe, altura }) => {
+const Palco = ({ src, reframe, altura, zooms }) => {
   const geo = palcoGeometria(reframe, altura);
+  const quadro = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  /* `objectFit` é PROP, não estilo: dentro de `style` o @remotion/media o ignora e o recorte
+     não acontece (visto no frame). `blur` manda null, e aí a tag fica exatamente como era. */
+  const video = <Video src={src} style={geo.video} objectFit={geo.objectFit || undefined} />;
   return (
     <AbsoluteFill style={{ overflow: "hidden" }}>
       <div style={geo.caixa}>
-        {/* `objectFit` é PROP, não estilo: dentro de `style` o @remotion/media o ignora e
-            o recorte não acontece (visto no frame). `blur` manda null, e aí a tag fica
-            exatamente como era antes desta entrega. */}
-        <Video src={src} style={geo.video} objectFit={geo.objectFit || undefined} />
+        {/* Zoom pontual (2026-09-30): SÓ a camada do vídeo escala, centrada, num contêiner que
+            CORTA o excesso (legenda, textos, card e fundo intocados). Sem zoom, a árvore é a de
+            sempre — os stills de controle saem com o mesmo hash. */}
+        {Array.isArray(zooms) && zooms.length ? (
+          <div style={{ overflow: "hidden", lineHeight: 0 }}>
+            <div style={{ transform: "scale(" + escalaZoom(quadro, zooms, fps) + ")", transformOrigin: "50% 50%" }}>
+              {video}
+            </div>
+          </div>
+        ) : video}
       </div>
     </AbsoluteFill>
   );
@@ -235,7 +245,7 @@ const Palavra = ({ texto, estilo, espaco }) => (
    sempre uma das primeiras. Os tempos das palavras já estão no relógio do corte (o
    `ytclip._lines_from_words_in_range` subtraiu o começo do trecho UMA vez), então aqui só se
    SOMA `de` — nada é subtraído de novo. */
-const Legenda = ({ pagina, cor, base, de, aparencia }) => {
+const Legenda = ({ pagina, cor, base, esquerda, de, aparencia }) => {
   const quadro = useCurrentFrame();
   const { fps } = useVideoConfig();
   /* Relógio do CORTE, a MESMA base dos tempos das palavras. */
@@ -293,7 +303,9 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
              parado e é a página que cresce para cima.
              O número vem do servidor (`captions.margem_inferior`), o mesmo que o FFmpeg usa. */
           bottom: base,
-          left: (TOKENS.largura - (aparencia.largura || TOKENS.legendaLargura)) / 2,
+          /* Borda esquerda do servidor (`captions.coluna_x`, a MESMA do MarginL do ASS)
+             ou, sem posição lateral manual, a centralizada de sempre — `esquerdaLegenda`. */
+          left: esquerda,
           width: aparencia.largura || TOKENS.legendaLargura,
           textAlign: aparencia.alinhamento || "center",
           /* A TIPOGRAFIA toda vem do estilo resolvido (`LEGENDA_PRESETS`), nao mais dos
@@ -312,10 +324,20 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
           textTransform: aparencia.caixaAlta ? "uppercase" : "none",
           color: aparencia.cor,
           textShadow: aparencia.sombra,
+          /* Contorno: o traço é centrado no desenho da letra, e `paint-order` o põe POR
+             BAIXO do preenchimento — só a metade de fora aparece, e a letra não afina. */
+          ...(aparencia.contorno
+            ? { WebkitTextStroke: contornoPx(aparencia) + "px " + aparencia.contorno,
+              paintOrder: "stroke fill" }
+            : null),
           /* Reparte as duas linhas em vez de deixar uma cheia e uma com duas palavras. */
           textWrap: "balance",
+          /* PROFUNDIDADE: inclinação pela base + volume. Sai inteira do preset.js; Nenhuma
+             devolve `{}` e o bloco fica com exatamente as propriedades de antes. */
+          ...profundidadeLegenda(aparencia),
         }}
       >
+        <CaixaLegenda estilo={caixaLegenda(aparencia)}>
         {/* Sem tempo por palavra (sidecar antigo, legenda corrigida na mão, legenda
             manual), cai no caminho ESTÁTICO de sempre, sem uma linha de diferença. */}
         {conteudo || pedacos.map(function (pedaco, i) {
@@ -339,32 +361,35 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
             </span>
           );
         })}
+        </CaixaLegenda>
       </div>
     </AbsoluteFill>
   );
 };
 
-/* O card da marca: a placa do canal, o título e o filete. Fica no topo, longe da legenda e
-   longe da zona de interface das plataformas. Vazio por padrão — o pipeline não inventa
-   manchete, e sem título o card inteiro não é montado.
+/* Sem caixa, nenhum nó a mais: a página sem fundo sai com a MESMA árvore de antes. */
+const CaixaLegenda = ({ estilo, children }) => (
+  estilo ? <span style={estilo}>{children}</span> : <Fragment>{children}</Fragment>
+);
+
+/* O card do título: a placa, o identificador, a manchete e o filete. Fica no meio do quadro,
+   longe da legenda e longe da zona de interface das plataformas. Vazio por padrão — o
+   pipeline não inventa manchete, e sem título o card inteiro não é montado.
    Era um `<span>` branco solto sobre o vídeo, sem nenhuma amarra com o canal. O card resolve
    três coisas de uma vez: dá contraste garantido sobre quadro claro E escuro (o texto sobre
-   vídeo dependia da sombra e sumia em camisa branca), põe a marca no quadro, e cria a
+   vídeo dependia da sombra e sumia em camisa branca), põe a identidade no quadro, e cria a
    hierarquia que o título sozinho não tinha.
-   DUAS identidades, escolhidas pelo operador por clip (`titleCardStyle`) e resolvidas em
-   `TITLE_CARD_PRESETS` (preset.js). Elas divergem no que é IDENTIDADE — placa,
-   identificador, cor da borda, cor do filete e a aparência do destaque — e mais nada:
-   - `primo_rico`: preto e laranja, e o destaque do título é COR (#FF5F01 medido na
-     referência). Peso igual ao do resto: cor + 8% de corpo já carregam a ênfase.
-   - `puro_ecommerce`: MONOCROMÁTICO por medição, não por gosto — o logo de referência tem
-     0 pixels cromáticos, então não existe cor de marca para extrair dele. Sem cor, a
-     hierarquia é peso (800 -> 900), corpo (+8%) e o filete branco.
+   A IDENTIDADE é DADO, e chega pronta: o card vem da biblioteca que o operador construiu no
+   site, atravessa o POST e é validado pelo `cardOf` (preset.js) antes de virar props. Aqui
+   dentro não há `if` de identidade NENHUM, e é isso que garante que um card não possa usar a
+   placa, o identificador nem a paleta de outro — fiação escrita à mão neste arquivo é
+   exatamente o que já passou verde e saiu errado no frame três vezes (`ancoraLegenda`,
+   `palavrasDaPagina`, `presencaCard`).
    A geometria (tamanho, respiro, raio, sombra, posição, janela de 4s) e o ALGORITMO de
-   destaque são compartilhados — é o mesmo card vestido de duas formas, não dois cards.
+   destaque são compartilhados por TODO card — é uma caixa só, vestida de muitas formas.
 
    `fonte` chega pronta do `tituloEscalonado` (preset.js) em vez de ser calculada aqui: é
-   lógica pura, e provada por execução lá em vez de por regex sobre este arquivo. E o mesmo
-   vale para o `card`: quem escolhe a identidade é o `titleCardPreset`, não um `if` aqui. */
+   lógica pura, e provada por execução lá em vez de por regex sobre este arquivo. */
 /* Ease-out FORTE — o `cubic-bezier(.23,1,.32,1)`, não o `ease-out` nativo, que é fraco
    demais para parecer intencional. Nunca `ease-in`: começar devagar no instante em que o
    espectador está olhando é o que faz algo parecer lento. Curva e não `spring`: mola tem
@@ -373,10 +398,6 @@ const Legenda = ({ pagina, cor, base, de, aparencia }) => {
 const SUAVE = Easing.bezier(0.23, 1, 0.32, 1);
 
 const CardTitulo = ({ texto, destaque, fonte, total, card }) => {
-  /* A identidade chega RESOLVIDA (o `titleCardPreset` já rodou no `Clip`), e a placa sai do
-     registro por `card.marca`. Nenhum `if` de marca neste arquivo: é o que garante que uma
-     marca não possa usar o asset, o identificador ou a paleta da outra. */
-  const marca = MARCAS[card.marca];
   /* Dentro da Sequence, `useCurrentFrame()` já é o quadro RELATIVO ao card — é justamente
      por isso que ele mora numa: a janela de 4s vira a origem do relógio, e entrada e saída
      não precisam saber em que ponto do clipe estão. */
@@ -405,9 +426,8 @@ const CardTitulo = ({ texto, destaque, fonte, total, card }) => {
           paddingLeft: TOKENS.cardPadding + TOKENS.tituloFilete,
           borderRadius: TOKENS.cardRaio,
           backgroundColor: TOKENS.cardFundo,
-          /* A cor da borda é da MARCA (laranja no Primo Rico, branca a 14% no Ecommerce
-             Puro); a espessura, o raio, o fundo e a sombra são compartilhados — é o mesmo
-             card, vestido de duas formas, e não dois cards. */
+          /* A cor da borda é do CARD; a espessura, o raio, o fundo e a sombra são
+             compartilhados — é uma caixa só, vestida de muitas formas. */
           border: TOKENS.cardBordaPeso + "px solid " + card.bordaCor,
           boxShadow: TOKENS.cardSombra,
           opacity: entrada.opacidade,
@@ -435,40 +455,46 @@ const CardTitulo = ({ texto, destaque, fonte, total, card }) => {
             width: TOKENS.tituloFilete, backgroundColor: card.fileteCor,
           }}
         />
-        {/* Emblema + identificador. `Img` do Remotion e não `<img>`: o Img segura a captura
+        {/* Placa + identificador. `Img` do Remotion e não `<img>`: o Img segura a captura
             do quadro (delayRender) até a imagem carregar — com a tag crua os primeiros
-            quadros saem SEM a marca, e isso só aparece olhando o frame 0. A fonte é um data
-            URI embutido (marca.js), porque o `--public-dir` do render aponta para o cache do
-            YouTube e `staticFile()` não alcança o repositório.
-            A largura sai da PROPORÇÃO do arquivo: fixar os dois lados distorceria a marca —
-            e num emblema CIRCULAR isso viraria elipse, que é o erro mais visível que existe
-            num logo. */}
+            quadros saem SEM a placa, e isso só aparece olhando o frame 0. O `src` é um data
+            URI, e é a única forma aceita (validada no `cardOf` e no `card_of`): o
+            `--public-dir` do render aponta para o cache do YouTube e `staticFile()` não
+            alcança o repositório, então endereço remoto ou falharia ou viraria busca de rede
+            no meio da captura.
+            SEM logo não se monta `Img` nenhum: um `src` vazio é um pedido de rede para a
+            própria página, que o delayRender esperaria e o quadro sairia com imagem
+            quebrada. O `cardOf` garante que um card sem logo tem identificador.
+            A largura sai da PROPORÇÃO medida no arquivo: fixar os dois lados distorceria a
+            placa — e num emblema CIRCULAR isso viraria elipse, o erro mais visível que
+            existe num logo. */}
         <div
           style={{
             display: "flex", alignItems: "center", gap: 16,
             marginBottom: TOKENS.logoFolga,
           }}
         >
-          <Img
-            src={marca.badge}
-            style={{
-              display: "block",
-              height: TOKENS.logoAltura,
-              width: TOKENS.logoAltura * marca.proporcao,
-            }}
-          />
+          {card.logo
+            ? (
+              <Img
+                src={card.logo}
+                style={{
+                  display: "block",
+                  height: TOKENS.logoAltura,
+                  width: TOKENS.logoAltura * card.logoProporcao,
+                }}
+              />
+            )
+            : null}
           {/* O identificador é SECUNDÁRIO ao título, e é o tamanho e a opacidade que dizem
-              isso — não uma cor a menos. Em branco a 72% e não em laranja: o emblema, a
-              borda, o filete e o trecho destacado já são laranja; um quinto elemento na cor
-              da marca faria o card competir consigo mesmo. Caixa alta com espacejamento
-              aberto é o que faz três palavras pequenas lerem como assinatura, e não como
-              uma frase que alguém esqueceu de terminar.
-              AUSENTE é desfecho legítimo, não campo esquecido: a placa do Ecommerce Puro JÁ
-              traz o wordmark `ECOMMERCE`/`PURO`, e escrever o nome do canal ao lado dele o
-              diria duas vezes no mesmo card. Por isso o teste é sobre o nome ter conteúdo, e
-              não um `if` de marca — trocar a marca não pode acender texto que a placa dela
-              já contém. */}
-          {marca.nome
+              isso — não uma cor a menos. Caixa alta com espacejamento aberto é o que faz três
+              palavras pequenas lerem como assinatura, e não como uma frase que alguém
+              esqueceu de terminar.
+              AUSENTE é desfecho legítimo, não campo esquecido: uma placa que já traz o
+              wordmark diria o nome do canal duas vezes no mesmo card. Por isso o teste é
+              sobre o CAMPO ter conteúdo, e não um `if` de identidade — trocar de card não
+              pode acender texto que a placa dele já contém. */}
+          {card.identificador
             ? (
               <span
                 style={{
@@ -477,16 +503,16 @@ const CardTitulo = ({ texto, destaque, fonte, total, card }) => {
                   whiteSpace: "nowrap",
                 }}
               >
-                {marca.nome}
+                {card.identificador}
               </span>
             )
             : null}
         </div>
         <div
           style={{
-            /* O peso BASE é da marca: 900 (Inter Black) no Primo Rico, onde o destaque é
-               cor, e 800 no Ecommerce Puro, onde o destaque é o próprio 900 — base e
-               destaque no mesmo peso não deixariam nada destacado. */
+            /* O peso BASE é do CARD, e sai de um conjunto FECHADO (`CARD_PESOS`) que é
+               exatamente o que o `loadFont` acima carrega: peso não carregado o Chrome
+               sintetiza, e sai um engrossamento borrado sem erro nenhum. */
             fontFamily: INTER, fontWeight: card.tituloPeso, fontSize: fonte,
             lineHeight: TOKENS.tituloEntrelinha, color: TOKENS.texto,
             /* À esquerda, alinhado com a marca e com o filete. Centrado, o texto flutuava
@@ -504,29 +530,28 @@ const CardTitulo = ({ texto, destaque, fonte, total, card }) => {
               <span
                 key={indice}
                 style={{
-                  /* A APARÊNCIA do destaque é da marca, e o ALGORITMO que escolheu este
+                  /* A APARÊNCIA do destaque é do CARD, e o ALGORITMO que escolheu este
                      trecho é compartilhado (`resolveTitleHighlight`/`splitTitleHighlight`) —
-                     é essa separação que faz as duas identidades destacarem sempre o MESMO
-                     trecho da mesma manchete, e só vesti-lo de forma diferente.
+                     é essa separação que faz TODO card destacar o MESMO trecho da mesma
+                     manchete, e só vesti-lo de forma diferente.
                      Uma cor por card: duas viram semáforo, a mesma razão pela qual a legenda
-                     usa uma cor de ênfase por vez. No Ecommerce Puro esta cor é o próprio
-                     branco do título, porque lá o sinal é o peso. */
-                  color: card.destaque.cor,
-                  /* No Primo Rico é o MESMO peso do título (a cor já carrega a ênfase, e
-                     somar peso diria a mesma coisa duas vezes); no Ecommerce Puro é o degrau
-                     acima, porque sem cor de marca o peso é o único sinal que sobra. */
-                  fontWeight: card.destaque.peso,
+                     usa uma cor de ênfase por vez. */
+                  color: card.destaqueCor,
+                  /* Mesmo peso do título quando o sinal é a cor; um degrau acima quando o
+                     operador quiser o destaque por PESO. Os dois vêm do `CARD_PESOS`. */
+                  fontWeight: card.destaquePeso,
                   /* Cresce por `fontSize` e não por `transform: scale`: scale cresce o glifo
                      e não a caixa, e o texto vizinho é comido — armadilha já medida neste
                      projeto ("Faturamentonão"). Em `em` para acompanhar o degrau da escada. */
                   fontSize: TOKENS.tituloDestaqueFator + "em",
-                  /* O sublinhado só existe na marca monocromática, onde o peso sozinho é
-                     sutil demais a 32px. `text-decoration` e NÃO um retângulo posicionado:
+                  /* O sublinhado é o terceiro sinal, e é opcional de propósito: resolve o
+                     card monocromático, onde o peso sozinho é sutil demais a 32px, e vira
+                     ruído onde já há cor. `text-decoration` e NÃO um retângulo posicionado:
                      é o que faz o filete acompanhar o trecho quando ele QUEBRA entre duas
                      linhas (medido — um retângulo sublinharia o vão).
                      Em `em` e nunca em px: com a escada descendo a 32px, 4px fixos deixavam
                      0,7px de folga até os acentos da linha de baixo. */
-                  ...(card.destaque.sublinhado
+                  ...(card.destaqueSublinhado
                     ? {
                       textDecoration: "underline",
                       textDecorationThickness:
@@ -546,6 +571,19 @@ const CardTitulo = ({ texto, destaque, fonte, total, card }) => {
   );
 };
 
+/* Texto fixo na tela (2026-09-30): ESTÁTICO. Só a opacidade entra e sai (até 150 ms, pela
+   função pura do preset); nenhuma transformação. O relógio é o da Sequence (relativo). */
+const TextoFixo = ({ texto, quadros }) => {
+  const quadro = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const estilo = textoFixoEstilo(texto);
+  return (
+    <div style={{ ...estilo.bloco, opacity: opacidadeTexto(quadro, quadros, fps) }}>
+      <span style={{ ...estilo.texto, fontFamily: INTER }}>{texto.texto}</span>
+    </div>
+  );
+};
+
 const Vazio = () => (
   <AbsoluteFill
     style={{
@@ -560,8 +598,8 @@ const Vazio = () => (
 
 export const Clip = ({
   clipFile, backgroundFile, legendaBase, bandaAltura, cues, title,
-  highlightText, autoHighlight, titleCardStyle, legendaStyle, preset, category,
-  reframe, videoAltura, edit,
+  highlightText, autoHighlight, titleCardStyle, card, legendaStyle, preset, category,
+  reframe, videoAltura, edit, legendaEsquerda, legendaColuna, musica, textos, zooms,
 }) => {
   const { fps, durationInFrames } = useVideoConfig();
   /* Janela do card. `Math.min` com a duração da composição porque um clipe de 2s não pode
@@ -585,7 +623,7 @@ export const Clip = ({
      componente recebe. Resolver duas vezes deixaria o teto de caracteres e a fonte poderem
      discordar — páginas cortadas para 58px desenhadas a 72px, que é uma linha estourando a
      coluna sem erro nenhum. */
-  const aparencia = resolveLegenda(legendaStyle, edit);
+  const aparencia = resolveLegenda(legendaStyle, edit, legendaColuna);
   /* Fatiar a fala em páginas curtas é lógica pura e mora no preset.js, provada por
      test-preset.mjs — aqui só vira Sequence.
      O teto vem do ESTILO (`tetoDaPagina`), não mais da constante: caixa alta a 72px é ~22%
@@ -602,11 +640,15 @@ export const Clip = ({
      e só resolver depois mediria o destaque como se fosse texto normal. */
   const medida = tituloEscalonado(title, resolveTitleHighlight(title, opcoesTitulo).span);
   const destaque = resolveTitleHighlight(medida.texto, opcoesTitulo);
-  /* A identidade resolvida UMA vez, e é o mesmo valor que o portão abaixo consulta e que o
+  /* O card resolvido UMA vez, e é o mesmo valor que o portão abaixo consulta e que o
      componente recebe — resolver duas vezes deixaria o portão e o card poderem discordar.
-     `null` = o operador escolheu "Sem card": desfecho legítimo, e por isso ele entra no
-     PORTÃO em vez de virar `card.marca` de `null` dentro do JSX, que derrubaria o render. */
-  const cardMarca = titleCardPreset(titleCardStyle);
+     DUAS camadas, e as duas são entrada: o ENUM diz se este corte tem card (`nenhum` é
+     escolha do operador), e o `cardOf` diz se o objeto que veio junto é um card de verdade.
+     `null` é desfecho legítimo nos dois caminhos — "Sem card" e "o card que este corte
+     apontava foi apagado da biblioteca" —, e por isso ele entra no PORTÃO em vez de virar
+     `card.logo` de `null` dentro do JSX, que derrubaria o render inteiro. */
+  const cardResolvido = titleCardStyleOf(titleCardStyle) === TITLE_CARD_SEM
+    ? null : cardOf(card);
   /* Único lugar em que este render tem como falar com uma pessoa: o log. Trecho digitado
      que não bate com o título não destaca nada, e ficar calado é indistinguível de recurso
      quebrado (BP-008). */
@@ -624,22 +666,39 @@ export const Clip = ({
           usa o `ancoraVideo` na altura. Passar os props CRUS aqui e resolver dentro do
           componente daria no mesmo, mas tirar um deles desta linha deixaria o palco no
           padrao calado -- e ha check chamando a funcao pura justamente por isso. */}
-      <Palco src={src} reframe={reframe} altura={videoAltura} />
+      <Palco src={src} reframe={reframe} altura={videoAltura} zooms={zooms} />
+      {/* Música de fundo (2026-09-30): UMA faixa, só quando o servidor a manda. Relógio da
+          SAÍDA; o volume por quadro (ganho do servidor + fades) é a função pura do preset. */}
+      {musica && musica.file ? (
+        <Audio src={staticFile(musica.file)} trimBefore={Math.round((musica.inicioSec || 0) * fps)}
+          volume={(f) => volumeMusica(f, musica, fps, durationInFrames)} />
+      ) : null}
       {/* O card entra, fica 4s e SAI — é chamada e miniatura, não rótulo permanente. Uma
           `Sequence` e não um `opacity: 0` no fim: passados os 4s não sobra elemento na
           árvore para custar quadro, e o relógio dela é o que a entrada/saída lê.
           Clipe mais curto que a janela encurta o card junto (`Math.min`), senão a Sequence
           se estenderia além da composição e o Remotion recusaria o render. */}
-      {comLegenda && medida.texto && cardMarca
+      {comLegenda && medida.texto && cardResolvido
         ? (
           <Sequence from={0} durationInFrames={cardQuadros} layout="none">
             <CardTitulo
               texto={medida.texto} destaque={destaque.span} fonte={medida.fonte}
-              total={cardQuadros} card={cardMarca}
+              total={cardQuadros} card={cardResolvido}
             />
           </Sequence>
         )
         : null}
+      {/* Textos fixos: os tempos já chegam no relógio da SAÍDA (dono em Python). */}
+      {(Array.isArray(textos) ? textos : []).map(function (t) {
+        const de = Math.round(t.deSec * fps);
+        const quadros = Math.round((t.ateSec - t.deSec) * fps);
+        if (!(quadros > 0) || de < 0) return null;
+        return (
+          <Sequence key={"texto-" + t.id} from={de} durationInFrames={quadros} layout="none">
+            <TextoFixo texto={t} quadros={quadros} />
+          </Sequence>
+        );
+      })}
       {paginas.map(function (pagina, indice) {
         const de = Math.round(pagina.start * fps);
         const duracao = Math.round((pagina.end - pagina.start) * fps);
@@ -652,10 +711,83 @@ export const Clip = ({
                 local, tirar este argumento deixava `bottom: undefined` — o React descarta a
                 propriedade e a legenda sai da âncora — sem nenhum check reprovar. */}
             <Legenda pagina={pagina} cor={cor} base={ancoraLegenda(legendaBase)}
+              esquerda={esquerdaLegenda(legendaEsquerda, aparencia.largura)}
               de={de} aparencia={aparencia} />
           </Sequence>
         );
       })}
+    </AbsoluteFill>
+  );
+};
+
+/* CAPA DO TIKTOK (2026-09-30): UM quadro, 1080x1920, PNG. Mora aqui, e não num arquivo à
+   parte, para herdar as duas famílias JÁ carregadas acima (Montserrat 800 e Inter 700) sem
+   um segundo `loadFont` — o 9w2 continua cobrindo o único arquivo que carrega fonte — e o
+   mesmo `Fundo` do corte. Sem componente de vídeo (o 6m conta as tags): o quadro chega como PNG que o
+   FFmpeg extraiu, e entra por `Img` do Remotion (segura a captura até carregar).
+   Enquadramento = `palcoGeometria` do corte, nenhuma fórmula nova. `guias` só existe para os
+   stills de conferência — o servidor nunca manda, e o PNG real sai sem elas. */
+export const capaDefaultProps = {
+  quadroFile: "", reframe: REFRAME_PADRAO, videoAltura: VIDEO_ALTURA_PADRAO,
+  bandaAltura: BANDA_PADRAO, titulo: "Perdi 40 mil no primeiro ano", destaque: "",
+  estilo: "negocio", posicao: "meio", guias: false,
+};
+const CAPA_SOMBRA = "0 4px 18px rgba(0,0,0,.6), 0 2px 3px rgba(0,0,0,.7)";
+const Guia = ({ zona, rotulo }) => (
+  <div style={{ position: "absolute", left: zona.x, top: zona.y, width: zona.largura,
+    height: zona.altura, boxSizing: "border-box", border: "3px dashed rgba(255,255,255,.7)" }}>
+    <span style={{ position: "absolute", left: 12, top: 8, fontFamily: INTER, fontWeight: 700,
+      fontSize: 26, color: "rgba(255,255,255,.85)" }}>{rotulo}</span>
+  </div>
+);
+export const CapaTikTok = ({ quadroFile, reframe, videoAltura, bandaAltura, titulo, destaque,
+  estilo, posicao, guias }) => {
+  const def = CAPA_ESTILO_DEF[estilo] || CAPA_ESTILO_DEF.negocio;
+  const texto = String(titulo || "").trim();
+  const medida = capaTitulo(texto, estilo);
+  const span = resolveTitleHighlight(texto, { highlightText: destaque || "", autoHighlight: true }).span;
+  const pedacos = splitTitleHighlight(texto, span);
+  const imagem = quadroFile ? staticFile(quadroFile) : "";
+  const geo = palcoGeometria(reframe, videoAltura);
+  const caixa = def.caixa ? { backgroundColor: TOKENS.fundo + "E0", padding: "0.04em 0.22em",
+    boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" } : {};
+  return (
+    <AbsoluteFill style={{ backgroundColor: TOKENS.fundo }}>
+      <Fundo imagem={imagem} banda={ancoraBanda(bandaAltura)} />
+      {imagem ? (
+        <AbsoluteFill style={{ overflow: "hidden" }}>
+          <div style={geo.caixa}>
+            <Img src={imagem} style={{ ...geo.video, objectFit: geo.objectFit || undefined }} />
+          </div>
+        </AbsoluteFill>
+      ) : null}
+      {texto ? (
+        <div style={{
+          position: "absolute", left: 0, width: TOKENS.largura, boxSizing: "border-box",
+          padding: (def.degrade ? CAPA_FOLGA_DEGRADE : 0) + "px 80px", textAlign: "center",
+          background: def.degrade
+            ? "linear-gradient(180deg, rgba(10,10,12,0), rgba(10,10,12,.62) 24%, rgba(10,10,12,.62) 76%, rgba(10,10,12,0))"
+            : "none",
+          ...capaBloco(posicao, def.degrade ? CAPA_FOLGA_DEGRADE : 0),
+        }}>
+          <span style={{
+            fontFamily: FAMILIAS[def.familia], fontWeight: def.peso, fontSize: medida.fonte,
+            lineHeight: CAPA_ENTRELINHA, textTransform: "uppercase", color: TOKENS.texto,
+            textShadow: def.caixa ? "none" : CAPA_SOMBRA, overflowWrap: "normal", ...caixa,
+          }}>
+            {pedacos.map((p, i) => (
+              <span key={i} style={p.forte ? { color: TOKENS.destaque } : undefined}>{p.texto}</span>
+            ))}
+          </span>
+        </div>
+      ) : null}
+      {guias ? (
+        <Fragment>
+          <Guia zona={CAPA_ZONAS.grade} rotulo="Recorte do perfil (3:4)" />
+          <Guia zona={CAPA_ZONAS.seguro} rotulo="Miolo seguro" />
+          <Guia zona={CAPA_ZONAS.contador} rotulo="Contador de plays" />
+        </Fragment>
+      ) : null}
     </AbsoluteFill>
   );
 };

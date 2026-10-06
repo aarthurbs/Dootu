@@ -34,6 +34,10 @@ import urllib.request
 
 BASE = "https://api.muapi.ai"
 ENV_KEY = "MUAPI_KEY"
+# Trechos pedidos por análise. Fica em 12 de propósito, separado do teto de sugestões
+# (`ytclip.MAX_CANDIDATES`): cada trecho custa crédito pago, e a decisão de 2026-10-06
+# subiu o teto da lista, não o gasto com o terceiro.
+NUM_HIGHLIGHTS = 12
 
 # Teto do trabalho todo (submit + poll). O `/api/yt-probe` responde a uma tela que o
 # usuario esta olhando: melhor voltar sem sugestao da MuAPI do que deixar a analise

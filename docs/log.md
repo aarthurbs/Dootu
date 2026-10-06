@@ -1,5 +1,7 @@
 # log — histórico cronológico
 
+- **2026-09-22 — Wiki** — Bancada do Estúdio mantém vídeo visível durante ajustes em duas colunas; fluxo real de importação, reprodução, edição e reabertura validado com declaração do usuário. Estado técnico atualizado, 2045 verificações passando.
+
 - **2026-09-18 — Wiki / Execution / Decisions / Índice** — Base organizada por empresa e frentes: trading com IA passa a ser o foco de descoberta sob a marca Dootu; Estúdio preservado como produto e e-commerce em espera. Hipóteses, perguntas e decisão de prioridade separadas, sem registrar lucros, orçamento ou oferta como validados.
 
 - **2026-09-17 — Wiki / Execution / Decisions** — Dootu definido pelo fundador como marca do empreendimento; mapa do negócio e descoberta organizados com relatos, hipóteses e testes separados, sem presumir que a ferramenta de faturador esteja ativa neste repositório.
@@ -167,3 +169,16 @@ arquivos alterados. Se ninguém vai reler, não entra.
   seria invisível sem isso. Nenhuma nota única de "potencial viral", pela mesma razão pela
   qual a nota do hub não aparece no card. Autorizado pelo usuário como área de ANÁLISE; não
   reabre o pipeline de publicação apagado em 2026-08-21.
+- **2026-09-30 — estúdio** — **Ângulo da Profundidade** da legenda (pedido de 2026-09-29):
+  oito direções nomeadas em `clip.edit.legenda.profundidadeDirecao`, ausente = `tras` = corte
+  salvo idêntico. Pivô no lado mais perto da câmera mantém a página dentro do bloco reto, então o
+  Python não mudou; prova por projeção 3D própria dos cantos (`test-preset.mjs` 19g) e piso de
+  leitura de 70% (19i). Regras em `estudio-remotion.md` e `estudio-ui.md`.
+- **2026-10-01 — estúdio** — **Capa do TikTok + edição manual** (decisão de 2026-09-30): capa PNG
+  1080×1920 ao lado do MP4 (escolhida no app, nunca por API), música de fundo só do PC (nível
+  calibrado no MP4 final: 22/16 dB abaixo da voz), remover trechos do meio, texto fixo e zoom
+  leve. Um dono do tempo (`captions.mapa_saida`); corte salvo antes sai idêntico (fixture + hashes
+  de stills). Decisão em `03-Decisions/2026-09-30-capa-e-edicao-manual.md`.
+- **2026-10-01 — estúdio** — **Editor em ferramentas** (decisão do usuário): barra fixa entre o
+  vídeo e o painel, tela fixa, só ferramentas na tela, Análise como única área explicativa.
+  Decisão em `03-Decisions/2026-10-01-editor-em-ferramentas.md`.

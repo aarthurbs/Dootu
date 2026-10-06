@@ -694,11 +694,15 @@ def main():
                                   "end": round(cue["start"] + (i + 1) * passo, 3), "text": w})
     # Capitulo em 0 s so para EXISTIR ancora: sem nenhum sinal a lista sai vazia e os
     # checks abaixo passariam de graca (`[] == []`), que e a armadilha que o 17m0 documenta.
+    # O enchimento vai SEM gancho: o `FALA_PADRAO` tem uma marca forte e, desde o segundo
+    # nivel de ancora (2026-10-06), acharia janela propria e o 17m6 deixaria de ver UMA so.
+    neutra = "A empresa gastou todo o lucro naquele ano."
     info_meio = {"durationSec": 200.0, "heatmap": [],
                  "chapters": [{"start_time": 0.0, "title": "O mes do caixa negativo"}],
-                 "cues": corta_no_meio + falar_cues(24.0, 20)}
+                 "cues": corta_no_meio + falar_cues(24.0, 20, texto=neutra)}
     grade_grossa = ytclip.sentences_from(info_meio["cues"])
-    grade_fina = ytclip.sentences_from(info_meio["cues"], palavras_meio + palavras_falar(24.0, 20))
+    grade_fina = ytclip.sentences_from(info_meio["cues"],
+                                       palavras_meio + palavras_falar(24.0, 20, texto=neutra))
     check("17m2. na grade GROSSA a primeira frase engole a cue inteira (ponto no meio)",
           bool(grade_grossa) and grade_grossa[0]["end"] >= 8.0 - 1e-6)
     check("17m3. com tempo por PALAVRA a frase fecha onde o ponto esta, nao onde a cue acaba",
@@ -706,7 +710,7 @@ def main():
     check("17m4. e a frase seguinte comeca na PALAVRA, nao na borda da cue",
           len(grade_fina) > 1 and abs(grade_fina[1]["start"] - grade_fina[0]["end"]) < 0.2
           and grade_fina[1]["text"].startswith("A gente"))
-    finas = palavras_meio + palavras_falar(24.0, 20)
+    finas = palavras_meio + palavras_falar(24.0, 20, texto=neutra)
     check("17m5. a recomendacao MUDA por causa disso (a fiacao existe de verdade)",
           bool(ytclip.candidates(info_meio))
           and ytclip.candidates(info_meio) != ytclip.candidates(dict(info_meio, words=finas)))
@@ -1287,6 +1291,70 @@ def main():
     # e descarte calado, indistinguivel de recurso quebrado.
     check("26k. todo motivo de veto tem frase em portugues no resumo",
           set(ytclip.VETO) <= set(ytclip.REPROVA_LABEL))
+
+    # -------------------- 27. teto de 20: as MELHORES do video inteiro (2026-10-06)
+    # Antes o `break` do teto rodava na ordem das ANCORAS (e a de legenda vai em ordem
+    # cronologica), entao o teto guardava as primeiras janelas achadas. Blocos de tamanho
+    # diferente dao notas diferentes, e as melhores NAO sao as do comeco.
+    ideia = ["Eu perdi quarenta mil reais no primeiro ano da empresa.",
+             "O erro foi contratar antes de vender.",
+             "A gente tinha seis pessoas e nenhum cliente fixo.",
+             "Hoje eu so contrato quando o faturamento paga o salario por tres meses.",
+             "Essa regra salvou o meu caixa."]
+
+    def video_de(*blocos):
+        fala, t = [], 2.0
+        for bloco in blocos:
+            for frase in bloco:
+                fala.append({"start": t, "end": t + 4.0, "text": frase})
+                t += 4.4
+            t += 6.0
+        return {"cues": fala, "words": [], "chapters": [], "heatmap": [], "durationSec": t + 5}
+
+    varios = video_de(*[ideia + ideia[1:1 + i % 4] for i in range(10)])
+    tudo = ytclip.candidates(varios, limit=10**6)
+    topo = ytclip.candidates(varios, limit=5)
+    check("27a. ha mais janelas aprovadas que o teto pedido", len(tudo) > 5)
+    check("27b. candidates(limit=k) == candidates(sem teto)[:k]", topo == tudo[:5])
+    primeiras = sorted(c["inSec"] for c in tudo)[:5]
+    check("27c. polaridade: as k melhores NAO sao as k primeiras do video",
+          sorted(c["inSec"] for c in topo) != primeiras)
+    check("27d. o teto e 20", ytclip.MAX_CANDIDATES == 20)
+
+    # Segundo nivel de ancora: UMA marca forte (12 pontos, sem pausa longa) ja vira ancora,
+    # tentada depois de todas as outras. `com_piso` troca o piso so durante a chamada.
+    def com_piso(piso, info):
+        antes = ytclip.GANCHO_ANCORA_SEGUNDA
+        ytclip.GANCHO_ANCORA_SEGUNDA = piso
+        try:
+            return ytclip.candidates_report(info, 10**6)
+        finally:
+            ytclip.GANCHO_ANCORA_SEGUNDA = antes
+
+    so_uma = video_de(ideia)
+    pontos = ytclip.hook_hits(ideia[1])[0]
+    check("27e. a fala tem UMA marca forte, abaixo do nivel de sempre",
+          ytclip.GANCHO_ANCORA_SEGUNDA <= pontos < ytclip.GANCHO_ANCORA_MIN)
+    achou = com_piso(ytclip.GANCHO_ANCORA_SEGUNDA, so_uma)[0]
+    check("27f. ela vira ancora e o trecho entra",
+          len(achou) == 1 and achou[0]["signals"] == ["transcript"])
+    check("27g. polaridade: sem o segundo nivel a MESMA fala nao e ancora",
+          com_piso(ytclip.GANCHO_ANCORA_MIN, so_uma) == ([], ""))
+    # Conversa picada: a ancora de segundo nivel e TENTADA e cai no mesmo veto de sempre.
+    picada = video_de([">> " + f for f in ideia])
+    lista, resumo = com_piso(ytclip.GANCHO_ANCORA_SEGUNDA, picada)
+    check("27h. a ancora nova passa pelo mesmo veto (reprova e diz por que)",
+          lista == [] and ytclip.REPROVA_LABEL["independencia"] in resumo)
+    # Aditivo: abrir apos pausa longa (+8) leva a fala ao nivel de sempre. Toda janela
+    # achada sem o segundo nivel continua igual com ele -- so aparecem janelas novas.
+    forte = ["O segredo e simples, eu perdi quarenta mil reais no primeiro ano."] + ideia[1:]
+    misto = video_de(forte, ideia, ideia, forte)
+    sem = com_piso(ytclip.GANCHO_ANCORA_MIN, misto)[0]
+    com = com_piso(ytclip.GANCHO_ANCORA_SEGUNDA, misto)[0]
+    chaves = {(c["inSec"], c["outSec"], c["score"]) for c in com}
+    check("27i. o segundo nivel so SOMA: nenhuma janela antiga muda borda nem nota",
+          bool(sem) and all((c["inSec"], c["outSec"], c["score"]) in chaves for c in sem)
+          and len(com) > len(sem))
 
     # ---------------------------------------------------------------- relatório
     print("\n--- verificacoes ---")

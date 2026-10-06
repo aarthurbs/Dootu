@@ -56,6 +56,15 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
   - **Precificação** (2026-08-17): `Calc5` · `RATES` · `prc*` · `#prc-*` · `.plat-*` · `.pdv-*` ·
     `#view-precificacao` · `pricing_v1`. O modelo anterior (margem-alvo / "Bater concorrente")
     também não volta.
+  - **As duas identidades de terceiro do card de título** (2026-09-22, decisão do usuário —
+    o card virou biblioteca do operador). Saíram: `studio/src/marca.js` inteiro (`MARCAS` ·
+    `MARCA_BADGE` · `MARCA_NOME` · `MARCA_PROPORCAO` · `PURO_BADGE` · `PURO_NOME` ·
+    `PURO_PROPORCAO`) · `TITLE_CARD_PRESETS` · `titleCardPreset` · `TOKENS.marcaLaranja` ·
+    `TOKENS.marcaPreto` · as duas pastas de logo na raiz · os dois valores do enum e os dois
+    rótulos. **Não recriar nem referenciar** — inventário em
+    `docs/01-Wiki/archive/HISTORICO-estudio-video.md`. O que FICOU: o enum `TITLE_CARD_STYLES`
+    (com valores novos), `titleCardStyleOf`, `TITULO_GEOMETRIA_COMPARTILHADA` e o algoritmo de
+    destaque — nada disso era das marcas.
   - **Amazon FBA** (2026-06-29): `setupAmazon` · `view-amazon` · `amz_products_v1`.
   - **Inventário Amazon** (2026-08-17): `amazon-inventory.js` · `test-ponte.js` ·
     `#view-amazon-inventory` · `pp_amazon_inventory_v1` · `fatInvData` · `fatMissingSkus` ·
@@ -69,9 +78,21 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
   Registro em `docs/01-Wiki/archive/HISTORICO-performance-2026-06-30.md`.
 
 # Estúdio de Vídeos (regra de topo)
-Quatro telas: `Central` (inicial), `Meus projetos`, `YouTube` e `Resultados`. As etapas
+Quatro telas: `Clips` (inicial, chave `youtube`), `Meus projetos`, `Central` e `Resultados`. As etapas
 `1 Vídeo`, `2 Cortes` e `3 Revisão` saíram da navegação em 2026-09-14 por decisão do
 usuário. Não reabrir essas rotas; a edição dos trechos do YouTube e os dados salvos permanecem.
+**Editor em ferramentas (2026-10-01, decisão do usuário):** barra fixa de ferramentas entre o vídeo e o painel, tela que não rola, e só ferramentas na tela (nada de explicação, dica ou aviso; falha = rótulo do próprio controle). Regras em `.claude/rules/estudio-ui.md`; decisão em `docs/03-Decisions/2026-10-01-editor-em-ferramentas.md`.
+**Fluxo em etapas (2026-10-05, decisão do usuário):** Marcar trecho → Editar vídeo → Baixar vídeo editado → Criar capa. Começo/fim e remoções só em "Marcar trecho"; Corte e Capa saíram da barra; "Criar capa" só abre depois do clique que começou o download editado. Regras em `.claude/rules/estudio-ui.md` ("Fluxo em etapas no editor").
+**Entrada direta em Clips (2026-09-23, decisão do usuário):** o site abre no Estúdio, na tela
+`Clips` (a barra "Central / Empreender" do header saiu; Central e Empreendedor ficam na
+sidebar). Ordem da tela: card da URL (+ declaração) → etapas Download · Análise · Cortes →
+vídeo original → cortes recomendados; **desde 2026-09-25 (reformulação visual pedida pelo
+usuário) a entrada mostra só título, campo+`Iniciar`, declaração e três passos — etapas,
+fonte e cortes aparecem na fase `trabalho`** (`data-fase`, ver `estudio-ui.md`). `Iniciar` importa e analisa; com fonte + declaração +
+análise, **os cortes crus são gerados sozinhos** (`/api/video-cut`, um por vez, pasta
+permanente `/clips/`, `clip.clipSaved`) e cada card toca e baixa o próprio arquivo.
+Recarregar reabre o último projeto. Ordem = nota do detector (`score`); trecho sem nota diz
+"Sem classificação". Regras em `.claude/rules/estudio-ui.md`.
 **`Resultados dos cortes` (2026-09-14, decisão do usuário):** `video-results.js`, chave
 própria `pp_video_results_v1`, registro manual de publicação e de medição para descobrir
 que formato rende mais. Esta autorização **não** reabre o pipeline de publicação apagado em
@@ -90,14 +111,62 @@ com progresso real em `/api/yt-import-state`); ele toca num `<video>` do própri
 fonte. **Reverte explicitamente o "só o trecho escolhido é baixado".** Nada de iframe do
 YouTube na tela de edição. Mudar a borda de um corte invalida o que foi exportado dele e
 **nunca** a fonte. Regras próprias em `.claude/rules/estudio-ui.md` e `estudio-video-worker.md`.
+**O card do título é uma BIBLIOTECA do operador (2026-09-22, decisão do usuário).** As duas
+identidades de terceiro que vinham fechadas no código saíram INTEIRAS — presets, placas
+embutidas (`studio/src/marca.js`), rótulos e as duas pastas de logo. No lugar, o operador
+cria, nomeia, edita, duplica e apaga os próprios cards, e cada corte aponta para um.
+A arquitetura tem DUAS camadas, e as duas são entrada: `titleCardStyle` continua sendo um
+enum FECHADO, espelhado nas três camadas de sempre, e diz só SE o corte tem card
+(`personalizado` | `nenhum`, padrão `personalizado` — nunca `nenhum`); QUAL card é **DADO**,
+validado pelo `cardOf`/`card_of`, exatamente como o `edit` da legenda já faz.
+A biblioteca mora SÓ no navegador (`pp_video_cards_v1`); o clip ganhou `clip.cardId` dentro
+da chave de projeto que já existe, **sem migração**. O servidor nunca conhece um id de card —
+o POST manda o objeto resolvido. Apagar um card **não reescreve corte nenhum**: o corte fica
+órfão, sai SEM card, e a tela DIZ isso (BP-008) em vez de cair em outro card. Logo só como
+`data:image/{png,svg+xml,jpeg,webp};base64,` com teto de **512 KB**, e proporção **medida** no
+arquivo, nunca chutada. Regras próprias em `.claude/rules/estudio-ui.md` e `estudio-remotion.md`.
 **Única exceção ao "cor neon", aberta pelo operador em 2026-09-11:** a PALAVRA SENDO DITA da
 legenda usa um leque neon (`TOKENS.palavraCores`, amarelo na frente), que gira por palavra.
 Vale só para ela — texto, sombra, marca e destaque estático continuam na paleta fechada, e o
 check 1g continua cobrando isso. Não "consertar" de volta para cor única.
+**Segunda exceção documentada, aberta pelo operador em 2026-09-25: a PROFUNDIDADE da legenda**
+(`clip.edit.legenda.profundidade`, `Nenhuma · Suave · Funda`, nos seis estilos). Texto
+inclinado para trás girando pela BASE + volume de sombras duras, **estático** (nenhum número
+depende de tempo ou quadro; só o pop da palavra ativa continua animando). Ausente = Nenhuma =
+todo corte salvo sai idêntico. Na mesma entrega: prévia **"Como sai 9:16"** (padrão, mesmo
+`<video>`) com a geometria vinda do servidor (`/api/legenda-geometria`, dono
+`serve.legenda_geometria`), **posição lateral** (`posicaoXPct`, dono `captions.coluna_x`) e o
+fim da regra "a posição manual parte de 75": "Ajustar à mão" parte da âncora automática real.
+**Ângulo (2026-09-29, pedido do operador):** `clip.edit.legenda.profundidadeDirecao`, oito
+direções nomeadas (`tras` = a de sempre e o padrão ausente); pivô = o lado mais perto da câmera,
+e a página inclinada fica DENTRO do bloco reto (prova dos cantos, check 19g) — o Python não muda.
+**Posição LIVRE da legenda e quadro 9:16 grande (2026-09-28, decisão do usuário) — substitui
+as travas de 2026-09-25** (grampo `trilha`, teto manual de 86%, legenda escondida no 16:9). Único
+limite duro: a página não sai do quadro (40 px das bordas; topo pela página mais alta do corte).
+Zonas do TikTok viraram AVISO com guias. Perto da borda a coluna ESTREITA (`largura` vira o
+máximo) até o piso = palavra mais longa do corte × `palavraEscala` (`captions.AVANCO_CHAR`,
+medido no Chrome). A prévia mostra a PÁGINA do export (`captions.paginas_remotion`, porte do
+`toCaptionPages`, check 14n). No 9:16 o palco é o quadro, com barra própria; no 16:9 a legenda
+aparece mapeada sobre a fonte. Regras em `estudio-ui.md` / `estudio-video-worker.md` / `estudio-remotion.md`.
+**Capa do TikTok e edição manual (2026-09-30, decisão do usuário).** Cinco recursos, todos
+posicionados pelo operador e dentro da direção editorial: **capa** (`clip.capaTikTok`, fora do
+`edit`) = PNG 1080×1920 ao lado do MP4 (`/api/capa-tiktok`, composição `CapaTikTok`), escolhida
+no app ("Selecionar capa → galeria"), nunca embutida nem por API; **música** só do PC
+(`edit.musica`, biblioteca `~/Music/Estudio Musicas`, nível Baixa/Média = 22/16 dB abaixo da voz,
+calibrado no MP4 final); **remover trechos** (`edit.remocoes`), **texto fixo** (`edit.textos`, até
+3, estático) e **zoom leve** (`edit.zooms`, 1,06/1,12, teto 1,15, só a camada do vídeo). Dono
+ÚNICO do tempo: `captions.mapa_saida` (+ `intervalos_saida`) em Python — nenhuma fórmula de
+remapear no site. Tudo opcional: corte salvo sem os campos sai idêntico (fixture
+`video-worker/fixtures/regressao-antes-capa-edicao.json` + hashes de stills). O download rápido
+declara que não reproduz nada disso. Regras em `estudio-ui.md` / `estudio-video-worker.md` /
+`estudio-remotion.md`; decisão em `docs/03-Decisions/2026-09-30-capa-e-edicao-manual.md`.
 **Direitos autorais (inviolável):** analisar metadados/legenda é livre; **baixar mídia passa
 por portão de declaração explícita**, conferido duas vezes e válido por URL — agora o portão
 guarda a IMPORTAÇÃO (é ela que baixa), e a declaração, sendo por sessão, é o que religa a
-fonte já no disco ao ser marcada. Nunca remover o portão. Nunca `--exec`, `--netrc-cmd`,
+fonte já no disco ao ser marcada. **Desde 2026-09-23 a declaração fica gravada no projeto
+(`project.authorized`, por URL)** — pedido do usuário: original e cortes disponíveis depois de
+recarregar. Ela continua exigida uma vez por URL, antes de qualquer download, e nunca cobre
+outro vídeo. Nunca remover o portão. Nunca `--exec`, `--netrc-cmd`,
 cookies de navegador ou `aria2c` no yt-dlp.
 **Dupla compressão do caminho YouTube — MEDIDA em 2026-09-08 e DESCARTADA; hoje o assunto
 ACABOU.** O ENCODE 1 do yt-dlp (`--force-keyframes-at-cuts`) era `libx264 crf=23
@@ -119,14 +188,23 @@ mesma entrega, nos DOIS renderizadores — é a única mudança visual deliberad
 antigo, e ela vale porque foi pedida por escrito. Duas prévias, e a tela diz qual é qual:
 CSS instantânea (aproximação da tipografia, sem repaginar) e `/api/remotion-still`, o quadro
 real com os MESMOS props do MP4. **A âncora vertical continua com um dono só** —
-`captions.margem_inferior`; a tela manda INTENÇÃO (`posicaoPct`), nunca pixel. Regras
+`captions.margem_inferior`; a tela manda INTENÇÃO (`posicaoPct`), nunca pixel.
+**Painel da legenda reorganizado (2026-09-23, decisão do usuário):** seis estilos prontos
+escolhidos por amostra (`classico` · `impacto` · `faixa` · `podcast` · `papel` ·
+`discreta`), combinações de cor, cor personalizada `#RRGGBB`, contorno e caixa de fundo
+(opcionais — abertos por pedido do operador), arrastar a legenda na prévia e "Voltar ao
+padrão". Mesmo `clip.edit.legenda`, sem migração; nomes de cor antigos continuam válidos. Regras
 próprias em `.claude/rules/estudio-ui.md`, `estudio-remotion.md` e `estudio-video-worker.md`.
+**Correção do texto da legenda (2026-09-23, decisão do usuário):** texto corrido editável
+por fala (a sincronia fica na fala, nunca num campo único), horários só em "avançado",
+correção salva no projeto (`clip.capEdit`, sem chave nova), desfazer/restaurar, ouvir a frase
+e frase tocando acesa. Regras em `.claude/rules/estudio-ui.md`.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**184**) · `test_serve.py` (**401**) · `test_ytclip.py` (**273**) · `test_worker.py` (**118**) · `test_muapi.py` (**79**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**385**) · `test-video-ops.js` (**115**) · `test-video-ops-dom.js` (**189**) · `test-video-results.js` (**46**) — **2022 verificações nas dez, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**213**) · `test_serve.py` (**505**) · `test_ytclip.py` (**282**) · `test_worker.py` (**118**) · `test_muapi.py` (**81**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**465**) · `test-video-ops.js` (**188**) · `test-video-ops-dom.js` (**349**) · `test-video-results.js` (**46**) — **2479 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 
@@ -186,6 +264,7 @@ Siga rigorosamente estes princípios ao escrever código:
 ### BP-008: Toda automação de UI deve ter estado visível em TODOS os casos — inclusive quando não age
 - **Causa (BUG-005):** O autofill de CEST por NCM funcionava, mas era mudo em 3 de 4 estados: NCM ambíguo deixava as opções num `<datalist>` invisível até clicar no campo, NCM desconhecido e planilha sem índice não diziam nada. O usuário reportou como "não está aparecendo a opção de preencher" — automação silenciosa é indistinguível de automação quebrada (irmão do BP-003).
 - **Regra:** Recurso automático (autofill, sugestão, detecção) deve comunicar visivelmente o que fez **e o que não fez**: preencheu → confirmação; tem opções → opções à vista (chips/botões, nunca só `datalist`); não achou → dizer por quê. Nenhum ramo termina sem feedback.
+- **Exceção (2026-10-01):** no editor do Estúdio o estado vive no próprio controle, sem frase na tela — decisão 2026-10-01, ver `.claude/rules/estudio-ui.md` ("Editor em ferramentas").
 
 ### BP-009: Ao gravar em planilha de terceiros, espelhar o TIPO e o estilo das linhas de dados existentes
 - **Causa (BUG-006):** O Faturador gravava NCM/CEST como texto (valor cru do `<input>`), mas o template da Amazon guarda essas colunas como número — o Excel marcava a célula em vermelho ("Validação de formato") mesmo com o valor correto. E a linha inserida, por nascer abaixo da faixa formatada do template, perdia o estilo (ex.: custo sem `numberFormat`).

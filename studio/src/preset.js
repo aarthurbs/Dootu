@@ -52,6 +52,15 @@ export const TOKENS = {
   legendaFonte: 58,
   legendaEntrelinha: 1.18,
   legendaPeso: 700,
+  /* CONTORNO e CAIXA DE FUNDO da legenda (pedido do operador, 2026-09-23). Os dois são
+     opcionais e nascem DESLIGADOS nos estilos de sempre. A espessura é fração do CORPO para
+     acompanhar o tamanho: 6% do corpo de contorno VISÍVEL (o `-webkit-text-stroke` é
+     centrado no traço, então a composição pinta o dobro com `paint-order: stroke fill`, e o
+     ASS recebe o visível direto no `Outline`). Espelhado no `captions.py` (check 34c). */
+  legendaContornoFator: 0.06,
+  /* Opacidade da caixa de fundo: 88% deixa o vídeo respirar sem perder a leitura. O
+     respiro da caixa é em `em` e mora no Clip.jsx; o ASS usa o `Outline` do BorderStyle 3. */
+  legendaFundoAlfa: 0.88,
 
   /* O centro exato do quadro — o MESMO que o FFmpeg sempre usou
      (`overlay=(W-w)/2:(H-h)/2`), então os dois renderizadores passam a enquadrar igual.
@@ -122,26 +131,16 @@ export const TOKENS = {
   /* Sobe 4px. Negativo porque em CSS o eixo Y cresce para BAIXO. */
   palavraSubida: -4,
 
-  /* --- marca do canal ----------------------------------------------------------------
-     Laranja MEDIDO na referência que o operador forneceu, não escolhido: dos 50.416 pixels
-     da imagem, `#FF5F01` é a cor cromática dominante (798px) e `#000000` são 82% do quadro.
-     Os laranjas escuros que aparecem na contagem (#AE3B03, #B54303) são halo de compressão,
-     não tinta da marca.
-     Laranja PROFUNDO, não neon: saturação ~1,0 mas luminância 0,50 — é o que faz a paleta
-     ler como financeira e séria em vez de aviso. Subir a luminância daqui é o caminho para
-     a "cara de template" que a direção proíbe. */
-  marcaLaranja: '#FF5F01',
-  marcaPreto: '#000000',
-
   /* --- destaque do TÍTULO ------------------------------------------------------------
-     O PESO do título e a APARÊNCIA do destaque saíram daqui e viraram coisa de MARCA
-     (`TITLE_CARD_PRESETS`, no fim deste arquivo): o card tem duas identidades, e um valor
-     global não consegue ser laranja-sobre-mesmo-peso numa e peso-800-para-900 na outra.
+     O PESO do título e a APARÊNCIA do destaque não moram aqui: são coisa do CARD, e o card
+     é dado do operador (`cardOf`/`CARD_PADROES`, no fim deste arquivo). Um valor global não
+     consegue ser a identidade de uma biblioteca inteira.
      Eram `tituloPeso: 900` e `tituloDestaqueCor: '#FF5F01'`, e foram REMOVIDOS em vez de
      deixados como padrão — token global que nada lê é a armadilha clássica: alguém o
      ajusta esperando efeito, e o valor que manda está noutro lugar. O check 9x cobra que
-     eles não voltem.
-     O que FICA aqui é o que vale para as duas: o fator de corpo do destaque. */
+     eles não voltem, e com eles saíram `marcaLaranja`/`marcaPreto`, que eram a paleta MEDIDA
+     de uma identidade de terceiro que o projeto não hospeda mais.
+     O que FICA aqui é o que vale para TODO card: o fator de corpo do destaque. */
   /* Filete da esquerda do CARD — cromo do card, não do texto. O sublinhado do destaque saiu
      junto com o destaque por peso: com a cor fazendo o trabalho, a régua embaixo da palavra
      virava terceiro sinal. BOTÃO DE CALIBRAGEM: `tituloFilete: 0` tira o filete do card. */
@@ -157,13 +156,14 @@ export const TOKENS = {
      pesa os tokens do destaque por este mesmo fator em vez de fingir que são normais. */
   tituloDestaqueFator: 1.08,
 
-  /* --- card da marca -----------------------------------------------------------------
+  /* --- card do título ----------------------------------------------------------------
      Antes disto o título era um `<span>` solto sobre o vídeo: branco, centrado, sem
      nenhuma amarra com a identidade do canal. O card é a placa que o ancora.
-     A marca é MONOCROMÁTICA (medido no logo de referência: 0 pixels cromáticos), então
-     aqui não entra cor nenhuma — a hierarquia toda é peso, tamanho e o filete branco, que
-     é a régua que já ladeia o `PURO` no logo. Inventar uma cor de destaque seria inventar
-     a marca. */
+     Tudo o que está AQUI é GEOMETRIA, e geometria é uma só para a biblioteca inteira: a
+     caixa, o respiro, o raio, a sombra, a posição e a janela de 4s. Cor, placa,
+     identificador e peso são IDENTIDADE, e identidade é dado do operador (`cardOf`). O
+     contrato que mantém a separação é o `TITULO_GEOMETRIA_COMPARTILHADA`, no fim deste
+     arquivo. */
   cardLargura: 820,
   /* A MESMA coluna óptica da legenda (`legendaLargura`): os dois blocos de texto do quadro
      alinham na mesma vertical em vez de cada um ter a sua margem. 820/1080 = 76% — o
@@ -185,20 +185,20 @@ export const TOKENS = {
      preto. Sem `backdrop-filter`: desfoque custa por QUADRO num render que já leva ~11s por
      segundo de clipe, e não acrescenta legibilidade nenhuma aqui. */
   cardFundo: 'rgba(10, 10, 12, .92)',
-  /* A COR da borda saiu daqui e virou coisa de MARCA (`bordaCor` em `TITLE_CARD_PRESETS`):
-     laranja a 30% no Primo Rico, branca a 14% no Ecommerce Puro, que é monocromático. Como
-     `tituloPeso` e `tituloDestaqueCor`, foi REMOVIDA em vez de virar padrão — token global
-     que nada lê é armadilha (alguém o ajusta e o valor que manda está noutro lugar).
+  /* A COR da borda saiu daqui e virou coisa de CARD (`bordaCor` em `cardOf`), porque cada
+     card do operador tem a sua. Como `tituloPeso` e `tituloDestaqueCor`, foi REMOVIDA em vez
+     de virar padrão — token global que nada lê é armadilha (alguém o ajusta e o valor que
+     manda está noutro lugar).
      A ESPESSURA fica: é geometria, e o `larguraTitulo()` a desconta da caixa de texto, então
-     ela tem de ser a mesma nas duas identidades (contrato no
-     `TITULO_GEOMETRIA_COMPARTILHADA`). */
+     ela tem de ser a mesma em TODO card (contrato no `TITULO_GEOMETRIA_COMPARTILHADA`). */
   cardBordaPeso: 2,
   /* Sombra realista: deslocada e contida, nunca `0 0 Npx` colorido (regra do projeto —
      profundidade é sombra, brilho é "cara de IA"). */
   cardSombra: '0 18px 48px rgba(0, 0, 0, .55)',
-  /* Altura da placa da marca. 62px é o tamanho VERIFICADO para este card no README da
-     identidade — abaixo de 56px o `PURO` e os filetes fecham. A largura sai da proporção
-     do SVG, nunca fixada à mão. */
+  /* Altura da placa. 62px é o tamanho VERIFICADO neste card — abaixo de 56px uma placa com
+     wordmark fecha e deixa de ser legível a 1080px de largura. A largura sai da PROPORÇÃO
+     medida no arquivo que o operador subiu (`card.logoProporcao`), nunca fixada à mão:
+     fixar os dois lados distorce, e num emblema circular a distorção vira elipse. */
   logoAltura: 62,
   logoFolga: 30,
   /* O identificador ao lado do emblema. Pequeno de propósito — o título é que manda; se
@@ -964,27 +964,29 @@ export function splitTitleHighlight(titulo, span) {
 }
 
 /* ==================================================================================
-   AS DUAS IDENTIDADES DO CARD DE TÍTULO
+   O CARD DE TÍTULO É UMA BIBLIOTECA DO OPERADOR
    ==================================================================================
-   O card nasceu com UMA marca (Ecommerce Puro, monocromática) e no mesmo dia foi trocado
-   pela do Primo Rico (preto e laranja) — a segunda apagou a primeira, e o operador ficou
-   sem poder escolher. Aqui elas passam a COEXISTIR.
+   Aqui moravam DUAS identidades de terceiro, fechadas no código: o operador escolhia
+   entre elas e não podia ter a sua. Elas saíram inteiras — presets, placas embutidas,
+   rótulos e as duas pastas de logo — e no lugar entrou uma BIBLIOTECA que ele constrói:
+   cria, nomeia, edita, duplica e apaga os próprios cards, e cada corte aponta para um.
 
-   O que é comum fica FORA daqui de propósito, num lugar só: a escada de corpo
+   O que mudou de ARQUITETURA, e por que não é o mesmo desenho de antes: a identidade
+   deixou de ser um valor de enum e virou DADO. O enum continua existindo e continua
+   fechado (`personalizado` | `nenhum`), com as três cópias espelhadas de sempre, porque é
+   ele que diz SE o corte tem card; o card em si viaja ao lado, como objeto validado —
+   exatamente o que o `edit` (ajuste manual da legenda) já faz desde 2026-09-16.
+
+   A biblioteca mora SÓ no navegador (`pp_video_cards_v1`). O servidor nunca soube e
+   continua sem saber o que é um id de card: ele recebe UM objeto e o valida.
+
+   O que continua FORA daqui, num lugar só: a escada de corpo
    (`TITULO_FONTES`/`tituloEscalonado`), a quebra por palavra, o teto de 3 linhas, o aparo
-   com reticência, a janela de 4s do card (`presencaCard`/`entradaCard`) e — o mais
-   importante — o algoritmo de destaque (`pickTitleHighlight`/`resolveTitleHighlight`/
-   `splitTitleHighlight`). Um segundo algoritmo de destaque por marca é justamente o que
-   este pedido proíbe, e seria a origem óbvia de duas marcas destacando trechos diferentes
-   da MESMA manchete.
+   com reticência, a janela de 4s do card (`presencaCard`/`entradaCard`), a GEOMETRIA
+   inteira (`TITULO_GEOMETRIA_COMPARTILHADA`) e — o mais importante — o algoritmo de
+   destaque (`pickTitleHighlight`/`resolveTitleHighlight`/`splitTitleHighlight`). Um card
+   VESTE o destaque; ele nunca decide quais palavras são destacadas. */
 
-   O que cada marca possui é a IDENTIDADE: a placa, o identificador, a cor e a APARÊNCIA do
-   destaque. Nada mais. */
-
-/* O valor canônico, e é ele que atravessa tela -> POST -> servidor -> props -> composição.
-   Conjunto FECHADO, pela mesma razão do `serve.CAPTION_STATES`: valor desconhecido que
-   chegasse ao renderizador não tem aparência definida, e o desfecho seria um card sem
-   marca nenhuma, calado. */
 /* SEM card nenhum. É um valor do MESMO conjunto, e não uma segunda chave (um
    `titleCardOff: true` ao lado exigiria decidir quem manda quando os dois discordassem).
    Já existia um jeito de não ter card — apagar o título —, mas ele custa o título, que
@@ -996,27 +998,27 @@ export const TITLE_CARD_SEM = 'nenhum';
    `serve.py` e pelo `video-ops.js` (as duas outras cópias do conjunto, que não têm como
    importar este módulo). Com a constante no meio, os leitores extraíam o NOME dela em vez do
    valor e a paridade acusava divergência falsa. O check 13a2 amarra as duas pontas. */
-export const TITLE_CARD_STYLES = ['primo_rico', 'puro_ecommerce', 'nenhum'];
+export const TITLE_CARD_STYLES = ['personalizado', 'nenhum'];
 
-/* O PADRÃO é `primo_rico` porque é o que TODO corte já renderiza hoje: clip salvo antes
-   desta entrega não tem a chave, e trocar a marca dele por causa de um refactor seria
-   mudar a aparência de vídeo antigo sem ninguém pedir. E o padrão NUNCA é `nenhum`: valor
-   torto tem de cair na marca de sempre, não apagar o card calado. */
-export const TITLE_CARD_PADRAO = 'primo_rico';
+/* O PADRÃO nunca é `nenhum`: valor torto tem de cair em "este corte tem card", e não apagar
+   o card calado. Corte salvo antes desta entrega carrega o valor de uma das identidades que
+   saíram — ele está FORA do conjunto, cai aqui, e o card que ele veste passa a ser o da
+   biblioteca que o operador apontar. Sem card apontado, o corte sai sem card e a TELA diz
+   isso (BP-008); o que ele nunca faz é sair com uma identidade que ninguém escolheu. */
+export const TITLE_CARD_PADRAO = 'personalizado';
 
-/* O rótulo da tela NUNCA é a chave da lógica: é isto que impede "Puro Ecommerce" (com
-   espaço, com acento, escrito de outro jeito amanhã) de virar identificador. */
+/* O rótulo da tela NUNCA é a chave da lógica: é isto que impede o texto do botão de virar
+   identificador quando alguém o reescrever amanhã. */
 export const TITLE_CARD_LABELS = {
-  primo_rico: 'Primo Rico',
-  puro_ecommerce: 'Puro Ecommerce',
+  personalizado: 'Card da biblioteca',
   nenhum: 'Sem card',
 };
 
 /* PURA, exportada, e o ÚNICO validador do valor. Desconhecido, ausente, `null`, número,
-   objeto, rótulo da tela — tudo cai no padrão em vez de derrubar o render ou produzir card
-   sem marca. É a mesma regra que o `video-ops.js` espelha para o navegador e o `serve.py`
-   espelha para o servidor (as três cópias têm check de paridade: divergirem faria a tela
-   mandar um valor que o servidor descarta, e o vídeo sairia com a outra marca). */
+   objeto, rótulo da tela — tudo cai no padrão em vez de derrubar o render. É a mesma regra
+   que o `video-ops.js` espelha para o navegador e o `serve.py` espelha para o servidor (as
+   três cópias têm check de paridade: divergirem faria a tela mandar um valor que o servidor
+   descarta, e o corte sairia sem card sem nada na tela errar). */
 export function titleCardStyleOf(valor) {
   return TITLE_CARD_STYLES.indexOf(valor) >= 0 ? valor : TITLE_CARD_PADRAO;
 }
@@ -1029,92 +1031,143 @@ export function titleCardStyleOf(valor) {
    folga no degrau de 32px). */
 export const TITULO_FILETE_REF = 58;
 
-/* O registro. Cada entrada é dona da sua identidade e NÃO alcança a da outra: o
-   `CardTitulo` recebe um destes objetos e a marca já resolvida, então nenhum `if` de marca
-   sobra dentro do JSX — que é onde a fiação erra calada neste projeto. */
-export const TITLE_CARD_PRESETS = {
-  /* ---- Primo Rico: preto e laranja. A cor foi MEDIDA na referência (#FF5F01 é a
-     cromática dominante; 82% do quadro é #000000), não escolhida. O destaque do título é
-     COR, e é por isso que ele não soma peso nem sublinhado: cor + 8% de corpo já carregam
-     a ênfase, e empilhar três sinais para dizer uma coisa só é o que vira "cara de
-     template". */
-  primo_rico: {
-    marca: 'primo_rico',
-    /* Filete da esquerda do card: cromo da marca. */
-    fileteCor: TOKENS.marcaLaranja,
-    /* Borda laranja de opacidade controlada — contorno próprio sobre qualquer quadro, sem
-       virar moldura acesa. */
-    bordaCor: 'rgba(255, 95, 1, .30)',
-    /* Identificador em branco a 72%, e não em laranja: o emblema, a borda, o filete e o
-       trecho destacado já são laranja; um quinto elemento na cor da marca faria o card
-       competir consigo mesmo. */
-    identificadorCor: 'rgba(255, 255, 255, .72)',
-    tituloPeso: 900,
-    destaque: {
-      cor: TOKENS.marcaLaranja,
-      /* MESMO peso do resto do título. */
-      peso: 900,
-      sublinhado: false,
-    },
-  },
-  /* ---- Ecommerce Puro: monocromático, e por MEDIÇÃO. O README da identidade registra
-     0 pixels cromáticos no logo de referência — não existe cor de destaque para extrair
-     dele, e inventar uma seria inventar a marca. Sem cor, a hierarquia do destaque volta a
-     ser o que era antes de o laranja existir: PESO (800 -> 900), corpo (+8%) e o filete
-     branco, que é a régua que já ladeia o `PURO` na própria placa.
-     A tipografia é a MESMA Inter do resto do projeto, e isso também é o README: "O texto
-     do card continua em Inter. Montserrat só na marca" — e a marca está em curvas no SVG,
-     então nenhuma FAMÍLIA de fonte nova entra por causa desta segunda identidade. */
-  puro_ecommerce: {
-    marca: 'puro_ecommerce',
-    fileteCor: TOKENS.texto,
-    /* Branca a 14%, como era quando o card não tinha cor de marca. */
-    bordaCor: 'rgba(255, 255, 255, .14)',
-    /* Sem identificador de texto (a placa já traz o wordmark), então esta cor não chega a
-       ser usada. Declarada para o registro ter a mesma forma nas duas entradas. */
-    identificadorCor: 'rgba(255, 255, 255, .72)',
-    /* 800 e não 900: aqui o 900 é o DESTAQUE, e base e destaque no mesmo peso não
-       deixariam nada destacado. Os dois são Inter, e o 800 é o único peso novo desta
-       entrega (mesma família, nenhuma dependência nova). */
-    tituloPeso: 800,
-    destaque: {
-      /* Sem cor própria: o texto do título já é `TOKENS.texto`, e o que muda é o peso. */
-      cor: TOKENS.texto,
-      peso: 900,
-      sublinhado: true,
-    },
-  },
+/* --- o que um card do operador pode ser --------------------------------------------- */
+
+/* Os pesos oferecidos. Conjunto FECHADO, e o motivo é tipográfico e não de gosto: o
+   `Clip.jsx` carrega exatamente estes pesos da Inter no `loadFont`, e um peso que NÃO foi
+   carregado é SINTETIZADO pelo Chrome — sai um engrossamento borrado, sem erro, sem check
+   reprovando, visível só olhando o quadro. É a mesma armadilha que o 900 e o 800 já tiveram
+   neste projeto. Por isso o editor mostra um `<select>` com estes números e nunca um campo
+   livre. O check 9w cobra a relação entre esta lista e o `loadFont`. */
+export const CARD_PESOS = [600, 700, 800, 900];
+
+/* Teto do logo, em CARACTERES do dataURL (não em bytes decodificados): é o mesmo número
+   contado do mesmo jeito no navegador, aqui e no `card_of` do servidor, então as três
+   camadas nunca discordam sobre o que cabe. 512 KB é folgado para um PNG de placa a 62px e
+   apertado o bastante para a biblioteca inteira caber na cota do `localStorage`. */
+export const CARD_LOGO_MAX = 512 * 1024;
+
+/* Só dataURL de imagem, e só estes tipos. `http(s):`, `file:` e qualquer outro esquema são
+   recusados nas duas camadas: o `--public-dir` do render aponta para o cache do YouTube, e
+   `staticFile()` não alcança o repositório — um endereço remoto ou falharia em carregar ou
+   transformaria o render numa busca de rede no meio da captura do quadro. */
+export const CARD_LOGO_PADRAO = /^data:image\/(png|svg\+xml|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/;
+
+/* Limites de texto. O `nome` só existe na LISTA da biblioteca (nunca é desenhado no vídeo);
+   o `identificador` é a linha ao lado da placa, e é pequeno de propósito — o título é que
+   manda no card. */
+export const CARD_NOME_MAX = 40;
+export const CARD_IDENTIFICADOR_MAX = 60;
+
+/* Proporção da placa: largura/altura, MEDIDA no arquivo carregado, nunca chutada. O card
+   fixa a ALTURA (`TOKENS.logoAltura`) e deixa a largura sair daqui — fixar os dois lados
+   distorce, e num emblema circular a distorção vira elipse, o erro mais visível que existe
+   num logo. A faixa existe porque proporção 0, negativa ou absurda produziria uma imagem de
+   largura zero ou uma faixa de milhares de pixels, as duas caladas. */
+export const CARD_PROPORCAO_MIN = 0.05;
+export const CARD_PROPORCAO_MAX = 20;
+
+/* O card que o validador monta quando o operador não disse nada sobre um campo. Neutro de
+   propósito: branco, borda contida, e o destaque por COR (o âmbar que a legenda já usa).
+   UM sinal de destaque, não três — cor + peso + sublinhado somados é o que vira "cara de
+   template", e a direção editorial proíbe por escrito. */
+export const CARD_PADROES = {
+  fileteCor: TOKENS.texto,
+  /* Branca a 14%: contorno próprio sobre qualquer quadro, sem virar moldura acesa. */
+  bordaCor: 'rgba(255, 255, 255, .14)',
+  identificadorCor: 'rgba(255, 255, 255, .72)',
+  destaqueCor: TOKENS.destaque,
+  tituloPeso: 900,
+  /* MESMO peso do título: a cor já carrega a ênfase, e empilhar peso diria a mesma coisa
+     duas vezes. Quem quiser o destaque por peso troca este número no editor. */
+  destaquePeso: 900,
+  destaqueSublinhado: false,
 };
 
-/* O preset resolvido, pronto para o componente. Passa pelo `titleCardStyleOf`, então
-   qualquer valor torto devolve o card do Primo Rico em vez de `undefined` — que no JSX
-   viraria um card sem placa, sem filete e sem borda, sem erro nenhum. */
-export function titleCardPreset(valor) {
-  var chave = titleCardStyleOf(valor);
-  /* `null` é desfecho LEGÍTIMO — "o operador escolheu não ter card" — e nunca sintoma de
-     valor quebrado: valor torto já caiu na marca padrão dentro do `titleCardStyleOf`. Mesma
-     disciplina do `if override is not None` do serve.py: apagar de propósito não pode ser
-     confundido com não ter dado. Quem consome TEM de tratar o `null` — o `Clip.jsx` o
-     consulta no portão do card, e ignorá-lo derruba o render (`card.marca` de `null`).
-     O ramo é explícito só por LEGIBILIDADE: um `TITLE_CARD_PRESETS[chave] || null` se
-     comporta igual para toda entrada de hoje (medido — nenhuma prova distingue os dois), e
-     quem protege o caso futuro (uma identidade declarada em `TITLE_CARD_STYLES` sem entrada
-     no registro) é o check 13a3, que compara os dois tamanhos. */
-  if (chave === TITLE_CARD_SEM) return null;
-  return TITLE_CARD_PRESETS[chave];
+/* Cor de CSS, e só as formas que o editor produz. Existe porque o valor atravessa
+   `localStorage` -> POST -> props -> `style` inline do JSX: uma string arbitrária ali é
+   texto entrando num atributo de estilo, e o desfecho calado (cor inválida = propriedade
+   descartada pelo React) seria um card sem filete e sem borda. Entrada torta cai no padrão
+   em vez de chegar ao quadro. */
+const CARD_COR_PADRAO = /^#[0-9a-f]{3}$|^#[0-9a-f]{6}$|^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)$/i;
+export function corDoCard(valor, padrao) {
+  if (typeof valor !== 'string') return padrao;
+  var limpo = valor.trim();
+  return CARD_COR_PADRAO.test(limpo) ? limpo : padrao;
 }
 
-/* A GEOMETRIA é compartilhada, e esta lista é o contrato que torna isso seguro.
+/* Peso do conjunto carregado, ou o padrão. Aceita o número e a string do `<select>` (o
+   `value` de um `<option>` é SEMPRE string, e sem isto toda escolha do editor cairia no
+   padrão calada). */
+export function pesoDoCard(valor, padrao) {
+  var n = Number(valor);
+  return CARD_PESOS.indexOf(n) >= 0 ? n : padrao;
+}
+
+/* O VALIDADOR do card, e o irmão exato do `editOf`: PURO, exportado, nunca levanta, e
+   qualquer coisa que ele não entenda vira `null` — que a composição lê como "este corte não
+   tem card". É o que o `card_of` do serve.py espelha em Python e o `cardOf` do
+   video-ops.js espelha para o navegador.
+
+   `null` é desfecho LEGÍTIMO em dois casos, e os dois são visíveis na tela (BP-008): o
+   operador escolheu "Sem card", ou o card que o corte apontava foi apagado da biblioteca.
+   Nunca se cai em OUTRO card — herdar a identidade de um vizinho seria o pior desfecho
+   possível aqui, porque nada na tela erraria.
+
+   Card sem logo E sem identificador é INVÁLIDO, não vazio: não sobra identidade nenhuma
+   para vestir o título, e a placa viraria um retângulo com uma manchete dentro. A tela
+   recusa salvá-lo dizendo por quê, e este validador concorda — um dono só para a
+   pergunta "o que é um card". */
+export function cardOf(valor) {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return null;
+  var logo = typeof valor.logo === 'string'
+    && valor.logo.length <= CARD_LOGO_MAX
+    && CARD_LOGO_PADRAO.test(valor.logo)
+    ? valor.logo : '';
+  var identificador = typeof valor.identificador === 'string'
+    ? valor.identificador.trim().slice(0, CARD_IDENTIFICADOR_MAX) : '';
+  if (!logo && !identificador) return null;
+  var proporcao = Number(valor.logoProporcao);
+  return {
+    id: typeof valor.id === 'string' ? valor.id.slice(0, 64) : '',
+    nome: typeof valor.nome === 'string' ? valor.nome.trim().slice(0, CARD_NOME_MAX) : '',
+    identificador: identificador,
+    logo: logo,
+    logoProporcao: isFinite(proporcao)
+      && proporcao >= CARD_PROPORCAO_MIN && proporcao <= CARD_PROPORCAO_MAX
+      ? proporcao : 1,
+    fileteCor: corDoCard(valor.fileteCor, CARD_PADROES.fileteCor),
+    bordaCor: corDoCard(valor.bordaCor, CARD_PADROES.bordaCor),
+    identificadorCor: corDoCard(valor.identificadorCor, CARD_PADROES.identificadorCor),
+    destaqueCor: corDoCard(valor.destaqueCor, CARD_PADROES.destaqueCor),
+    tituloPeso: pesoDoCard(valor.tituloPeso, CARD_PADROES.tituloPeso),
+    destaquePeso: pesoDoCard(valor.destaquePeso, CARD_PADROES.destaquePeso),
+    destaqueSublinhado: valor.destaqueSublinhado === true,
+  };
+}
+
+/* O card que o Remotion Studio abre mostrando, para o recurso poder ser conferido sem
+   servidor e sem biblioteca. Texto e nada mais: nenhum asset de marca volta ao repositório
+   por esta porta. Não vaza para render nenhum — o `render_props` do serve.py SEMPRE manda a
+   chave `card`, e prop mandado vence defaultProp. */
+export const CARD_EXEMPLO = {
+  id: 'card-exemplo',
+  nome: 'Dootu',
+  identificador: 'DOOTU | CORTES',
+  logo: '',
+  logoProporcao: 1,
+};
+
+/* A GEOMETRIA é compartilhada, e esta lista é o contrato que torna isso seguro — e ela fica
+   MAIS importante agora que a identidade é dado do operador, não um par de entradas escritas
+   aqui dentro.
    O `larguraTitulo()` mede a caixa de texto a partir de `cardLargura`, `cardBordaPeso`,
-   `cardPadding` e `tituloFilete` — todos em `TOKENS`, ou seja UM valor para as duas
-   marcas. Isso está certo hoje: os dois cards têm o mesmo tamanho, o mesmo respiro e o
-   mesmo filete de 4px, e a placa de 62px é o tamanho verificado nas DUAS identidades (o
-   README do Ecommerce Puro fixa 62px para este card, e o emblema do Primo Rico usa o mesmo
-   `logoAltura`).
-   Se um dia uma marca ganhar padding ou filete próprio, esta função deixa de dizer a
-   verdade para ela e a estimativa de linhas passa a mentir PARA MAIS — o estouro
-   horizontal clássico. Daí a lista: o check 13n cobra que nenhum preset traga geometria
-   própria, e quem acrescentar uma reprova lá com o recado de passar o preset ao
+   `cardPadding` e `tituloFilete` — todos em `TOKENS`, ou seja UM valor para a biblioteca
+   inteira. É isso que permite medir o título UMA vez, sem saber qual card ele vai vestir.
+   Se um card ganhar padding, largura ou filete próprio, a estimativa de linhas passa a
+   mentir PARA MAIS para ele — o estouro horizontal clássico, que só aparece no frame. Daí a
+   lista: o check 13n cobra que o card resolvido não traga geometria própria, e quem
+   acrescentar uma reprova lá com o recado de passar o card ao
    `larguraTitulo`/`tituloEscalonado`, em vez de descobrir o estouro no frame. */
 export const TITULO_GEOMETRIA_COMPARTILHADA = [
   'cardLargura', 'cardBordaPeso', 'cardPadding', 'tituloFilete', 'tituloDestaqueFator',
@@ -1127,8 +1180,8 @@ export const TITULO_GEOMETRIA_COMPARTILHADA = [
 /* ============================================================ estilos de LEGENDA
 
    Até aqui a legenda tinha UMA aparência, escrita direto nos `TOKENS` e lida pelo
-   `Clip.jsx`. Este registro é o MESMO movimento que o `TITLE_CARD_PRESETS` já fez com o
-   card: a tipografia vira dado, o componente recebe UM objeto resolvido, e nenhum `if` de
+   `Clip.jsx`. Este registro é o MESMO movimento que o `cardOf` faz com o card: a
+   aparência vira dado, o componente recebe UM objeto resolvido, e nenhum `if` de
    estilo sobra dentro do JSX — que é onde a fiação erra calada neste projeto.
 
    O que NÃO diverge por estilo, e por isso continua nos `TOKENS`: a LARGURA da coluna
@@ -1141,7 +1194,7 @@ export const TITULO_GEOMETRIA_COMPARTILHADA = [
    `serve.py` e pelo `video-ops.js` — as outras duas cópias do conjunto, que não têm como
    importar este módulo. Com uma constante no meio, o leitor extrai o NOME dela em vez do
    valor e a paridade acusa divergência falsa (já aconteceu com o `TITLE_CARD_STYLES`). */
-export const LEGENDA_STYLES = ['classico', 'impacto'];
+export const LEGENDA_STYLES = ['classico', 'impacto', 'faixa', 'podcast', 'papel', 'discreta'];
 
 /* O padrão é o `classico` porque ele É a legenda que todo corte já renderiza hoje: trecho
    salvo antes desta entrega não tem a chave, e trocar a aparência de vídeo antigo por causa
@@ -1152,6 +1205,10 @@ export const LEGENDA_PADRAO = 'classico';
 export const LEGENDA_LABELS = {
   classico: 'Legenda clássica',
   impacto: 'Impacto (caixa alta)',
+  faixa: 'Faixa escura',
+  podcast: 'Contorno',
+  papel: 'Papel',
+  discreta: 'Discreta',
 };
 
 /* PURA, exportada, e o ÚNICO validador do valor — a mesma regra do `titleCardStyleOf`, e
@@ -1268,9 +1325,9 @@ export const LEGENDA_PRESETS = {
        sobre parede clara é maior. Continua sem brilho colorido e sem contorno — contorno
        grosso é a assinatura do editor automático que a direção do projeto evita. */
     sombra: '0 4px 18px rgba(0,0,0,.9), 0 2px 4px rgba(0,0,0,.92)',
-    /* MESMO peso do resto, então a ênfase estática aqui é COR — a
-       mesma escolha do card `primo_rico`, pelo mesmo motivo: empilhar três sinais para
-       dizer uma coisa só é o que vira cara de template. */
+    /* MESMO peso do resto, então a ênfase estática aqui é COR — a mesma escolha do
+       `CARD_PADROES` do card, pelo mesmo motivo: empilhar três sinais para dizer uma coisa
+       só é o que vira cara de template. */
     pesoDestaque: 800,
     /* O MESMO leque do clássico, e de propósito: o pedido de 2026-09-11 é do recurso, não de
        um estilo. Aqui ele era o amarelo queimado sozinho (`TOKENS.destaque`) — que continua
@@ -1284,6 +1341,45 @@ export const LEGENDA_PRESETS = {
        palavras não cresce junto. Pop menor, mesma leitura. */
     palavraEscala: 1.06,
     palavraSubida: -5,
+  },
+
+  /* ---- Os quatro estilos PRONTOS de 2026-09-23 (pedido do operador: "escolher pela
+     aparência", com variedade de verdade). Cada um é uma combinação fechada e testada de
+     tipografia + texto + destaque + contorno + caixa, e o operador ajusta por cima dele como
+     sempre. Todos com UMA cor de destaque (lista de um item no `palavraCores`): o leque neon
+     é identidade do clássico e do impacto; sobre caixa clara ele sumiria. As duas FAMÍLIAS
+     de sempre — variedade aqui vem de caixa, contorno, cor e corpo, não de fonte nova. */
+  faixa: {
+    familia: 'inter', caixaAlta: false, fonte: 54, peso: 700,
+    /* Linha mais aberta: a caixa pinta o `em` inteiro de cada linha e, com 1.18, as duas
+       caixas se sobreporiam numa mancha só. */
+    entrelinha: 1.3, tracking: 'normal', avanco: AVANCO_INTER,
+    cor: '#FFFFFF', sombra: 'none', pesoDestaque: 700,
+    destaqueCor: '#FFD23F', contorno: null, fundo: '#0E0E10',
+    palavraCores: ['#FFD23F'], palavraEscala: 1.06, palavraSubida: -2,
+  },
+  podcast: {
+    familia: 'montserrat', caixaAlta: true, fonte: 66, peso: 800,
+    entrelinha: 1.10, tracking: '-0.01em', avanco: AVANCO_MONTSERRAT_CAIXA_ALTA,
+    /* Com contorno a sombra vira só apoio: curta e sem espalhar. */
+    cor: '#FFFFFF', sombra: '0 3px 8px rgba(0,0,0,.55)', pesoDestaque: 800,
+    destaqueCor: '#FFD23F', contorno: '#000000', fundo: null,
+    palavraCores: ['#FFD23F'], palavraEscala: 1.06, palavraSubida: -4,
+  },
+  papel: {
+    familia: 'inter', caixaAlta: false, fonte: 56, peso: 800,
+    entrelinha: 1.3, tracking: '-0.005em', avanco: AVANCO_INTER,
+    cor: '#141414', sombra: 'none', pesoDestaque: 800,
+    destaqueCor: '#D62839', contorno: null, fundo: '#FFFFFF',
+    palavraCores: ['#D62839'], palavraEscala: 1.04, palavraSubida: -2,
+  },
+  discreta: {
+    familia: 'inter', caixaAlta: false, fonte: 48, peso: 700,
+    entrelinha: 1.2, tracking: 'normal', avanco: AVANCO_INTER,
+    cor: '#F5F1E8', sombra: TOKENS.sombraTexto, pesoDestaque: 700,
+    destaqueCor: '#F2C14E', contorno: null, fundo: null,
+    /* Sem pop: a palavra só troca de cor. É o "edição discreta" levado ao pé da letra. */
+    palavraCores: ['#F2C14E'], palavraEscala: 1, palavraSubida: 0,
   },
 };
 
@@ -1305,6 +1401,149 @@ export const LEGENDA_FONTES = ['inter', 'montserrat'];
 export const LEGENDA_FAMILIAS = LEGENDA_FONTES;
 export const LEGENDA_CORES = ['texto', 'destaque', 'destaqueGanho', 'destaquePerda', 'palavraCor'];
 export const LEGENDA_ALINHAMENTOS = ['left', 'center', 'right'];
+/* Contorno e caixa podem ser DESLIGADOS à mão mesmo num estilo que os traz — e desligar
+   não é o mesmo que "automático" (ausente), então tem um valor próprio. */
+export const LEGENDA_SEM = 'nenhum';
+
+/* Cor escolhida pelo operador -> valor gravável, ou `undefined`. Aceita os NOMES de token
+   de antes (corte salvo continua valendo, sem migração) e, desde 2026-09-23, qualquer
+   `#RRGGBB` — a cor personalizada foi pedida por escrito. Normaliza para MAIÚSCULAS: o
+   mesmo tom em duas grafias daria dois hashes de still e duas linhas "ajustadas" iguais.
+   `semOk` libera o `nenhum` (só contorno e caixa). Espelhado no serve.py e no site. */
+export function corLegendaOf(valor, semOk) {
+  if (typeof valor !== 'string') return undefined;
+  if (LEGENDA_CORES.indexOf(valor) >= 0) return valor;
+  if (semOk && valor === LEGENDA_SEM) return valor;
+  return /^#[0-9A-Fa-f]{6}$/.test(valor) ? valor.toUpperCase() : undefined;
+}
+/* Nome de token ou hex -> hex. `nenhum`/torto -> null. */
+function tintaLegenda(valor) {
+  if (!valor || valor === LEGENDA_SEM) return null;
+  return TOKENS[valor] || valor;
+}
+/* Espessura do traço CSS do contorno: o dobro do visível (ver `legendaContornoFator`). */
+export function contornoPx(aparencia) {
+  return 2 * Math.max(1, Math.round(Number(aparencia && aparencia.fonte) * TOKENS.legendaContornoFator || 0));
+}
+
+/* O estilo da CAIXA de fundo, pronto para o `<span>` que envolve a página — ou `null`
+   sem caixa. PURA e exportada pelo motivo de sempre: escrita à mão no Clip.jsx, ler a chave
+   errada apagaria a caixa em todo corte com a suíte verde. `clone` repete o respiro e o
+   raio em CADA linha (sem ele a caixa de uma página de duas linhas sai aberta no meio). */
+export function caixaLegenda(aparencia) {
+  if (!aparencia || !aparencia.fundo) return null;
+  var alfa = Math.round(TOKENS.legendaFundoAlfa * 255).toString(16).padStart(2, '0');
+  return {
+    backgroundColor: aparencia.fundo + alfa.toUpperCase(),
+    padding: '0.06em 0.28em',
+    borderRadius: '0.18em',
+    boxDecorationBreak: 'clone',
+    WebkitBoxDecorationBreak: 'clone',
+  };
+}
+
+/* PROFUNDIDADE da legenda (2026-09-25, decisão do operador — exceção DOCUMENTADA à direção
+   BUSINESS_SERIOUS, como o leque neon). Texto inclinado para trás, girando pela BASE (a base
+   fica na âncora; as linhas de cima recuam), e com VOLUME de sombras duras empilhadas, sem
+   desfoque. ESTÁTICA: nenhum número aqui depende de tempo ou de quadro. Ausente = Nenhuma,
+   e Nenhuma não acrescenta NADA ao estilo (mesma árvore, mesmas propriedades).
+   Números de PARTIDA, calibrados no olho sobre os stills: `inclinacao` em graus, `perspectiva`
+   e `passo` em px do quadro 1080x1920, `camadas` de sombra, `tinta` = % da cor do texto
+   misturada ao preto na espessura. Espelhados na prévia do site (test-video-ops.js compara). */
+export const LEGENDA_PROFUNDIDADES = {
+  suave: { inclinacao: 16, giro: 16, perspectiva: 1800, camadas: 4, passo: 1.5, tinta: 35 },
+  funda: { inclinacao: 32, giro: 12, perspectiva: 700, camadas: 7, passo: 1.25, tinta: 35 },
+};
+
+/* ÂNGULO da Profundidade (2026-09-29, decisão do operador): para onde o texto se INCLINA =
+   o lado que se AFASTA da câmera. `x` é o sinal do rotateY (+ = a direita se afasta), `y` o
+   do rotateX (+ = o topo se afasta). O pivô (`origem`) é a borda/o canto MAIS PERTO da
+   câmera: com `perspective()` no transform o ponto de fuga é a origem, então o que recua
+   encolhe PARA o pivô e fica dentro do bloco reto — e a garantia do servidor (bloco reto a
+   40 px da borda) vale para todo ângulo sem mexer no Python. `tras` é o de 2026-09-25.
+   Lateral gira pela base (a base fica no `legendaBase`); a família `frente` gira pelo topo. */
+export const LEGENDA_PROFUNDIDADE_DIRECOES = {
+  tras: { origem: '50% 100%', x: 0, y: 1 },
+  frente: { origem: '50% 0%', x: 0, y: -1 },
+  esquerda: { origem: '100% 100%', x: -1, y: 0 },
+  direita: { origem: '0% 100%', x: 1, y: 0 },
+  'tras-esquerda': { origem: '100% 100%', x: -1, y: 1 },
+  'tras-direita': { origem: '0% 100%', x: 1, y: 1 },
+  'frente-esquerda': { origem: '100% 0%', x: -1, y: -1 },
+  'frente-direita': { origem: '0% 0%', x: 1, y: -1 },
+};
+/* Nas diagonais os DOIS ângulos (inclinação e giro) são multiplicados por este fator. */
+export const LEGENDA_PROFUNDIDADE_DIAGONAL = 0.75;
+
+/* Comprimento de sombra: zero sai `0` (nunca `-0`), e é o que mantém o `tras` byte a byte. */
+function pxSombra(v) {
+  return v === 0 ? '0' : v + 'px';
+}
+
+/* O estilo do BLOCO da legenda com a Profundidade — ou `{}` sem ela. PURA e exportada pelo
+   motivo de sempre (o teste a CHAMA; nada escrito à mão no Clip.jsx). Recebe só a aparência
+   resolvida: não há tempo nem quadro na assinatura, e é isso que a mantém estática.
+   Com caixa de fundo: só a inclinação — volume sob uma caixa opaca é borrão.
+   A sombra de LEITURA do estilo vem DEPOIS das camadas, como sempre veio.
+   DIAGONAIS: com `rotateY rotateX` a ponta vertical que recua escapa pela borda do PIVÔ em
+   s·H·senθ·senφ (H = a página mais alta, `MAX_LINHAS` linhas no corpo e entrelinha
+   resolvidos). Um `translateX(c)` PRIMEIRO na lista (aplicado depois da projeção) devolve
+   essa ponta; página mais baixa só é empurrada para dentro (o lado que recua tem folga). */
+export function profundidadeLegenda(aparencia) {
+  var p = aparencia && LEGENDA_PROFUNDIDADES[aparencia.profundidade];
+  if (!p) return {};
+  var dir = LEGENDA_PROFUNDIDADE_DIRECOES[aparencia.profundidadeDirecao]
+    || LEGENDA_PROFUNDIDADE_DIRECOES.tras;
+  var fator = dir.x && dir.y ? LEGENDA_PROFUNDIDADE_DIAGONAL : 1;
+  var incl = Math.round(p.inclinacao * fator * 100) / 100;
+  var giro = Math.round(p.giro * fator * 100) / 100;
+  var transform = 'perspective(' + p.perspectiva + 'px)'
+    + (dir.x ? ' rotateY(' + dir.x * giro + 'deg)' : '')
+    + (dir.y ? ' rotateX(' + dir.y * incl + 'deg)' : '');
+  if (dir.x && dir.y) {
+    var h = MAX_LINHAS * (aparencia.fonte || 0) * (aparencia.entrelinha || 1);
+    var a = incl * Math.PI / 180, b = giro * Math.PI / 180;
+    var escapa = h * Math.sin(a) * Math.sin(b) * p.perspectiva
+      / (p.perspectiva + h * Math.sin(a) * Math.cos(b));
+    transform = 'translateX(' + dir.x * Math.ceil(escapa * 100) / 100 + 'px) ' + transform;
+  }
+  var out = { transform: transform, transformOrigin: dir.origem };
+  if (aparencia.fundo) return out;
+  var tinta = 'color-mix(in srgb, ' + (aparencia.cor || TOKENS.texto) + ' ' + p.tinta + '%, #000)';
+  /* O volume sai para o lado MAIS PERTO da câmera (o oposto do que recua); na diagonal, a
+     mistura dos dois pesada pelos dois ângulos. */
+  var vx = -dir.x * giro, vy = dir.y * incl;
+  var norma = Math.sqrt(vx * vx + vy * vy);
+  var camadas = [];
+  for (var i = 1; i <= p.camadas; i++) {
+    var dx = Math.round(i * p.passo * (vx / norma) * 100) / 100;
+    var dy = Math.round(i * p.passo * (vy / norma) * 100) / 100;
+    camadas.push(pxSombra(dx) + ' ' + pxSombra(dy) + ' 0 ' + tinta);
+  }
+  var leitura = aparencia.sombra && aparencia.sombra !== 'none' ? ', ' + aparencia.sombra : '';
+  out.textShadow = camadas.join(', ') + leitura;
+  return out;
+}
+
+/* Borda esquerda da coluna. O número vem do servidor (`captions.coluna_x`, dono único, o
+   MESMO que vira MarginL no ASS); ausente ou ilegível = centralizada pela fórmula de sempre.
+   ZERO é valor válido (coluna encostada), por isso nada de `Number(v) || padrão`. */
+export function esquerdaLegenda(valor, largura) {
+  var coluna = largura || TOKENS.legendaLargura;
+  var centro = (TOKENS.largura - coluna) / 2;
+  if (valor === null || valor === undefined || valor === '') return centro;
+  var n = Number(valor);
+  return Number.isFinite(n) ? n : centro;
+}
+
+/* Largura EFETIVA da coluna. O número vem do servidor (`captions.coluna_x`, dono único): com
+   X manual a coluna estreita perto da borda (2026-09-28). Ausente, ilegível ou fora de
+   [1, 1080] = a largura resolvida de sempre — corte sem X manual não manda a chave. */
+export function colunaLegenda(valor, largura) {
+  if (valor === null || valor === undefined || valor === '') return largura;
+  var n = Number(valor);
+  return Number.isFinite(n) && n >= 1 && n <= TOKENS.largura ? n : largura;
+}
 
 /* Espelhado literalmente no site e no servidor. Só valores manuais válidos sobrevivem;
    a ausência continua automática e a leitura nunca modifica o clip salvo. */
@@ -1315,12 +1554,17 @@ export function editOf(clip) {
   var legenda = edit.legenda;
   if (legenda && typeof legenda === 'object' && !Array.isArray(legenda)) {
     var sets = { style: LEGENDA_STYLES, familia: LEGENDA_FONTES,
-      cor: LEGENDA_CORES, destaqueCor: LEGENDA_CORES, alinhamento: LEGENDA_ALINHAMENTOS };
+      alinhamento: LEGENDA_ALINHAMENTOS, profundidade: Object.keys(LEGENDA_PROFUNDIDADES),
+      profundidadeDirecao: Object.keys(LEGENDA_PROFUNDIDADE_DIRECOES) };
     Object.keys(sets).forEach(function (key) {
       if (sets[key].indexOf(legenda[key]) >= 0) out.legenda[key] = legenda[key];
     });
+    ['cor', 'destaqueCor', 'contorno', 'fundo'].forEach(function (key) {
+      var cor = corLegendaOf(legenda[key], key === 'contorno' || key === 'fundo');
+      if (cor !== undefined) out.legenda[key] = cor;
+    });
     if (typeof legenda.caixaAlta === 'boolean') out.legenda.caixaAlta = legenda.caixaAlta;
-    var ranges = { tamanho: [32, 96], largura: [360, 1000], posicaoPct: [0, 100] };
+    var ranges = { tamanho: [32, 96], largura: [360, 1000], posicaoPct: [0, 100], posicaoXPct: [0, 100] };
     Object.keys(ranges).forEach(function (key) {
       var value = legenda[key];
       if (typeof value === 'number' && Number.isFinite(value)) {
@@ -1336,12 +1580,75 @@ export function editOf(clip) {
   if (quadro && !Array.isArray(quadro) && REFRAMES.indexOf(quadro.reframe) >= 0) {
     out.enquadramento.reframe = quadro.reframe;
   }
+  /* Música de fundo (2026-09-30): a chave só existe com faixa válida — corte sem música manda
+     o `edit` de sempre, byte a byte. */
+  var musica = musicaOf(edit.musica);
+  if (musica) out.musica = musica;
+  /* Remoções (2026-09-30): só a FORMA; grade, junção e mínimos são do dono em Python
+     (`captions.mapa_saida`). Vazia/torta = sem chave = o corte de sempre. */
+  var remocoes = remocoesOf(edit.remocoes);
+  if (remocoes.length) out.remocoes = remocoes;
+  var textos = textosOf(edit.textos);
+  if (textos.length) out.textos = textos;
+  var zooms = zoomsOf(edit.zooms);
+  if (zooms.length) out.zooms = zooms;
   return out;
+}
+
+/* Remover trechos do meio (2026-09-30). Espelhado LITERALMENTE no video-ops.js e no serve.py
+   (`remocoes_of`). O teto é o `captions.REMOCOES_MAX`. */
+export const REMOCOES_MAX = 30;
+export function remocoesOf(valor) {
+  if (!Array.isArray(valor)) return [];
+  var saida = [];
+  valor.forEach(function (r) {
+    if (!r || typeof r !== 'object') return;
+    var de = r.deMs, ate = r.ateMs;
+    if (![de, ate].every(function (v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0; })) return;
+    de = Math.round(de); ate = Math.round(ate);
+    if (ate > de) saida.push({ deMs: de, ateMs: ate });
+  });
+  return saida.sort(function (a, b) { return a.deMs - b.deMs || a.ateMs - b.ateMs; }).slice(0, REMOCOES_MAX);
+}
+
+/* ==================================================================================
+   MÚSICA DE FUNDO (2026-09-30, decisão do usuário)
+   Só faixa do PC. O nível é "quantos dB ABAIXO da voz" (dono do ganho: `serve.ganho_musica`,
+   que mede a voz do corte e a faixa); não existe nível mais alto que `medio`. Espelhado
+   LITERALMENTE no video-ops.js e no serve.py. */
+export const MUSICA_NIVEIS = ['baixo', 'medio'];
+export const MUSICA_FADE_IN = 1.0;
+export const MUSICA_FADE_OUT = 1.5;
+/* Id torto = sem música (nunca outra faixa); início torto = 0; nível torto = baixo. */
+export function musicaOf(valor) {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)
+    || typeof valor.id !== 'string' || !/^[0-9a-f]{16}$/.test(valor.id)) return null;
+  var inicio = valor.inicioMs;
+  return {
+    id: valor.id,
+    inicioMs: typeof inicio === 'number' && Number.isFinite(inicio) && inicio >= 0 ? Math.round(inicio) : 0,
+    nivel: MUSICA_NIVEIS.indexOf(valor.nivel) >= 0 ? valor.nivel : 'baixo',
+  };
+}
+/* Volume da faixa NUM quadro da SAÍDA. PURA. `ganho` vem do servidor (linear, ≤ 1). Fade-in
+   no começo; fade-out terminando no fim da SAÍDA — ou no fim da FAIXA, se ela acaba antes
+   (sem loop). Fora disso, o ganho. Nada depende de outra coisa que não o relógio da saída. */
+export function volumeMusica(quadro, musica, fps, totalQuadros) {
+  var g = musica && Number.isFinite(musica.ganho) ? Math.max(0, Math.min(1, musica.ganho)) : 0;
+  if (!g || !(fps > 0)) return 0;
+  var t = quadro / fps;
+  var fimSaida = totalQuadros / fps;
+  var resto = musica.faixaSec > 0 ? musica.faixaSec - (musica.inicioSec || 0) : fimSaida;
+  var fim = Math.min(fimSaida, resto);
+  if (t < 0 || t >= fim) return 0;
+  var entra = Math.min(1, t / MUSICA_FADE_IN);
+  var sai = Math.min(1, (fim - t) / MUSICA_FADE_OUT);
+  return g * Math.max(0, Math.min(entra, sai));
 }
 
 /* A mesma aparência alimenta paginação, composição e prévia CSS. A posição NÃO é
    resolvida aqui: só Python transforma a intenção posicaoPct em legendaBase. */
-export function resolveLegenda(legendaStyle, edit) {
+export function resolveLegenda(legendaStyle, edit, legendaColuna) {
   var manual = editOf({ edit }).legenda;
   var preset = legendaPreset(manual.style || legendaStyle);
   if (!Object.keys(manual).length) return preset;
@@ -1350,17 +1657,246 @@ export function resolveLegenda(legendaStyle, edit) {
   if (out.familia === 'montserrat') out.peso = out.pesoDestaque = 800;
   if (manual.tamanho !== undefined) out.fonte = manual.tamanho;
   if (manual.caixaAlta !== undefined) out.caixaAlta = manual.caixaAlta;
-  if (manual.cor) out.cor = TOKENS[manual.cor];
+  if (manual.cor) out.cor = tintaLegenda(manual.cor);
   if (manual.destaqueCor) {
-    out.destaqueCor = TOKENS[manual.destaqueCor];
+    out.destaqueCor = tintaLegenda(manual.destaqueCor);
     out.palavraCor = out.destaqueCor;
+    /* A palavra sendo dita lê o LEQUE, não o `palavraCor`: sem esta linha a "Cor do
+       destaque" escolhida na tela só valia no caminho estático, e o MP4 com karaokê saía
+       no leque de sempre — controle que não faz nada (BP-008), achado em 2026-09-23. */
+    out.palavraCores = [out.destaqueCor];
   }
+  if (manual.contorno) out.contorno = tintaLegenda(manual.contorno);
+  if (manual.fundo) out.fundo = tintaLegenda(manual.fundo);
+  /* Sombra sobre caixa opaca é borrão: com caixa, quem garante a leitura é ela. */
+  if (manual.fundo && out.fundo) out.sombra = 'none';
+  else if (manual.fundo && preset.fundo) out.sombra = TOKENS.sombraTexto;
   if (manual.largura !== undefined) out.largura = manual.largura;
+  /* A coluna EFETIVA do servidor (X manual perto da borda) vence a do operador, que vira o
+     máximo. Aplicada AQUI, uma vez, para a mesma largura desenhar e paginar (`tetoDaPagina`). */
+  if (legendaColuna !== undefined && legendaColuna !== null) {
+    out.largura = colunaLegenda(legendaColuna, out.largura);
+  }
   if (manual.alinhamento) out.alinhamento = manual.alinhamento;
+  /* Só a CHAVE: o estilo do bloco sai do `profundidadeLegenda(aparencia)`, que lê a cor,
+     a caixa e a sombra já resolvidas aqui em cima. */
+  if (manual.profundidade) out.profundidade = manual.profundidade;
+  if (manual.profundidadeDirecao) out.profundidadeDirecao = manual.profundidadeDirecao;
   if (out.familia === 'montserrat') {
     out.avanco = out.caixaAlta ? AVANCO_MONTSERRAT_CAIXA_ALTA : AVANCO_MONTSERRAT_LEGENDA;
   } else if (manual.familia || manual.caixaAlta !== undefined) {
     out.avanco = out.caixaAlta ? AVANCO_INTER_CAIXA_ALTA : AVANCO_INTER;
   }
   return out;
+}
+
+/* ==================================================================================
+   CAPA DO TIKTOK (2026-09-30, decisão do usuário)
+   ==================================================================================
+   Um PNG 1080x1920 salvo AO LADO do MP4, que o operador manda ao celular e escolhe em
+   "Selecionar capa → galeria". NÃO entra no MP4 e NÃO vai por API (a API do TikTok não tem
+   parâmetro de capa). Fundo = um quadro do corte escolhido pelo operador, com o MESMO
+   enquadramento do corte (`palcoGeometria`); por cima, a manchete.
+   Modelo `clip.capaTikTok = { v: 1, quadroMs?, titulo?, destaque?, estilo, posicao }`, FORA
+   do `clip.edit` e na chave de projeto de sempre. Validador espelhado LITERALMENTE no
+   video-ops.js (`capaTikTokOf`) e no serve.py (`capa_tiktok_of`); os testes comparam. */
+export const CAPA_ESTILOS = ['negocio', 'faixa', 'limpo'];
+export const CAPA_POSICOES = ['alto', 'meio', 'baixo'];
+export const CAPA_TITULO_MAX = 120;
+export const CAPA_DESTAQUE_MAX = 60;
+
+/* Ausente, torto ou de outra versão = `null` (sem capa). Campo torto SOME em vez de virar
+   padrão escondido; estilo/posição desconhecidos caem no padrão (`negocio`/`meio`). */
+export function capaTikTokOf(valor) {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor) || valor.v !== 1) return null;
+  var out = {
+    v: 1,
+    estilo: CAPA_ESTILOS.indexOf(valor.estilo) >= 0 ? valor.estilo : 'negocio',
+    posicao: CAPA_POSICOES.indexOf(valor.posicao) >= 0 ? valor.posicao : 'meio',
+  };
+  var q = valor.quadroMs;
+  if (typeof q === 'number' && Number.isFinite(q) && q >= 0) out.quadroMs = Math.round(q);
+  if (typeof valor.titulo === 'string' && valor.titulo.trim()) {
+    out.titulo = valor.titulo.trim().slice(0, CAPA_TITULO_MAX);
+  }
+  if (typeof valor.destaque === 'string' && valor.destaque.trim()) {
+    out.destaque = valor.destaque.trim().slice(0, CAPA_DESTAQUE_MAX);
+  }
+  return out;
+}
+
+/* Guias do TikTok, em px do quadro (números de PARTIDA, só AVISO — nunca bloqueio). O perfil
+   mostra a capa recortada em 3:4 no centro (1080x1440), com o contador de plays embaixo à
+   esquerda; o miolo 1080x1080 é o que sobra em qualquer recorte. Espelhado na tela. */
+export const CAPA_ZONAS = {
+  grade: { x: 0, y: 240, largura: 1080, altura: 1440 },
+  seguro: { x: 0, y: 420, largura: 1080, altura: 1080 },
+  contador: { x: 0, y: 1570, largura: 420, altura: 110 },
+};
+
+/* Aparência de cada estilo. Só faces com AVANÇO MEDIDO em caixa alta (Montserrat 800 =
+   0,731; Inter 700 = 0,683): a escolha do corpo depende dele, e chute faria a manchete
+   estourar a coluna sem erro nenhum. As duas famílias já são carregadas pelo Clip.jsx. */
+export const CAPA_ESTILO_DEF = {
+  negocio: { familia: 'montserrat', peso: 800, avanco: AVANCO_MONTSERRAT_CAIXA_ALTA, caixa: false, degrade: true },
+  faixa: { familia: 'montserrat', peso: 800, avanco: AVANCO_MONTSERRAT_CAIXA_ALTA, caixa: true, degrade: false },
+  limpo: { familia: 'inter', peso: 700, avanco: AVANCO_INTER_CAIXA_ALTA, caixa: false, degrade: false },
+};
+export const CAPA_FONTES = [132, 116, 104, 92, 80, 72];
+export const CAPA_LARGURA = 920;
+export const CAPA_MAX_LINHAS = 3;
+export const CAPA_ENTRELINHA = 1.04;
+
+/* Linhas estimadas pelo avanço MEDIDO (quebra por palavra, como o navegador). PURA. */
+export function capaLinhas(titulo, fonte, avanco) {
+  var cabe = Math.max(1, Math.floor(CAPA_LARGURA / (fonte * avanco)));
+  var linhas = 0, atual = -1;
+  String(titulo || '').split(/\s+/).filter(Boolean).forEach(function (palavra) {
+    var n = palavra.length;
+    if (atual >= 0 && atual + 1 + n <= cabe) { atual += 1 + n; return; }
+    linhas += Math.max(1, Math.ceil(n / cabe));
+    atual = n > cabe ? n % cabe || cabe : n;
+  });
+  return linhas;
+}
+
+/* O corpo: o MAIOR da escada que cabe em `CAPA_MAX_LINHAS`. Nem o menor cabe → o menor, com
+   `cabe: false` (a tela avisa: "título longo demais"). */
+export function capaTitulo(titulo, estilo) {
+  var def = CAPA_ESTILO_DEF[estilo] || CAPA_ESTILO_DEF.negocio;
+  for (var i = 0; i < CAPA_FONTES.length; i++) {
+    var linhas = capaLinhas(titulo, CAPA_FONTES[i], def.avanco);
+    if (linhas <= CAPA_MAX_LINHAS) return { fonte: CAPA_FONTES[i], linhas: linhas, cabe: true };
+  }
+  var menor = CAPA_FONTES[CAPA_FONTES.length - 1];
+  return { fonte: menor, linhas: capaLinhas(titulo, menor, def.avanco), cabe: false };
+}
+
+/* Onde o bloco da manchete mora: o TEXTO fica dentro do miolo seguro (y 440-1480). `folga` é
+   o respiro vertical do bloco (o degradê do `negocio`), descontado para o texto não sair do
+   miolo. PURA. */
+export const CAPA_FOLGA_DEGRADE = 90;
+export function capaBloco(posicao, folga) {
+  var f = folga || 0;
+  if (posicao === 'alto') return { top: 440 - f };
+  if (posicao === 'baixo') return { bottom: TOKENS.altura - 1480 - f };
+  return { top: TOKENS.altura / 2, transform: 'translateY(-50%)' };
+}
+
+/* ==================================================================================
+   TEXTO FIXO NA TELA (2026-09-30, decisão do usuário)
+   `clip.edit.textos = [{ id, texto, deMs, ateMs, posicao, estilo }]` em ms da FONTE; o relógio
+   da SAÍDA vem do dono em Python (`captions.intervalos_saida`). ESTÁTICO: corte seco ou
+   opacidade de até `TEXTO_FADE_MS`; nenhuma transformação anima. Nomes de estilo distintos dos
+   seis da legenda. Espelhado LITERALMENTE no video-ops.js e no serve.py. */
+export const TEXTOS_MAX = 3;
+export const TEXTO_MAX_CHARS = 80;
+export const TEXTO_MIN_MS = 1000;
+export const TEXTO_FADE_MS = 150;
+export const TEXTO_POSICOES = ['alto', 'meio'];
+export const TEXTO_ESTILOS = ['rotulo', 'nota'];
+/* Coluna de 760 px centrada (x 160–920): fica à esquerda da trilha de botões do TikTok
+   (`captions.TRILHA_X` 930). `topo` em px do quadro. */
+export const TEXTO_GEOMETRIA = { largura: 760, topo: { alto: 300, meio: 860 }, fonte: 46 };
+export const TEXTO_ESTILO_DEF = {
+  rotulo: { familia: 'inter', peso: 700, caixa: true },
+  nota: { familia: 'inter', peso: 700, caixa: false },
+};
+
+export function textosOf(valor) {
+  if (!Array.isArray(valor)) return [];
+  var candidatos = [];
+  valor.forEach(function (t) {
+    if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(t.id)) return;
+    if (typeof t.texto !== 'string' || !t.texto.trim()) return;
+    var de = t.deMs, ate = t.ateMs;
+    if (![de, ate].every(function (v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0; })) return;
+    de = Math.round(de); ate = Math.round(ate);
+    if (ate - de < TEXTO_MIN_MS) return;
+    candidatos.push({ id: t.id, texto: t.texto.split(/\s+/).filter(Boolean).join(' ').slice(0, TEXTO_MAX_CHARS),
+      deMs: de, ateMs: ate,
+      posicao: TEXTO_POSICOES.indexOf(t.posicao) >= 0 ? t.posicao : 'alto',
+      estilo: TEXTO_ESTILOS.indexOf(t.estilo) >= 0 ? t.estilo : 'rotulo' });
+  });
+  candidatos.sort(function (a, b) { return a.deMs - b.deMs || a.ateMs - b.ateMs; });
+  var saida = [];
+  candidatos.forEach(function (t) {
+    if (saida.length && t.deMs < saida[saida.length - 1].ateMs) return;
+    if (saida.length < TEXTOS_MAX) saida.push(t);
+  });
+  return saida;
+}
+/* Opacidade num quadro DENTRO da Sequence do texto (de 0 a `quadros`). PURA: fade linear de
+   `TEXTO_FADE_MS` na entrada e na saída; no meio, 1. Não move nada. */
+export function opacidadeTexto(quadro, quadros, fps) {
+  var fade = Math.max(1, Math.round(TEXTO_FADE_MS / 1000 * fps));
+  if (!(quadros > 0) || quadro < 0 || quadro >= quadros) return 0;
+  return Math.max(0, Math.min(1, (quadro + 1) / fade, (quadros - quadro) / fade));
+}
+/* Estilo do bloco de UM texto. PURA. */
+export function textoFixoEstilo(texto) {
+  var def = TEXTO_ESTILO_DEF[texto && texto.estilo] || TEXTO_ESTILO_DEF.rotulo;
+  var topo = TEXTO_GEOMETRIA.topo[texto && texto.posicao] || TEXTO_GEOMETRIA.topo.alto;
+  return {
+    bloco: { position: 'absolute', top: topo, left: (TOKENS.largura - TEXTO_GEOMETRIA.largura) / 2,
+      width: TEXTO_GEOMETRIA.largura, textAlign: 'center' },
+    texto: Object.assign({ fontWeight: def.peso, fontSize: TEXTO_GEOMETRIA.fonte, lineHeight: 1.2,
+      color: TOKENS.texto, overflowWrap: 'normal' },
+    def.caixa
+      ? { backgroundColor: TOKENS.fundo + 'E0', padding: '0.12em 0.4em', borderRadius: '0.2em',
+        boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }
+      : { textShadow: TOKENS.sombraTexto }),
+  };
+}
+
+/* ==================================================================================
+   ZOOM PONTUAL LEVE (2026-09-30, decisão do usuário)
+   `clip.edit.zooms = [{ id, deMs, ateMs, nivel }]` em ms da FONTE; o relógio da SAÍDA vem do
+   dono em Python (`captions.intervalos_saida`). Só a camada do VÍDEO escala (legenda, textos,
+   card e fundo intocados), centrada, sem tremor, giro ou pan. Teto duro `ZOOM_TETO`. Curva
+   suave de entrada/saída SEM sobressalto (smoothstep), nada de mola. Espelhado no video-ops.js
+   e no serve.py. */
+export const ZOOMS_MAX = 5;
+export const ZOOM_MIN_MS = 1000;
+export const ZOOM_NIVEIS = ['leve', 'medio'];
+export const ZOOM_ESCALAS = { leve: 1.06, medio: 1.12 };
+export const ZOOM_TETO = 1.15;
+export const ZOOM_TRANSICAO_MS = 400;
+
+export function zoomsOf(valor) {
+  if (!Array.isArray(valor)) return [];
+  var candidatos = [];
+  valor.forEach(function (z) {
+    if (!z || typeof z !== 'object' || typeof z.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(z.id)) return;
+    var de = z.deMs, ate = z.ateMs;
+    if (![de, ate].every(function (v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0; })) return;
+    de = Math.round(de); ate = Math.round(ate);
+    if (ate - de < ZOOM_MIN_MS) return;
+    candidatos.push({ id: z.id, deMs: de, ateMs: ate, nivel: ZOOM_NIVEIS.indexOf(z.nivel) >= 0 ? z.nivel : 'leve' });
+  });
+  candidatos.sort(function (a, b) { return a.deMs - b.deMs || a.ateMs - b.ateMs; });
+  var saida = [];
+  candidatos.forEach(function (z) {
+    if (saida.length && z.deMs < saida[saida.length - 1].ateMs) return;
+    if (saida.length < ZOOMS_MAX) saida.push(z);
+  });
+  return saida;
+}
+/* Escala da camada do vídeo NUM quadro da SAÍDA. PURA. `zooms` = `[{ deSec, ateSec, nivel }]`
+   (do servidor). Fora de toda janela: EXATAMENTE 1. Dentro: sobe e desce em
+   `ZOOM_TRANSICAO_MS` (no máximo metade da janela) pela smoothstep 3t²−2t³, que não passa do
+   alvo; nunca acima de `ZOOM_TETO`. */
+export function escalaZoom(quadro, zooms, fps) {
+  if (!Array.isArray(zooms) || !(fps > 0)) return 1;
+  var t = quadro / fps;
+  for (var i = 0; i < zooms.length; i++) {
+    var z = zooms[i];
+    if (!z || !(t >= z.deSec && t < z.ateSec)) continue;
+    var alvo = Math.min(ZOOM_TETO, ZOOM_ESCALAS[z.nivel] || ZOOM_ESCALAS.leve);
+    var rampa = Math.min(ZOOM_TRANSICAO_MS / 1000, (z.ateSec - z.deSec) / 2);
+    var p = Math.min(1, (t - z.deSec) / rampa, (z.ateSec - t) / rampa);
+    var suave = p * p * (3 - 2 * p);
+    return 1 + (alvo - 1) * suave;
+  }
+  return 1;
 }

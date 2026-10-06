@@ -34,6 +34,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -252,7 +253,10 @@ def main():
     # Pasta de cortes apontada para o temporário do teste: a prova não escreve na pasta
     # pessoal de quem roda (o padrão é ~/Videos/Cortes Estudio).
     cortes = os.path.join(trabalho, "cortes-salvos")
-    servidor = serve.build_server(site, port=0, max_seconds=60.0, clips=cortes)
+    # A biblioteca de músicas também: a prova nunca escreve em ~/Music.
+    musicas_dir = os.path.join(trabalho, "musicas")
+    servidor = serve.build_server(site, port=0, max_seconds=60.0, clips=cortes,
+                                  musicas=musicas_dir)
     temporario = servidor.temp_folder
     threading.Thread(target=servidor.serve_forever, daemon=True).start()
     base = "http://127.0.0.1:%d" % servidor.server_address[1]
@@ -735,6 +739,11 @@ def main():
             check("7c. o corpo tem bytes de vídeo", len(vertical.body) > 1000)
             check("7d. o navegador recebe o nome do arquivo",
                   "corte-9x16.mp4" in (vertical.headers.get("Content-Disposition") or ""))
+            # Título truncado com "…" derrubava a resposta (latin-1 estrito): 6 de 11 cortes.
+            cab = serve.content_disposition("Ou seja, a janela…-207s-254s-16x9.mp4")
+            cab.encode("latin-1")
+            check("7d2. nome com reticências vira cabeçalho latin-1 com o nome real no filename*",
+                  "filename*=UTF-8''Ou%20seja%2C%20a%20janela%E2%80%A6" in cab)
             check("7e. o cabeçalho de cache da fonte é o do contrato",
                   vertical.headers.get("X-Video-Source-Cached") == "1")
             # Conferência técnica do que voltou: é o que TikTok/Instagram aceitam?
@@ -1040,7 +1049,9 @@ def main():
                   erro_fila is not None and erro_fila.code == "render_busy")
             # Guarda de regressão: reverter QUALQUER dos quatro pontos para o `with` cru
             # devolve a espera sem prazo calada, e os checks acima só passam pelo video-cut.
-            # Os quatro: /api/video-cut, /api/yt-fetch, /api/remotion-render e o
+            # Os CINCO (a capa do TikTok entrou em 2026-09-30: FFmpeg + Chrome, disputa a
+            # máquina com um export e por isso entra na fila de propósito). Os quatro de
+            # antes: /api/video-cut, /api/yt-fetch, /api/remotion-render e o
             # `_cut_for_render` (o recorte da fonte importada que alimenta o Remotion, que é
             # FFmpeg de verdade e por isso entra na mesma fila). A IMPORTAÇÃO em si não conta
             # de propósito — ela não recodifica nada, e segurar a fila por vinte minutos de
@@ -1049,7 +1060,7 @@ def main():
                               encoding="utf-8").read()
             check("29i. nenhuma rota voltou ao `with self.render_lock` cru",
                   "with self.render_lock" not in fonte_fila
-                  and fonte_fila.count("with self._render_slot():") == 4)
+                  and fonte_fila.count("with self._render_slot():") == 5)
 
             # 16: o corte PRONTO fica no computador e é servido de volta. É o que faz a
             # revisão abrir com o vídeo na tela depois de fechar o site — antes o MP4 só
@@ -1246,6 +1257,87 @@ def main():
             check("31n. o render recusa %s, com motivo (%s)" % (rotulo, negada.status),
                   negada.status == 400 and negada.codigo_erro == "cut_invalid"
                   and len(negada.erro) > 10)
+
+        # ---- MÚSICA: importar, listar, servir e recusar (2026-09-30) ----------------------
+        faixa_wav = os.path.join(trabalho, "faixa teste.wav")
+        subprocess.run([worker.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "sine=frequency=440:duration=3", "-af", "volume=-12dB", faixa_wav],
+                       check=True, capture_output=True)
+        with open(faixa_wav, "rb") as _f:
+            bytes_wav = _f.read()
+
+        def importar(nome, corpo):
+            return pedir(base + serve.ROUTE_MUSICA_IMPORT, data=corpo,
+                         headers={"Content-Type": "application/octet-stream",
+                                  "X-Musica-Nome": urllib.parse.quote(nome)})
+        aceita = importar("faixa teste.wav", bytes_wav)
+        _mus = json.loads(aceita.body.decode("utf-8")) if aceita.status == 200 else {}
+        check("38e. a faixa entra na biblioteca com id do CONTEUDO, duracao e loudness medidos",
+              aceita.status == 200 and serve.MUSICA_ID_RE.match(_mus.get("id", ""))
+              and abs(_mus.get("durationSec", 0) - 3.0) < 0.1 and -40 < _mus.get("lufs", 0) < -5
+              and _mus.get("nome") == "faixa teste"
+              and os.path.isfile(os.path.join(musicas_dir, _mus["id"] + ".wav")))
+        de_novo = importar("outro nome.wav", bytes_wav)
+        check("38e2. a MESMA faixa de novo nao duplica (mesmo id, um arquivo so)",
+              de_novo.status == 200 and json.loads(de_novo.body)["id"] == _mus.get("id")
+              and len([n for n in os.listdir(musicas_dir) if n.endswith(".wav")]) == 1)
+        _tetos = serve.MUSICA_MAX_BYTES
+        serve.MUSICA_MAX_BYTES = 1000
+        try:
+            grande = importar("grande.wav", bytes_wav)
+        finally:
+            serve.MUSICA_MAX_BYTES = _tetos
+        for rotulo, resposta, codigo in (
+                ("extensao fora da lista", importar("nota.txt", b"texto"), "musica_tipo"),
+                ("arquivo vazio", importar("vazia.mp3", b""), "musica_vazia"),
+                ("acima do teto da rota", grande, "musica_grande"),
+                ("sem audio legivel", importar("lixo.mp3", b"isto nao e audio" * 64), "musica_ilegivel")):
+            check("38f. a importacao recusa %s com `%s` e motivo" % (rotulo, codigo),
+                  resposta.status == 400 and resposta.codigo_erro == codigo and len(resposta.erro) > 10)
+        check("38f2. recusa nao deixa sobra na biblioteca",
+              sorted(os.listdir(musicas_dir)) == sorted([_mus["id"] + ".wav", _mus["id"] + ".json"]))
+        lista = pedir(base + serve.ROUTE_MUSICAS)
+        _lista = json.loads(lista.body.decode("utf-8")).get("musicas", []) if lista.status == 200 else []
+        check("38g. a lista traz a faixa com nome, duracao e endereco",
+              len(_lista) == 1 and _lista[0]["id"] == _mus["id"]
+              and _lista[0]["url"] == serve.MUSICAS_URL + _mus["id"] + ".wav")
+        servida = pedir(base + _lista[0]["url"]) if _lista else None
+        parcial = pedir(base + _lista[0]["url"], headers={"Range": "bytes=0-99"}) if _lista else None
+        check("38h. /musicas/ serve a faixa inteira e com Range (206)",
+              servida and servida.status == 200 and servida.body == bytes_wav
+              and parcial and parcial.status == 206 and len(parcial.body) == 100)
+        check("38h2. /musicas/ NAO serve o sidecar nem sai da pasta (travessia)",
+              pedir(base + serve.MUSICAS_URL + _mus["id"] + ".json").status == 404
+              and pedir(base + serve.MUSICAS_URL + "..%2F..%2Fserve.py").status == 404
+              and pedir(base + serve.MUSICAS_URL + ".env").status == 404)
+
+        # ---- REMOÇÕES na rota da geometria: prévia == export (2026-09-30) -----------------
+        _geo_rem = pedir(base + serve.ROUTE_GEO, data=json.dumps({
+            "width": 1920, "height": 1080, "start": 415, "end": 461, "legendaStyle": "classico",
+            "cues": [{"start": 1.0, "end": 2.0, "text": "antes"},
+                     {"start": 10.0, "end": 11.0, "text": "depois"}],
+            "edit": {"v": 1, "remocoes": [{"deMs": 420000, "ateMs": 423000}]}}).encode(),
+            headers={"Content-Type": "application/json"})
+        _pags = json.loads(_geo_rem.body.decode("utf-8")).get("paginas", []) if _geo_rem.status == 200 else []
+        check("39g. com remocao, a rota pagina as falas REMAPEADAS e diz o instante na FONTE",
+              len(_pags) == 2 and _pags[1]["start"] == 7.0 and _pags[1]["fonteStart"] == 10.0
+              and _pags[0]["fonteStart"] == 1.0)
+
+        # ---- a CAPA recusa cada caso com o código DELE (nunca um "falhou" genérico) -------
+        for rotulo, corpo_capa, codigo in (
+                ("fonte fora do servidor", {"clipToken": "naoexiste123", "start": 0, "end": 5,
+                                            "capaTikTok": {"v": 1, "quadroMs": 1000}},
+                 "capa_sem_fonte"),
+                ("sem quadro escolhido", {"clipToken": "abcdefghijk", "start": 0, "end": 5,
+                                          "capaTikTok": {"v": 1, "estilo": "faixa"}},
+                 "capa_sem_quadro"),
+                ("quadro fora do corte", {"clipToken": "abcdefghijk", "start": 1, "end": 5,
+                                          "capaTikTok": {"v": 1, "quadroMs": 7000}},
+                 "capa_quadro_fora")):
+            negada = pedir(base + serve.ROUTE_CAPA, data=json.dumps(corpo_capa).encode(),
+                           headers={"Content-Type": "application/json"})
+            check("37h. a capa recusa %s com `%s` e motivo" % (rotulo, codigo),
+                  negada.status == 400 and negada.codigo_erro == codigo and len(negada.erro) > 20)
     finally:
         serve.close_server(servidor)
 
@@ -1452,40 +1544,102 @@ def main():
     check("26v3. titulo gigante e aparado em 180 antes de virar props",
           len(serve.render_props(fundo_dir, "vid-0-5.mp4", {"durationSec": 12.0},
                                  {"preset": "legenda", "title": "a" * 400})["title"]) == 180)
-    # ---- a IDENTIDADE do card (Primo Rico x Ecommerce Puro) --------------------------
-    # O card tinha UMA marca fixa. Agora o operador escolhe por trecho, e o valor atravessa
-    # tela -> corpo do POST -> AQUI -> props-<token>.json -> composicao. O elo que erra
-    # CALADO e este: descartar o valor faria o video sair com a outra marca sem nada na tela
-    # errar. Construido e nao procurado no texto do arquivo, pela mesma razao do 26v.
-    def props_marca(corpo):
+    # ---- o CARD do titulo: enum fechado + DADO do operador ---------------------------
+    # O card tinha duas identidades de terceiro fechadas no codigo. Agora o enum diz so SE o
+    # corte tem card, e QUAL card e um objeto que atravessa tela -> corpo do POST -> AQUI ->
+    # props-<token>.json -> composicao. Os elos que erram CALADO sao dois: descartar o objeto
+    # (o corte sai sem card e nada na tela erra) e deixar passar um objeto torto (o card sai
+    # sem placa, sem filete e sem borda). Construido e nao procurado no texto do arquivo,
+    # pela mesma razao do 26v.
+    LOGO_OK = "data:image/png;base64," + "A" * 64
+    CARD_OK = {
+        "id": "card-1758500000000-ab12", "nome": "Casa",
+        "identificador": "DOOTU | CORTES", "logo": LOGO_OK, "logoProporcao": 2.5,
+        "fileteCor": "#FF0000", "bordaCor": "rgba(255, 0, 0, .3)",
+        "identificadorCor": "#ccc", "destaqueCor": "rgb(0, 128, 255)",
+        "tituloPeso": 800, "destaquePeso": 900, "destaqueSublinhado": True,
+    }
+
+    def props_card(corpo):
         base = {"preset": "legenda", "cues": [], "title": "Manchete"}
         base.update(corpo)
         return serve.render_props(fundo_dir, "vid-0-5.mp4", {"durationSec": 12.0}, base)
 
-    check("26w. a identidade escolhida CHEGA aos props, intacta",
-          props_marca({"titleCardStyle": "puro_ecommerce"})["titleCardStyle"]
-          == "puro_ecommerce")
-    check("26w2. e a outra tambem (o valor nao e ignorado nem fixado num dos dois)",
-          props_marca({"titleCardStyle": "primo_rico"})["titleCardStyle"] == "primo_rico")
-    # Chave AUSENTE e o caso do trecho salvo antes desta entrega: tem de sair como sempre
-    # saiu, nao com a outra marca.
-    check("26w3. corpo sem a chave cai no padrao (clip antigo nao muda de marca)",
-          props_marca({})["titleCardStyle"] == serve.TITLE_CARD_PADRAO == "primo_rico")
-    # O corpo do POST e ENTRADA. Valor desconhecido que atravessasse ate a composicao nao
-    # tem aparencia definida: o card sairia sem placa, sem filete e sem borda, calado.
-    for torto in (None, "", "Puro Ecommerce", "PURO_ECOMMERCE", "puro-ecommerce",
-                  "outra_marca", 7, True):
-        check("26x. valor torto e normalizado, nunca chega cru (%r)" % (torto,),
-              props_marca({"titleCardStyle": torto})["titleCardStyle"] == "primo_rico")
+    check("26w. o card escolhido CHEGA aos props, inteiro",
+          props_card({"titleCardStyle": "personalizado", "card": CARD_OK})["card"]
+          == serve.card_of(CARD_OK)
+          and props_card({"titleCardStyle": "personalizado", "card": CARD_OK})["card"]
+          ["identificador"] == "DOOTU | CORTES")
+    # "Sem card" e decisao da TELA: o objeto que vier junto e irrelevante, e o corte sai sem
+    # card. Se dependesse do corpo mandar `card: null`, um POST antigo repetido traria o card
+    # de volta calado.
+    check("26w2. 'nenhum' apaga o card mesmo com objeto valido no corpo",
+          props_card({"titleCardStyle": "nenhum", "card": CARD_OK})["card"] is None
+          # E o TITULO continua indo: ele nomeia o arquivo baixado e o cartao da Central.
+          and props_card({"titleCardStyle": "nenhum", "card": CARD_OK})["title"] == "Manchete")
+    # Chave AUSENTE e o caso do corte salvo antes desta entrega. Ele nao tem card apontado, e
+    # o desfecho e sair SEM card -- nunca herdar a identidade de outro corte.
+    check("26w3. corpo sem card sai sem card, e o estilo cai no padrao",
+          props_card({})["card"] is None
+          and props_card({})["titleCardStyle"] == serve.TITLE_CARD_PADRAO == "personalizado")
+    # O corpo do POST e ENTRADA. Objeto torto que atravessasse ate a composicao produziria um
+    # card sem placa e sem borda, calado -- ou derrubaria o render num campo de None.
+    for torto in (None, "", "card", 7, True, [], [CARD_OK], {}, {"nome": "so o nome"}):
+        check("26x. card torto vira None, nunca chega cru (%r)" % (torto,),
+              props_card({"titleCardStyle": "personalizado", "card": torto})["card"] is None)
     # A chave sai SEMPRE, porque prop mandado vence defaultProp na composicao: omiti-la
-    # deixaria a composicao escolher, e a tela ja mostrou uma escolha.
-    check("26x2. a chave existe sempre nos props (nunca omitida)",
-          "titleCardStyle" in props_marca({}))
+    # deixaria o Remotion abrir o card de EXEMPLO do defaultProps num render de verdade.
+    check("26x2. as duas chaves existem sempre nos props (nunca omitidas)",
+          "titleCardStyle" in props_card({}) and "card" in props_card({}))
     # E sobrevive ao JSON que o render le do disco -- mesma prova do 26s para o tempo por
     # palavra: o valor pode chegar aos props e morrer na serializacao.
-    check("26x3. e sobrevive ao props-<token>.json que o render le",
-          json.loads(json.dumps(props_marca({"titleCardStyle": "puro_ecommerce"})))
-          ["titleCardStyle"] == "puro_ecommerce")
+    check("26x3. e o card sobrevive ao props-<token>.json que o render le",
+          json.loads(json.dumps(props_card({"titleCardStyle": "personalizado",
+                                            "card": CARD_OK})))["card"]["logo"] == LOGO_OK)
+    # ---- o `card_of` CHAMADO com valor construido (BP-014) ---------------------------
+    check("26x4. card valido sobrevive inteiro ao validador",
+          serve.card_of(CARD_OK)["logoProporcao"] == 2.5
+          and serve.card_of(CARD_OK)["tituloPeso"] == 800
+          and serve.card_of(CARD_OK)["destaqueSublinhado"] is True
+          and serve.card_of(CARD_OK)["fileteCor"] == "#FF0000")
+    # Card sem logo E sem identificador nao tem identidade para vestir o titulo: a placa
+    # viraria um retangulo com uma manchete dentro.
+    check("26x5. card sem logo E sem identificador e None (nao ha identidade para vestir)",
+          serve.card_of({}) is None and serve.card_of({"nome": "x"}) is None
+          and serve.card_of({"logo": "", "identificador": "   "}) is None)
+    check("26x6. e os dois meios-cards valem (so placa, so identificador)",
+          serve.card_of({"logo": LOGO_OK})["identificador"] == ""
+          and serve.card_of({"identificador": "DOOTU"})["logo"] == "")
+    # ESQUEMA do logo: `staticFile()` nao alcanca o repositorio (o `--public-dir` e o cache do
+    # YouTube), entao endereco remoto ou falharia em carregar ou transformaria o render numa
+    # busca de rede no meio da captura do quadro.
+    for endereco in ("http://x/a.png", "https://x/a.png", "file:///a.png",
+                     "javascript:alert(1)", "data:text/html;base64,AAAA",
+                     "data:image/gif;base64,AAAA", "/logo.png", "logo.png", 7, None):
+        check("26x7. logo de esquema/tipo proibido e descartado (%r)" % (endereco,),
+              serve.card_of({"logo": endereco, "identificador": "D"})["logo"] == "")
+    # TETO de tamanho, em CARACTERES do dataURL: o mesmo numero contado do mesmo jeito nas
+    # tres camadas. Sem ele aqui, um dataURL gigante atravessaria ate o props-<token>.json.
+    gigante = "data:image/png;base64," + "A" * serve.CARD_LOGO_MAX
+    check("26x8. logo acima do teto e descartado no SERVIDOR (o corpo do POST e entrada)",
+          serve.card_of({"logo": gigante, "identificador": "D"})["logo"] == ""
+          and len(gigante) > serve.CARD_LOGO_MAX)
+    # PESO fora do conjunto CARREGADO: o Chrome sintetiza e sai um engrossamento borrado, sem
+    # erro e sem check reprovando -- so aparece olhando o quadro.
+    check("26x9. peso fora do conjunto carregado cai no padrao, e a string do <select> vale",
+          serve.card_of({"identificador": "D", "tituloPeso": 450})["tituloPeso"] == 900
+          and serve.card_of({"identificador": "D", "tituloPeso": "700"})["tituloPeso"] == 700)
+    # COR: o valor vai direto para um `style` inline do JSX.
+    check("26x10. cor invalida cai no padrao, nunca chega ao style inline",
+          serve.card_of({"identificador": "D", "fileteCor": "red; background:url(x)"})
+          ["fileteCor"] == serve.CARD_PADROES["fileteCor"]
+          and serve.card_of({"identificador": "D", "bordaCor": "#a1b2c3"})
+          ["bordaCor"] == "#a1b2c3")
+    # PROPORCAO fora da faixa produziria largura zero (placa invisivel) ou uma faixa de
+    # milhares de pixels, as duas caladas.
+    check("26x11. proporcao ilegivel cai em 1 (nunca em largura zero)",
+          all(serve.card_of({"logo": LOGO_OK, "logoProporcao": v})["logoProporcao"] == 1.0
+              for v in (0, -3, None, "larga", 1e6, float("nan"))))
     # PARIDADE das tres copias do conjunto (preset.js, video-ops.js e aqui). Nao ha import
     # possivel entre elas -- o preset.js e ESM do projeto Remotion, o index.html e Vanilla JS
     # sem npm e este modulo e stdlib puro. Divergirem faria o servidor descartar calado o
@@ -1500,8 +1654,20 @@ def main():
     check("26y2. a copia do servidor bate com o preset.js, na mesma ordem",
           serve.TITLE_CARD_STYLES == do_preset)
     check("26y3. e o padrao tambem bate", serve.TITLE_CARD_PADRAO == m_padrao.group(1))
+    # E os NUMEROS que decidem o que passa no validador do card. Divergirem faria o servidor
+    # descartar calado um peso ou um logo que a tela deixou o operador escolher -- o card
+    # sairia com o peso padrao, ou sem placa, e nada na tela erraria.
+    m_pesos = re.search(r"export const CARD_PESOS = \[([^\]]*)\]", preset_js)
+    m_teto = re.search(r"export const CARD_LOGO_MAX = ([0-9 *]+);", preset_js)
+    check("26y4. os numeros do card foram encontrados no preset.js",
+          bool(m_pesos and m_teto))
+    check("26y5. os pesos oferecidos batem com os do preset.js, na mesma ordem",
+          serve.CARD_PESOS
+          == tuple(int(x.strip()) for x in m_pesos.group(1).split(",") if x.strip()))
+    check("26y6. e o teto do logo tambem bate",
+          serve.CARD_LOGO_MAX == eval(m_teto.group(1).strip()))  # noqa: S307
     # E a terceira copia, a da tela: se ela oferecer um valor que este modulo descarta, o
-    # operador escolhe uma marca e recebe a outra.
+    # operador escolhe e o corte sai sem aquilo.
     ops_js = open(os.path.join(worker.REPO, "video-ops.js"), encoding="utf-8").read()
     m_ops = re.search(r"var TITLE_CARD_STYLES = \[([^\]]*)\]", ops_js)
     m_ops_padrao = re.search(r"var TITLE_CARD_PADRAO = '([^']+)'", ops_js)
@@ -1509,24 +1675,26 @@ def main():
     do_ops = tuple(s.strip().strip("'") for s in m_ops.group(1).split(",") if s.strip())
     check("26z2. a copia da tela bate com a do servidor", do_ops == serve.TITLE_CARD_STYLES)
     check("26z3. e o padrao da tela tambem", m_ops_padrao.group(1) == serve.TITLE_CARD_PADRAO)
-    # A composicao tem de conhecer a chave, senao o prop chega e ninguem o le -- a familia de
-    # defeito que criou o `ancoraLegenda` e o `palavrasDaPagina`.
+    m_ops_pesos = re.search(r"var CARD_PESOS = \[([^\]]*)\]", ops_js)
+    m_ops_teto = re.search(r"var CARD_LOGO_MAX = ([0-9 *]+);", ops_js)
+    check("26z3b. os numeros do card da tela foram encontrados",
+          bool(m_ops_pesos and m_ops_teto))
+    check("26z3c. e os numeros do card batem nas tres copias",
+          tuple(int(x.strip()) for x in m_ops_pesos.group(1).split(",") if x.strip())
+          == serve.CARD_PESOS
+          and eval(m_ops_teto.group(1).strip()) == serve.CARD_LOGO_MAX)  # noqa: S307
+    # A composicao tem de conhecer as chaves, senao o prop chega e ninguem o le -- a familia
+    # de defeito que criou o `ancoraLegenda` e o `palavrasDaPagina`.
     clip_jsx = open(os.path.join(worker.REPO, "studio", "src", "Clip.jsx"),
                     encoding="utf-8").read()
-    check("26z4. a composicao recebe a chave como prop e a resolve pelo gate do preset",
+    check("26z4. a composicao recebe as duas chaves e resolve o card pelos dois gates",
           "titleCardStyle" in clip_jsx
-          and "const cardMarca = titleCardPreset(titleCardStyle);" in clip_jsx
-          and "card={cardMarca}" in clip_jsx)
-    # "nenhum" = sem card. Atravessa validado como qualquer outro valor, e o TITULO continua
-    # indo: ele nomeia o arquivo baixado e o cartao da Central. Se apagar o card custasse a
-    # manchete, esta opcao seria a mesma coisa que esvaziar o titulo -- que ja dava.
-    check("26z5. o 'sem card' e valor conhecido e chega intacto aos props",
-          props_marca({"titleCardStyle": "nenhum"})["titleCardStyle"] == "nenhum"
-          and props_marca({"titleCardStyle": "nenhum"})["title"] == "Manchete")
-    # E o portao do card no Clip.jsx tem de consultar a identidade RESOLVIDA: sem isso o
-    # "sem card" chegaria como `card={null}` e o `card.marca` derrubaria o render.
-    check("26z6. o portao do card considera a identidade resolvida",
-          "comLegenda && medida.texto && cardMarca" in clip_jsx)
+          and "cardOf(card)" in clip_jsx
+          and "card={cardResolvido}" in clip_jsx)
+    # E o portao do card no Clip.jsx tem de consultar o card RESOLVIDO: sem isso o "sem card"
+    # e o card apagado chegariam como `card={null}` e o `card.logo` derrubaria o render.
+    check("26z6. o portao do card considera o card resolvido",
+          "comLegenda && medida.texto && cardResolvido" in clip_jsx)
 
     # ---- o ESTILO da legenda (classico x impacto) ------------------------------------
     # Mesma familia de elo que a identidade do card acima, e o mesmo modo de falhar calado:
@@ -1534,19 +1702,19 @@ def main():
     # sem nada errar. A diferenca e que aqui o estilo muda TAMBEM a quebra de linha (o
     # `tetoDaPagina` do preset.js), entao um valor descartado nao muda so a fonte.
     check("26za. o estilo escolhido CHEGA aos props, intacto",
-          props_marca({"legendaStyle": "impacto"})["legendaStyle"] == "impacto")
+          props_card({"legendaStyle": "impacto"})["legendaStyle"] == "impacto")
     check("26za2. e o outro tambem (o valor nao e ignorado nem fixado num dos dois)",
-          props_marca({"legendaStyle": "classico"})["legendaStyle"] == "classico")
+          props_card({"legendaStyle": "classico"})["legendaStyle"] == "classico")
     check("26za3. corpo sem a chave cai no padrao (clip antigo nao muda de legenda)",
-          props_marca({})["legendaStyle"] == serve.LEGENDA_PADRAO == "classico")
+          props_card({})["legendaStyle"] == serve.LEGENDA_PADRAO == "classico")
     for torto in (None, "", "Impacto (caixa alta)", "IMPACTO", "impacto-caixa-alta",
                   "outro_estilo", 7, True):
         check("26za4. valor torto e normalizado, nunca chega cru (%r)" % (torto,),
-              props_marca({"legendaStyle": torto})["legendaStyle"] == "classico")
+              props_card({"legendaStyle": torto})["legendaStyle"] == "classico")
     check("26za5. a chave existe sempre nos props (nunca omitida)",
-          "legendaStyle" in props_marca({}))
+          "legendaStyle" in props_card({}))
     check("26za6. e sobrevive ao props-<token>.json que o render le",
-          json.loads(json.dumps(props_marca({"legendaStyle": "impacto"})))
+          json.loads(json.dumps(props_card({"legendaStyle": "impacto"})))
           ["legendaStyle"] == "impacto")
     # PARIDADE das tres copias, pela mesma razao do 26y/26z.
     m_leg = re.search(r"export const LEGENDA_STYLES = \[([^\]]*)\]", preset_js)
@@ -1570,7 +1738,7 @@ def main():
     # coluna de 820px, sem erro nenhum.
     check("26zc4. a composicao resolve estilo E ajuste manual, e corta a pagina com o teto DELE",
           "legendaStyle" in clip_jsx
-          and "const aparencia = resolveLegenda(legendaStyle, edit);" in clip_jsx
+          and "const aparencia = resolveLegenda(legendaStyle, edit, legendaColuna);" in clip_jsx
           and "toCaptionPages(cues, tetoDaPagina(aparencia))" in clip_jsx)
 
     # --------------------------------------------- 33. o ajuste MANUAL do corte (edit)
@@ -1614,7 +1782,9 @@ def main():
     # resolve o token antes de comparar -- exigir literal nos dois obrigaria o preset.js a
     # repetir um numero que ele ja tem num lugar so.
     m_token_fonte = re.search(r"legendaFonte: (\d+)", preset_js)
-    fontes_preset = set(int(x) for x in re.findall(r"\n    fonte: (\d+)," , preset_js))
+    # `(?<![\w.])` e nao `\n    `: os estilos de 2026-09-23 declaram `fonte:` no meio da
+    # linha. O lookbehind recusa `legendaFonte:` e `TOKENS.fonte`.
+    fontes_preset = set(int(x) for x in re.findall(r"(?<![\w.])fonte: (\d+),", preset_js))
     if m_token_fonte:
         fontes_preset.add(int(m_token_fonte.group(1)))
     check("33c2. e o corpo de cada estilo tem par no preset.js",
@@ -1662,7 +1832,8 @@ def main():
           serve.edit_of(json.dumps(completo)) == completo)
     check("33f4. valor fora do conjunto, tipo errado e cor livre caem no automatico",
           serve.edit_of({"v": 1, "legenda": {
-              "style": "Impacto (caixa alta)", "familia": "Montserrat", "cor": "#ff00ff",
+              "style": "Impacto (caixa alta)", "familia": "Montserrat", "cor": "#ff00f",
+              "contorno": "Nenhum", "fundo": 12,
               "destaqueCor": None, "alinhamento": "justify", "tamanho": "84",
               "caixaAlta": 1, "largura": [600]},
               "enquadramento": {"reframe": "horizontal"}}) == VAZIO)
@@ -1744,6 +1915,50 @@ def main():
           bool(m_ass_ops)
           and len(captions_mod.ASS_NAO_REPRODUZ)
           == len(re.findall(r"'[^']+'", m_ass_ops.group(1))))
+
+    # --------------------------------------------- 34. estilos prontos, contorno e caixa
+    # (2026-09-23). O MESMO estilo tem de sair com as mesmas cores, o mesmo contorno e a
+    # mesma caixa pelo FFmpeg e pelo Remotion -- o captions.py e a quarta copia do registro.
+    def _preset_de(estilo):
+        m = re.search(r"\n  %s: \{([\s\S]*?)\n  \}," % estilo, preset_js)
+        return m.group(1) if m else ""
+    check("34a. cor, contorno e caixa de cada estilo do captions batem com o preset.js",
+          all(all(("%s: '%s'" % (k, e[k])) in _preset_de(nome)
+                  for k in ("cor", "contorno", "fundo") if k in e)
+              and all(("%s: null" % k) in _preset_de(nome)
+                      for k in ("contorno", "fundo") if k not in e and nome not in
+                      ("classico", "impacto"))
+              for nome, e in captions_mod.LEGENDA_ESTILOS.items()))
+    check("34a2. e o captions tem todo estilo do preset, e so eles",
+          tuple(captions_mod.LEGENDA_ESTILOS) == tuple(
+              _lista(re.search(r"export const LEGENDA_STYLES = \[([^\]]*)\]", preset_js))))
+    check("34c. o fator do contorno e a opacidade da caixa sao os do preset.js",
+          ("legendaContornoFator: %s," % captions_mod.CONTORNO_FATOR) in preset_js
+          and ("legendaFundoAlfa: %s," % captions_mod.FUNDO_ALFA) in preset_js)
+    check("34d. cor livre #RRGGBB entra em maiusculas, e `nenhum` so em contorno e caixa",
+          serve.edit_of({"v": 1, "legenda": {"cor": "#ffd23f", "destaqueCor": "nenhum",
+                                             "contorno": "nenhum", "fundo": "#0e0e10"}})
+          ["legenda"] == {"cor": "#FFD23F", "contorno": "nenhum", "fundo": "#0E0E10"})
+    _cue = [{"start": 0.0, "end": 2.0, "text": "uma frase de teste"}]
+
+    def _estilo_linha(*a):
+        return [ln for ln in captions_mod.to_ass(_cue, estilo=captions_mod.estilo_ass(*a))
+                .splitlines() if ln.startswith("Style:")][0].split(",")
+    classico = _estilo_linha("classico")
+    check("34e. o classico sai com o Style de sempre (sem contorno, sem caixa, sombra 3)",
+          classico[5] == "&H00000000" and classico[15:18] == ["1", "0", "3"])
+    podcast = _estilo_linha("podcast")
+    check("34e2. o Contorno ganha Outline visivel = round(66 x 0,06) na cor do estilo",
+          podcast[5] == "&H00000000" and podcast[15:17] == ["1", "4"])
+    faixa = _estilo_linha("faixa")
+    check("34e3. a Faixa vira caixa (BorderStyle 3) na cor dela, 88% opaca, sem sombra",
+          faixa[15] == "3" and faixa[5] == "&H1F100E0E" and faixa[17] == "0")
+    check("34e4. `nenhum` desliga a caixa do estilo e a sombra volta",
+          _estilo_linha("faixa", {"fundo": "nenhum"})[15:18] == ["1", "0", "3"])
+    check("34e5. a cor escolhida em hex chega ao ASS na ordem BGR",
+          _estilo_linha("classico", {"cor": "#FFD23F"})[3] == "&H003FD2FF")
+    check("34e6. o nome de cor antigo (corte salvo) continua valendo",
+          _estilo_linha("classico", {"cor": "destaque"})[3] == captions_mod.CORES["destaque"])
     # Legenda CORRIGIDA na tela nao tem tempo por palavra e nao pode inventar um: o operador
     # reescreveu o texto, e a grade antiga descreve outras palavras. Fica estatica, de propo-
     # sito -- se um dia alguem "consertar" isto, o karaoke passa a acender palavra errada.
@@ -1765,6 +1980,385 @@ def main():
     # Miniatura ilegível não pode derrubar o render: o mesmo portão do caminho FFmpeg.
     check("26g. a miniatura passa pelo background_ok antes do render",
           re.search(r"thumbnail_beside[\s\S]{0,240}background_ok", py_render) is not None)
+
+    # ------------- 35: geometria da legenda, posicao lateral e Profundidade (2026-09-25)
+    # A previa "Como sai 9:16" e o render tem de usar os MESMOS numeros: o que se prova aqui
+    # e CHAMANDO as duas pontas com a mesma entrada, nunca procurando texto.
+    _m169 = {"durationSec": 12.0, "width": 1920, "height": 1080}
+
+    def _props(edit=None, reframe=None):
+        corpo = {"preset": "legenda", "cues": []}
+        if edit is not None:
+            corpo["edit"] = edit
+        if reframe:
+            corpo["reframe"] = reframe
+        return serve.render_props(fundo_dir, "vid-0-5.mp4", _m169, corpo)
+    # Corte salvo ANTES desta entrega: nenhuma chave nova nos props, e os tres numeros da
+    # geometria iguais a conta direta dos donos de sempre.
+    for _r in ("blur", "crop11", "crop45", "crop"):
+        _p = _props(reframe=_r)
+        _h = serve.video_box(_r, _m169)
+        check("35a. [%s] sem as chaves novas: props sem `legendaEsquerda` e geometria de sempre" % _r,
+              "legendaEsquerda" not in _p and _p["videoAltura"] == _h
+              and _p["bandaAltura"] == worker.band_height(_h)
+              and _p["legendaBase"] == captions_mod.margem_inferior(worker.OUT_H, _h))
+    # A rota e o render: MESMA entrada -> MESMOS numeros, em varias intencoes.
+    _casos = [({}, "blur"), ({"posicaoPct": 40}, "crop11"), ({"posicaoXPct": 44}, "crop45"),
+              ({"posicaoPct": 95, "posicaoXPct": 0, "largura": 600}, "blur"),
+              ({"largura": 1000, "posicaoXPct": 70}, "crop")]
+    _iguais = True
+    for _leg, _r in _casos:
+        _ed = {"v": 1, "legenda": _leg, "enquadramento": {"reframe": _r}}
+        _g = serve.legenda_geometria(_r, serve.edit_of(_ed)["legenda"], _m169)
+        _p = _props(_ed)
+        _iguais = _iguais and (_g["videoAltura"], _g["bandaAltura"], _g["legendaBase"]) == (
+            _p["videoAltura"], _p["bandaAltura"], _p["legendaBase"]) and (
+            _p.get("legendaEsquerda", _g["legendaEsquerda"]) == _g["legendaEsquerda"])
+    check("35b. a geometria da rota e a do render sao os MESMOS numeros (5 intencoes)", _iguais)
+    # "Ajustar a mao" parte da ancora real: o salto do export fica em ate 10 px.
+    _saltos = []
+    for _r in ("blur", "crop11", "crop45", "crop"):
+        _g = serve.legenda_geometria(_r, {}, _m169)
+        _manual = captions_mod.margem_inferior(worker.OUT_H, _g["videoAltura"], _g["posicaoAutoPct"])
+        _saltos.append(abs(_manual - _g["legendaBaseAuto"]))
+    check("35c. passar para o manual move a base no maximo 10 px (blur/crop11/crop45/crop): %s"
+          % _saltos, max(_saltos) <= 10)
+    check("35c2. e o 75 antigo moveria 225 px no blur (o defeito que isto corrige)",
+          abs(captions_mod.margem_inferior(worker.OUT_H, 608, 75)
+              - captions_mod.margem_inferior(worker.OUT_H, 608)) == 225)
+    # X: a prop do Remotion e o MarginL do ASS saem da MESMA funcao.
+    _ed_x = {"v": 1, "legenda": {"posicaoXPct": 43}}
+    _px = _props(_ed_x)
+    _ass_x = captions_mod.to_ass([{"start": 0.0, "end": 1.0, "text": "teste"}], video_h=608,
+                                 estilo=captions_mod.estilo_ass(None, serve.edit_of(_ed_x)["legenda"]))
+    _margens = _ass_x.split("Style: Legenda,")[1].split("\n")[0].split(",")
+    check("35d. com X, a prop `legendaEsquerda` == MarginL do ASS, e MarginR fecha o quadro",
+          _px.get("legendaEsquerda") == int(_margens[-4])
+          and int(_margens[-3]) == 1080 - 820 - _px["legendaEsquerda"])
+    # 2026-09-28: posicao LIVRE. As zonas do TikTok viraram AVISO (com os numeros das guias),
+    # o limite duro e a pagina caber no quadro, e o X para so no piso da palavra.
+    _cues_x = [{"start": 0.0, "end": 2.0, "text": "o dinheiro do empreendedor"}]
+    _g_x = serve.legenda_geometria("blur", {"posicaoXPct": 100, "posicaoPct": 95}, _m169,
+                                   _cues_x, "classico")
+    check("35e. a geometria AVISA (trilha / texto do TikTok) em vez de travar, e diz a palavra",
+          _g_x["avisos"] == {"trilha": True, "rodape": True, "estreitou": True}
+          and _g_x["grampeado"] == {"posicaoPct": None, "posicaoXPct": "palavra"}
+          and _g_x["palavraPiso"] == "empreendedor"
+          and _g_x["legendaEsquerda"] + _g_x["legendaLargura"] == 1040
+          and _g_x["zonas"] == {"trilhaX": 930, "rodapeY": 1651}
+          and _g_x["faixaPosicao"] == [10, 97] and _g_x["legendaLarguraMax"] == 820)
+    _g_topo = serve.legenda_geometria("blur", {"posicaoPct": 0}, _m169, _cues_x, "classico")
+    check("35e3. no topo a base para onde ainda cabe uma pagina de 2 linhas, e diz `topo`",
+          _g_topo["legendaBase"] == worker.OUT_H - 177
+          and _g_topo["grampeado"]["posicaoPct"] == "topo"
+          and _g_topo["avisos"] == {"trilha": False, "rodape": False, "estreitou": False})
+    # A rota e o render com as MESMAS falas: coluna, esquerda e base iguais, e as paginas da
+    # rota sao as do toCaptionPages que o Clip.jsx vai chamar com o teto da coluna EFETIVA.
+    _ed_c = {"v": 1, "legenda": {"posicaoXPct": 8, "style": "impacto"}}
+    _cues_c = _cues_x + [{"start": 2.0, "end": 5.0,
+                          "text": "e a carteira de investimentos que ele monta todo mes"}]
+    _corpo = {"preset": "legenda", "cues": _cues_c, "edit": _ed_c}
+    _pc = serve.render_props(fundo_dir, "vid-0-5.mp4", _m169, _corpo)
+    _gc = serve.legenda_geometria("blur", serve.edit_of(_ed_c)["legenda"], _m169, _cues_c)
+    _teto_c = captions_mod.chars_por_linha(72, 0.731, _gc["legendaLargura"]) * 2
+    check("35e4. rota == render_props com as falas: coluna efetiva, esquerda, base e paginas",
+          _pc["legendaColuna"] == _gc["legendaLargura"] < 820
+          and _pc["legendaEsquerda"] == _gc["legendaEsquerda"] == 40
+          and _pc["legendaBase"] == _gc["legendaBase"]
+          and _gc["paginas"] == captions_mod.paginas_remotion(_pc["cues"], _teto_c)
+          and len(_gc["paginas"]) > 1)
+    check("35e5. sem X manual, nada de `legendaColuna` (corte antigo manda os props de sempre)",
+          "legendaColuna" not in _props({"v": 1, "legenda": {"posicaoPct": 70}})
+          and "legendaColuna" not in _props())
+    check("35e2. sem dimensao da fonte no blur, a rota sabe que NAO mediu (e recusa)",
+          serve.legenda_geometria("blur", {}, serve.geometria_media(None, 1080))["alturaMedida"] is False
+          and serve.geometria_media(True, 1080) == {} and serve.geometria_media(1920, 0) == {}
+          and serve.legenda_geometria("crop11", {}, {})["alturaMedida"] is True)
+    # O validador do servidor: sem ele a chave some calada e o MP4 sai sem o ajuste.
+    _ed_novo = serve.edit_of({"v": 1, "legenda": {"profundidade": "funda", "posicaoXPct": 44.6}})
+    check("35f. `edit_of` guarda Profundidade e posicao lateral (grampeada/arredondada)",
+          _ed_novo["legenda"] == {"profundidade": "funda", "posicaoXPct": 45}
+          and serve.edit_of({"v": 1, "legenda": {"profundidade": "3d"}})["legenda"] == {})
+    check("35f2. e os props do render levam o `edit` com a Profundidade para a composicao",
+          _props({"v": 1, "legenda": {"profundidade": "suave"}})["edit"]["legenda"]
+          == {"profundidade": "suave"})
+    # PARIDADE do conjunto nas tres copias (literais).
+    _prof_preset = re.search(r"export const LEGENDA_PROFUNDIDADES = \{([\s\S]*?)\n\};", preset_js)
+    _prof_ops = re.search(r"var LEGENDA_PROFUNDIDADES = \{([\s\S]*?)\n  \};", ops_js)
+    _chaves = lambda m: tuple(re.findall(r"^\s*(\w+): \{", m.group(1), re.M)) if m else ()
+    check("35g. o conjunto da Profundidade e o mesmo no preset.js, no servidor e na tela",
+          _chaves(_prof_preset) == serve.LEGENDA_PROFUNDIDADES == _chaves(_prof_ops)
+          and bool(serve.LEGENDA_PROFUNDIDADES))
+    check("35h. e a tela NAO tem copia da regra lateral (TRILHA_X / MARGEM_LATERAL; o 930 da tela sao os segundos de 15:30)",
+          not re.search(r"TRILHA_X|MARGEM_LATERAL", ops_js))
+
+    # ------------------- 36: ANGULO da Profundidade (2026-09-29)
+    # Esquecer o conjunto aqui derruba a chave calada: previa inclinada de lado, MP4 para tras.
+    check("36a. `edit_of` guarda a direcao valida e descarta a torta (e nunca cria a chave)",
+          serve.edit_of({"v": 1, "legenda": {"profundidade": "funda",
+                                              "profundidadeDirecao": "tras-direita"}})["legenda"]
+          == {"profundidade": "funda", "profundidadeDirecao": "tras-direita"}
+          and serve.edit_of({"v": 1, "legenda": {"profundidadeDirecao": "cima"}})["legenda"] == {}
+          and "profundidadeDirecao" not in serve.edit_of(
+              {"v": 1, "legenda": {"profundidade": "suave"}})["legenda"])
+    check("36b. e os props do render levam a direcao dentro do `edit`",
+          _props({"v": 1, "legenda": {"profundidade": "funda", "profundidadeDirecao": "direita"}})
+          ["edit"]["legenda"] == {"profundidade": "funda", "profundidadeDirecao": "direita"})
+    # PARIDADE das tres copias literais, NA MESMA ORDEM (chave com hifen vem entre aspas).
+    _dir_chaves = lambda m: tuple(re.findall(r"^\s*'?([\w-]+)'?: \{", m.group(1), re.M)) if m else ()
+    _dir_preset = re.search(r"export const LEGENDA_PROFUNDIDADE_DIRECOES = \{([\s\S]*?)\n\};", preset_js)
+    _dir_ops = re.search(r"var LEGENDA_PROFUNDIDADE_DIRECOES = \{([\s\S]*?)\n  \};", ops_js)
+    check("36c. o conjunto das direcoes e o mesmo (e na mesma ordem) no preset.js, no servidor e na tela",
+          _dir_chaves(_dir_preset) == serve.LEGENDA_PROFUNDIDADE_DIRECOES == _dir_chaves(_dir_ops)
+          and len(serve.LEGENDA_PROFUNDIDADE_DIRECOES) == 8)
+
+    # ------------------- 37: CAPA do TikTok (2026-09-30)
+    check("37a. `capa_tiktok_of`: ausente/torto/outra versao = None; padroes; quadro arredondado",
+          serve.capa_tiktok_of(None) is None and serve.capa_tiktok_of([]) is None
+          and serve.capa_tiktok_of({"v": 2, "quadroMs": 1}) is None
+          and serve.capa_tiktok_of({"v": 1}) == {"v": 1, "estilo": "negocio", "posicao": "meio"}
+          and serve.capa_tiktok_of({"v": 1, "quadroMs": 1234.6, "estilo": "x", "posicao": "alto",
+                                    "titulo": "  Oi  ", "destaque": " "})
+          == {"v": 1, "estilo": "negocio", "posicao": "alto", "quadroMs": 1235, "titulo": "Oi"})
+    check("37a2. quadro torto SOME (booleano, texto, negativo, NaN) em vez de virar zero",
+          all("quadroMs" not in serve.capa_tiktok_of({"v": 1, "quadroMs": q})
+              for q in (True, "100", -1, float("nan"), float("inf"), None)))
+    check("37a3. titulo e destaque aparados no teto",
+          len(serve.capa_tiktok_of({"v": 1, "titulo": "a" * 500})["titulo"]) == serve.CAPA_TITULO_MAX
+          and len(serve.capa_tiktok_of({"v": 1, "destaque": "b" * 500})["destaque"])
+          == serve.CAPA_DESTAQUE_MAX)
+    def _lista_js(nome, texto):
+        m = re.search(r"(?:export const|var) " + nome + r" = \[([^\]]*)\]", texto)
+        return tuple(re.findall(r"'([\w-]+)'", m.group(1))) if m else ()
+
+    def _num_js(nome, texto):
+        m = re.search(r"(?:export const|var) " + nome + r" = (\d+)", texto)
+        return int(m.group(1)) if m else None
+    check("37b. os conjuntos e tetos da capa sao os mesmos no preset.js, no servidor e na tela",
+          all(_lista_js(n, t) == getattr(serve, n) for n in ("CAPA_ESTILOS", "CAPA_POSICOES")
+              for t in (preset_js, ops_js))
+          and all(_num_js(n, t) == getattr(serve, n) for n in ("CAPA_TITULO_MAX", "CAPA_DESTAQUE_MAX")
+                  for t in (preset_js, ops_js)))
+    _capa = serve.capa_tiktok_of({"v": 1, "quadroMs": 2000, "estilo": "faixa"})
+    _cp = serve.capa_props("q.png", {"width": 1920, "height": 1080},
+                           {"title": ">> Perdi [ __ ] 40 mil", "reframe": "blur",
+                            "edit": {"v": 1, "enquadramento": {"reframe": "crop11"}}}, _capa)
+    check("37c. props da capa: enquadramento do corte (manual vence), altura do dono, titulo limpo",
+          _cp["reframe"] == "crop11" and _cp["videoAltura"] == 1080
+          and _cp["bandaAltura"] == worker.band_height(1080)
+          and _cp["titulo"] == "Perdi 40 mil" and _cp["estilo"] == "faixa"
+          and _cp["quadroFile"] == "q.png" and "guias" not in _cp)
+    check("37c2. titulo digitado vence o do corte; sem enquadramento, o blur de 16:9 (608)",
+          serve.capa_props("q.png", {"width": 1920, "height": 1080}, {"title": "A"},
+                           dict(_capa, titulo="B"))["titulo"] == "B"
+          and serve.capa_props("q.png", {"width": 1920, "height": 1080}, {}, _capa)["videoAltura"] == 608)
+    check("37d. o PNG fica AO LADO do MP4 editado, com o mesmo radical",
+          serve.capa_name("bNkQaTQ4SE0", {"start": 415, "end": 461})
+          == "bNkQaTQ4SE0-415-461-capa-tiktok.png"
+          and serve.edited_name("bNkQaTQ4SE0", {"start": 415, "end": 461})
+          == "bNkQaTQ4SE0-415-461-editado.mp4")
+    check("37e. a rota da capa esta no despacho de POST e nao colide com o still",
+          serve.ROUTE_CAPA not in (serve.ROUTE_STILL, serve.ROUTE_RENDER)
+          and "ROUTE_CAPA: self._handle_capa" in serve_py)
+    _capa_msg = re.search(r"var CAPA_MSG = \{([\s\S]*?)\n  \};", ops_js)
+    check("37f. cada recusa da capa tem FRASE propria na tela (nunca um 'falhou' generico)",
+          bool(_capa_msg) and all(("%s:" % c) in _capa_msg.group(1) for c in serve.CAPA_ERROS)
+          and len(set(serve.CAPA_ERROS)) == 3)
+
+    # REGRESSAO da entrega capa + edicao manual: cortes salvos SEM os campos novos montam os
+    # MESMOS props de antes dela (fixture gravada em 2026-09-30, antes da primeira linha).
+    with open(os.path.join(worker.REPO, "video-worker", "fixtures",
+                           "regressao-antes-capa-edicao.json"), encoding="utf-8") as _f:
+        _fix = json.load(_f)
+    _pasta_fix = tempfile.mkdtemp()
+    check("37g. corte salvo sem os campos novos: render_props IDENTICO ao de antes (10 casos)",
+          all(serve.render_props(_pasta_fix, "bNkQaTQ4SE0-415-461.mp4", _fix["media"], corpo)
+              == _fix["props"][caso][modo]
+              for caso, modos in _fix["corpos"].items() for modo, corpo in modos.items())
+          and len(_fix["props"]) == 5)
+
+    # ------------------- 38: MUSICA de fundo (2026-09-30)
+    _id = "0123456789abcdef"
+    check("38a. `musica_of`: id fora do formato = sem musica; inicio torto = 0; nivel torto = baixo",
+          serve.musica_of(None) is None and serve.musica_of({"id": "abc"}) is None
+          and serve.musica_of({"id": _id.upper()}) is None
+          and serve.musica_of({"id": _id}) == {"id": _id, "inicioMs": 0, "nivel": "baixo"}
+          and serve.musica_of({"id": _id, "inicioMs": 1500.6, "nivel": "medio"})
+          == {"id": _id, "inicioMs": 1501, "nivel": "medio"}
+          and serve.musica_of({"id": _id, "inicioMs": -3, "nivel": "alto"})
+          == {"id": _id, "inicioMs": 0, "nivel": "baixo"}
+          and serve.musica_of({"id": _id, "inicioMs": True})["inicioMs"] == 0)
+    check("38a2. `edit_of` so cria a chave com faixa valida (corte sem musica = edit de sempre)",
+          "musica" not in serve.edit_of({"v": 1, "legenda": {}})
+          and "musica" not in serve.edit_of({"v": 1, "musica": {"id": "x"}})
+          and serve.edit_of({"v": 1, "musica": {"id": _id}})["musica"]["id"] == _id)
+    check("38b. o conjunto de niveis e o mesmo no preset.js, no servidor e na tela; e nao ha nivel alto",
+          all(_lista_js("MUSICA_NIVEIS", t) == serve.MUSICA_NIVEIS for t in (preset_js, ops_js))
+          and serve.MUSICA_NIVEIS == ("baixo", "medio"))
+    _db_ops = re.search(r"var MUSICA_DB = \{ baixo: (\d+), medio: (\d+) \}", ops_js)
+    check("38b2. a tabela de dB da previa e a do servidor (o dono)",
+          bool(_db_ops) and (float(_db_ops.group(1)), float(_db_ops.group(2)))
+          == (serve.MUSICA_DB["baixo"], serve.MUSICA_DB["medio"])
+          and serve.MUSICA_DB["baixo"] > serve.MUSICA_DB["medio"] > 0)
+    check("38c. ganho: a faixa fica N dB ABAIXO da voz (a tabela do dono), com o SINAL certo",
+          abs(serve.ganho_musica(-14, -14, "baixo") - 10 ** (-serve.MUSICA_DB["baixo"] / 20)) < 1e-4
+          and abs(serve.ganho_musica(-14, -14, "medio") - 10 ** (-serve.MUSICA_DB["medio"] / 20)) < 1e-4
+          and serve.ganho_musica(-20, -14, "baixo") < serve.ganho_musica(-14, -14, "baixo")
+          and serve.ganho_musica(-14, -8, "baixo") < serve.ganho_musica(-14, -14, "baixo"))
+    check("38c2. a faixa nunca e AMPLIFICADA (teto 1) e nivel torto cai no baixo",
+          serve.ganho_musica(-14, -60, "baixo") == 1.0
+          and serve.ganho_musica(-14, -14, "alto") == serve.ganho_musica(-14, -14, "baixo"))
+    _msg_mus = re.search(r"var MUSICA_MSG = \{([\s\S]*?)\n  \};", ops_js)
+    _msg_imp = re.search(r"var MUSICA_IMPORT_MSG = \{([\s\S]*?)\n  \};", ops_js)
+    check("38d. cada desfecho do X-Clip-Musica e cada recusa da importacao tem FRASE na tela",
+          bool(_msg_mus) and all(("%s:" % e) in _msg_mus.group(1) for e in serve.MUSICA_STATES)
+          and bool(_msg_imp) and all(("%s:" % c) in _msg_imp.group(1)
+                                     for c in worker.ERROR_CODES if c.startswith("musica_")))
+    # O render com musica: a faixa e COPIADA para a pasta publica (o staticFile nao sai de la),
+    # a voz e medida no RECORTE, e faixa sumida sai SEM musica com o estado dito.
+    _bib = tempfile.mkdtemp()
+    _pub = tempfile.mkdtemp()
+    _tom = os.path.join(_bib, _id + ".wav")
+    subprocess.run([worker.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=220:duration=4", "-af", "volume=-20dB", _tom],
+                   check=True, capture_output=True)
+    _med = serve.medir_audio(_tom)
+    with open(os.path.join(_bib, _id + ".json"), "w", encoding="utf-8") as _f:
+        json.dump({"nome": "tom", "durationSec": _med["durationSec"], "lufs": _med["lufs"], "ext": ".wav"}, _f)
+    _voz = os.path.join(_pub, "voz.wav")
+    subprocess.run([worker.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=600:duration=4", "-af", "volume=-6dB", _voz],
+                   check=True, capture_output=True)
+
+    class _Falso:
+        cache = type("C", (), {"folder": _pub})()
+        _musicas_dir = staticmethod(lambda: _bib)
+    _falso = _Falso()
+    _pm, _estado = serve.CutHandler._musica_para_render(
+        _falso, serve.edit_of({"v": 1, "musica": {"id": _id, "inicioMs": 500}}), _voz, {"audioCodec": "pcm"})
+    _vl = serve.medir_audio(_voz)["lufs"]
+    check("38i. com musica: estado OK, faixa COPIADA para a pasta publica, ganho do dono",
+          _estado == serve.MUSICA_OK and _pm and os.path.isfile(os.path.join(_pub, _pm["file"]))
+          and os.sep not in _pm["file"] and _pm["inicioSec"] == 0.5
+          and _pm["ganho"] == serve.ganho_musica(_vl, _med["lufs"], "baixo")
+          and abs(_pm["faixaSec"] - 4.0) < 0.1)
+    check("38i2. faixa sumida da biblioteca: SEM musica e o estado diz (nunca outra faixa)",
+          serve.CutHandler._musica_para_render(
+              _falso, serve.edit_of({"v": 1, "musica": {"id": "f" * 16}}), _voz, {"audioCodec": "pcm"})
+          == (None, serve.MUSICA_AUSENTE))
+    check("38i3. sem musica no corte: nada (sem prop, sem cabecalho)",
+          serve.CutHandler._musica_para_render(_falso, serve.edit_of({"v": 1}), _voz, {}) == (None, ""))
+    _sem_audio = serve.CutHandler._musica_para_render(
+        _falso, serve.edit_of({"v": 1, "musica": {"id": _id}}), _voz, {})
+    check("38i4. corte sem faixa de audio: voz NOMINAL (-14 LUFS) no calculo do ganho",
+          _sem_audio[0]["ganho"] == serve.ganho_musica(serve.VOZ_NOMINAL_LUFS, _med["lufs"], "baixo"))
+    check("38j. `medir_audio` devolve None para arquivo sem audio legivel",
+          serve.medir_audio(os.path.join(worker.REPO, "video-worker", "serve.py")) is None)
+
+    # ------------------- 39: REMOVER TRECHOS (2026-09-30)
+    check("39a. `remocoes_of`: so a forma (inteiros, de < ate, em ordem, teto); torto some",
+          serve.remocoes_of(None) == [] and serve.remocoes_of("x") == []
+          and serve.remocoes_of([{"deMs": 5000.4, "ateMs": 6000.6}, {"deMs": 1000, "ateMs": 2000},
+                                 {"deMs": 3, "ateMs": 1}, {"deMs": True, "ateMs": 9}, "lixo",
+                                 {"deMs": -1, "ateMs": 5}])
+          == [{"deMs": 1000, "ateMs": 2000}, {"deMs": 5000, "ateMs": 6001}]
+          and len(serve.remocoes_of([{"deMs": i, "ateMs": i + 1} for i in range(50)])) == 30)
+    check("39a2. `edit_of` so cria a chave com remocao valida",
+          "remocoes" not in serve.edit_of({"v": 1, "remocoes": []})
+          and serve.edit_of({"v": 1, "remocoes": [{"deMs": 1, "ateMs": 2}]})["remocoes"]
+          == [{"deMs": 1, "ateMs": 2}])
+    check("39b. os numeros das remocoes sao os mesmos no captions.py, no preset.js e na tela",
+          _num_js("REMOCAO_MIN_MS", ops_js) == captions_mod.REMOCAO_MIN_MS
+          and _num_js("PEDACO_MIN_MS", ops_js) == captions_mod.PEDACO_MIN_MS
+          and _num_js("REMOCOES_MAX", ops_js) == captions_mod.REMOCOES_MAX
+          and _num_js("REMOCOES_MAX", preset_js) == captions_mod.REMOCOES_MAX
+          and captions_mod.FPS_SAIDA == int(re.search(r"fps: (\d+)", preset_js).group(1)))
+    _ed_rem = {"v": 1, "remocoes": [{"deMs": 420000, "ateMs": 423000}]}
+    check("39c. sem o intervalo da fonte (ou sem remocao) nao ha mapa: o corte sai como sempre",
+          serve.mapa_do_corpo({}, serve.edit_of(_ed_rem)) is None
+          and serve.mapa_do_corpo({"start": 415, "end": 461}, serve.edit_of({"v": 1})) is None
+          and serve.mapa_do_corpo({"start": 415, "end": 461}, serve.edit_of(_ed_rem))["duracao_ms"] == 43000)
+    _falas_rem = [{"start": 1.0, "end": 2.0, "text": "antes"},
+                  {"start": 10.0, "end": 11.0, "text": "depois"}]
+    _p_rem = serve.render_props(_pasta_fix, "x.mp4", {"durationSec": 43.0, "width": 1920, "height": 1080},
+                                {"start": 415, "end": 461, "cues": _falas_rem, "edit": _ed_rem})
+    check("39d. o render recebe as falas no relogio da SAIDA (depois da remocao, 3 s mais cedo)",
+          [(c["start"], c["text"]) for c in _p_rem["cues"]] == [(1.0, "antes"), (7.0, "depois")])
+    _src_rem = os.path.join(tempfile.mkdtemp(), "f.mp4")
+    subprocess.run([worker.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=320x180:rate=25:duration=10", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=10", "-shortest", "-c:v", "libx264", "-c:a", "aac",
+                    _src_rem], check=True, capture_output=True)
+    _mapa_rem = captions_mod.mapa_saida(1000, 9000, [{"deMs": 3000, "ateMs": 4500},
+                                                      {"deMs": 6000, "ateMs": 6400}])
+    _dst_rem = os.path.join(os.path.dirname(_src_rem), "o.mp4")
+    worker.run_ffmpeg(serve.concat_args(_src_rem, _dst_rem, 1.0, _mapa_rem["pedacos"], True), timeout=120)
+    _info_rem = subprocess.run([worker.FFMPEG, "-hide_banner", "-i", _dst_rem, "-f", "null", "-"],
+                               capture_output=True).stderr.decode("utf-8", "replace")
+    _dur_rem = re.search(r"Duration: (\d+):(\d+):([\d.]+)", _info_rem)
+    _quadros = int(re.findall(r"frame=\s*(\d+)", _info_rem)[-1])
+    check("39e. UM encode concatena os pedacos: duracao = SOMA exata (8 - 1,5 - 0,4 = 6,1 s), "
+          "em quadros inteiros de 30 fps, com audio",
+          _mapa_rem["duracao_ms"] == 6100.0
+          and abs(float(_dur_rem.group(3)) - 6.1) < 1.0 / 30 + 1e-6
+          and _quadros == 183 and "Audio:" in _info_rem)
+    # ------------------- 40: TEXTO FIXO NA TELA (2026-09-30)
+    _t_ok = {"id": "t1", "texto": "  Faturamento   de 2024 ", "deMs": 416000, "ateMs": 418000,
+             "posicao": "meio", "estilo": "nota"}
+    check("40a. `textos_of`: texto limpo, inteiros, padroes, sem sobreposicao, no maximo 3",
+          serve.textos_of([_t_ok])[0] == {"id": "t1", "texto": "Faturamento de 2024", "deMs": 416000,
+                                           "ateMs": 418000, "posicao": "meio", "estilo": "nota"}
+          and serve.textos_of([dict(_t_ok, posicao="x", estilo="y")])[0]["posicao"] == "alto"
+          and serve.textos_of([dict(_t_ok, posicao="x", estilo="y")])[0]["estilo"] == "rotulo"
+          and len(serve.textos_of([dict(_t_ok, id="t%d" % i, deMs=416000 + i * 2000, ateMs=417500 + i * 2000)
+                                   for i in range(6)])) == 3
+          and len(serve.textos_of([_t_ok, dict(_t_ok, id="t2", deMs=417000, ateMs=419000)])) == 1)
+    check("40a2. texto vazio, janela < 1 s, id torto e lixo saem; sem texto valido = sem chave",
+          serve.textos_of([dict(_t_ok, texto="  "), dict(_t_ok, ateMs=416500), dict(_t_ok, id="T X"), "x"]) == []
+          and "textos" not in serve.edit_of({"v": 1, "textos": []})
+          and len(serve.textos_of([dict(_t_ok, texto="a" * 200)])[0]["texto"]) == serve.TEXTO_MAX_CHARS)
+    check("40b. conjuntos e numeros do texto sao os mesmos no preset.js, no servidor e na tela",
+          all(_lista_js(n, t) == getattr(serve, n) for n in ("TEXTO_POSICOES", "TEXTO_ESTILOS")
+              for t in (preset_js, ops_js))
+          and all(_num_js(n, t) == getattr(serve, n) for n in ("TEXTOS_MAX", "TEXTO_MAX_CHARS", "TEXTO_MIN_MS")
+                  for t in (preset_js, ops_js)))
+    _p_txt = serve.render_props(_pasta_fix, "x.mp4", {"durationSec": 43.0, "width": 1920, "height": 1080},
+                                {"start": 415, "end": 461, "cues": [],
+                                 "edit": {"v": 1, "remocoes": [{"deMs": 420000, "ateMs": 423000}],
+                                          "textos": [_t_ok, dict(_t_ok, id="t2", deMs=420500, ateMs=422500),
+                                                     dict(_t_ok, id="t3", deMs=430000, ateMs=432000)]}})
+    check("40c. o render recebe os textos no relogio da SAIDA; o inteiro num trecho removido sai",
+          [(t["id"], t["deSec"], t["ateSec"]) for t in _p_txt["textos"]] == [("t1", 1.0, 3.0), ("t3", 12.0, 14.0)]
+          and set(_p_txt["textos"][0]) == {"id", "texto", "posicao", "estilo", "deSec", "ateSec"})
+    check("40c2. sem textos (ou sem o intervalo da fonte) NAO ha chave `textos` nos props",
+          "textos" not in serve.render_props(_pasta_fix, "x.mp4", {"durationSec": 4.0}, {"cues": []})
+          and "textos" not in serve.render_props(_pasta_fix, "x.mp4", {"durationSec": 4.0},
+                                                 {"cues": [], "edit": {"v": 1, "textos": [_t_ok]}}))
+    # ------------------- 41: ZOOM PONTUAL LEVE (2026-09-30)
+    _z_ok = {"id": "z1", "deMs": 416000, "ateMs": 419000, "nivel": "medio"}
+    check("41a. `zooms_of`: padroes, sem sobreposicao, teto 5, janela >= 1 s; torto some",
+          serve.zooms_of([_z_ok]) == [_z_ok]
+          and serve.zooms_of([dict(_z_ok, nivel="forte")])[0]["nivel"] == "leve"
+          and len(serve.zooms_of([_z_ok, dict(_z_ok, id="z2", deMs=418000, ateMs=420000)])) == 1
+          and serve.zooms_of([dict(_z_ok, ateMs=416500), dict(_z_ok, id="Z!"), "x"]) == []
+          and len(serve.zooms_of([dict(_z_ok, id="z%d" % i, deMs=i * 3000, ateMs=i * 3000 + 1500)
+                                  for i in range(8)])) == serve.ZOOMS_MAX)
+    check("41b. niveis e numeros do zoom sao os mesmos no preset.js, no servidor e na tela",
+          all(_lista_js("ZOOM_NIVEIS", t) == serve.ZOOM_NIVEIS for t in (preset_js, ops_js))
+          and all(_num_js(n, t) == getattr(serve, n) for n in ("ZOOMS_MAX", "ZOOM_MIN_MS")
+                  for t in (preset_js, ops_js)))
+    _p_zoom = serve.render_props(_pasta_fix, "x.mp4", {"durationSec": 43.0, "width": 1920, "height": 1080},
+                                 {"start": 415, "end": 461, "cues": [],
+                                  "edit": {"v": 1, "remocoes": [{"deMs": 420000, "ateMs": 423000}],
+                                           "zooms": [_z_ok, dict(_z_ok, id="z2", deMs=420500, ateMs=422500),
+                                                     dict(_z_ok, id="z3", deMs=430000, ateMs=432000, nivel="leve")]}})
+    check("41c. o render recebe os zooms no relogio da SAIDA (so id/nivel/tempos); o inteiro num trecho removido sai",
+          _p_zoom["zooms"] == [{"id": "z1", "nivel": "medio", "deSec": 1.0, "ateSec": 4.0},
+                               {"id": "z3", "nivel": "leve", "deSec": 12.0, "ateSec": 14.0}]
+          and "zooms" not in serve.render_props(_pasta_fix, "x.mp4", {"durationSec": 4.0}, {"cues": []}))
+    check("39f. sem remocao o recorte e o de SEMPRE (clip_args), sem filter_complex",
+          "-filter_complex" not in serve.clip_args("a", "b", 1.0, 5.0, True)
+          and "-filter_complex" in serve.concat_args("a", "b", 1.0, _mapa_rem["pedacos"], True))
 
     # ------------------- 27: a legenda do Remotion sai da MESMA conta do ASS
     # Ate 2026-08-27 o Clip.jsx pendurava a legenda num percentual fixo do quadro

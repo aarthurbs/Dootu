@@ -15,9 +15,13 @@ os modais de prompt/confirmação e todo o CSS exclusivo deles. A lista de token
   (2) **Tela Central** = home do site: `data-view="central"` / `#view-central`, com os
   `.hub-card[data-view]` que abrem cada ferramenta. Grupo *prog* = **empreendedor** +
   **video-ops**. JS no script inline curto do `index.html`: `VIEW_GROUP` (mundo de cada view),
-  `VIEWS` (as três telas que existem), `setWorld()` e `activateView()`; o INIT abre em
-  `activateView('central')` + `setWorld('central')`. `activateView` ignora view desconhecida.
-  CSS `.hub-*`/`.world-seg*` inline. Sem lib, sem IA.
+  `VIEWS` (as três telas que existem), `setWorld()` e `activateView()`. `activateView` ignora
+  view desconhecida. CSS `.hub-*` inline. Sem lib, sem IA.
+  **Entrada direta em Clips (decisão do usuário, 2026-09-23):** a barra `.world-seg` do header
+  SAIU (markup, ouvinte e CSS inline; no celular o header voltou a uma linha, `--header-h: 56px`),
+  e o INIT abre em `activateView('video-ops')`. A Central continua existindo, mas fora do fluxo
+  inicial: é um item da sidebar (`data-view="central"`, sem `data-group`), abaixo de `Clips` e
+  `Empreendedor`. Os blocos `.world-seg*` que sobraram no `design-system.css` não têm mais alvo.
 
 - **Painel do Empreendedor — controle de processos do negócio, ATIVO (decisão do usuário, 2026-07-31):**
   aba `data-view="empreendedor"` / seção `#view-empreendedor`, mount `#emp-root`, renderer

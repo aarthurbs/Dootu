@@ -81,6 +81,9 @@ Concluído sai da camada.
   [destaque no título](02-Execution/PLANO-destaque-titulo.md) ·
   [legenda por palavra](02-Execution/PLANO-legenda-tempo-por-palavra.md) ·
   [qualidade p/ TikTok](02-Execution/PLANO-qualidade-clip-tiktok.md)
+- [Capa do TikTok + edição manual](02-Execution/PLANO-capa-e-edicao-manual.md) — **entregue**
+- [Editor em ferramentas](02-Execution/PLANO-editor-ferramentas.md) — **entregue**
+  (2026-09-30/10-01): capa PNG, música de fundo, remover trechos, texto fixo e zoom leve.
 - [`02-Execution/plans/`](02-Execution/plans/) — planos `001`–`008` de 2026-07,
   **nenhum é trabalho ativo**: sete miram módulos removidos e só o `004` (CSP) continua
   aplicável. Estado item a item no [README](02-Execution/plans/README.md).
@@ -92,6 +95,10 @@ Append-only.
 
 - [Lançamento](03-Decisions/LANCAMENTO-decisoes.md) — portão da versão online.
   **Prova A meia respondida, Prova B em aberto.** Nada dali foi implementado.
+- [Editor em ferramentas](03-Decisions/2026-10-01-editor-em-ferramentas.md) — barra fixa, tela
+  fixa, só ferramentas na tela; medidas e o que ficou sem aviso.
+- [Capa do TikTok e edição manual](03-Decisions/2026-09-30-capa-e-edicao-manual.md) — os cinco
+  recursos, o que ficou de fora e a calibragem medida da música.
 - [Contrato de qualidade do clip](03-Decisions/CONTRATO-qualidade-clip.md)
 - [Contrato do corte bom](03-Decisions/CONTRATO-corte-bom.md) — o critério EDITORIAL da
   recomendação: as cinco condições, a forma do corte e o que não é critério. O de cima é
@@ -148,8 +155,6 @@ Precisa de decisão do usuário. **Não migrar sem resposta:**
 - O vault do Dootu **não aparece** na tabela de vaults do `INDEX.md` do vault `Geral Usee`.
   Sem essa linha, quem começa pela governança não acha esta base. Acrescentar exige escrever
   em outro vault — não feito sem sua palavra.
-- `../logo-ecommerce-puro/` — identidade de marca de um canal ("Ecommerce Puro"); pode ser de
-  outro projeto, e aí sairia desta base.
 - `../Dootu/` — vault Obsidian vazio dentro do repositório (`Bem-vindo.md` padrão), criado no
   commit `9d726ef`. **Decisão de 2026-09-14: manter como está.** Fica registrado aqui porque
   são duas configurações de vault no mesmo repositório — quem abrir o Obsidian pode escolher a

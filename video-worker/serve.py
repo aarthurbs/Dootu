@@ -72,6 +72,28 @@ STILL_FPS = 30
 # Um still e um quadro so: minutos de orcamento nao fazem sentido aqui, e um teto curto e o
 # que impede a previa de virar uma espera indistinguivel do render inteiro.
 STILL_TIMEOUT = 180.0
+# A geometria da legenda para a previa "Como sai 9:16": os MESMOS numeros do render
+# (`legenda_geometria`, dona unica), sem render e sem ffprobe -- e uma conta, nao um quadro.
+ROUTE_GEO = "/api/legenda-geometria"
+# A CAPA do TikTok (2026-09-30): um PNG 1080x1920 ao lado do MP4. Não entra no MP4 e não vai
+# por API — o operador a escolhe no app ("Selecionar capa → galeria").
+ROUTE_CAPA = "/api/capa-tiktok"
+# Música de fundo (2026-09-30): a biblioteca mora fora do repo e do temporário
+# (`default_music_dir`), importada pelo corpo cru da requisição e servida com Range.
+ROUTE_MUSICA_IMPORT = "/api/musica-importar"
+ROUTE_MUSICAS = "/api/musicas"
+MUSICAS_URL = "/musicas/"
+MUSICA_EXTS = (".mp3", ".m4a", ".wav")
+# Teto PRÓPRIO da rota: o padrão do servidor (12 GB) é para vídeo de horas, não para faixa.
+MUSICA_MAX_BYTES = 50 * 1024 ** 2
+# Desfecho da música no MP4, cabeçalho CONDICIONAL `X-Clip-Musica` (sem música no corpo =
+# sem cabeçalho). Cada valor tem frase no video-ops.js (o test_serve LÊ o JS).
+MUSICA_OK = "MUSICA_OK"
+MUSICA_AUSENTE = "MUSICA_AUSENTE"
+MUSICA_ILEGIVEL = "MUSICA_ILEGIVEL"
+MUSICA_STATES = (MUSICA_OK, MUSICA_AUSENTE, MUSICA_ILEGIVEL)
+# Voz NOMINAL quando o corte não tem faixa de áudio: o alvo do `finish_video` (-14 LUFS).
+VOZ_NOMINAL_LUFS = -14.0
 ROUTE_MR = "/api/most-replayed"  # le o que o baixador local ja gravou; nao analisa nada
 # Revisao da legenda ANTES do render final. Le as falas do MESMO sidecar (nenhuma chamada
 # nova ao yt-dlp, nenhum byte de rede) e guarda a correcao que o operador digitou.
@@ -231,6 +253,12 @@ STATUS_BY_CODE = {
     # navegador responde a ele REENVIANDO o arquivo inteiro (video-ops.js:2169). Um "estou
     # ocupado" com 409 faria o Passo 3 subir o MP4 de novo para ouvir a mesma recusa.
     "render_busy": HTTPStatus.SERVICE_UNAVAILABLE,
+    # Capa do TikTok: três recusas com AÇÕES diferentes na tela (importar de novo, escolher um
+    # quadro, escolher um quadro DENTRO do corte). Nunca colapsam (BP-008); a tela tem uma
+    # frase para cada código de `CAPA_ERROS` (o test_serve LÊ o video-ops.js).
+    "capa_sem_fonte": HTTPStatus.BAD_REQUEST,
+    "capa_sem_quadro": HTTPStatus.BAD_REQUEST,
+    "capa_quadro_fora": HTTPStatus.BAD_REQUEST,
     "contract_version": HTTPStatus.BAD_REQUEST,
     "unsupported_type": HTTPStatus.BAD_REQUEST,
     # TikTok. Cada motivo tem código próprio porque cada um tem uma AÇÃO diferente do outro
@@ -249,6 +277,18 @@ def default_clips_dir() -> str:
     """Pasta pessoal dos cortes salvos. Fora do repositório (CLAUDE.md) e fora do
     temporário, que é apagado no encerramento."""
     return os.path.join(os.path.expanduser("~"), "Videos", "Cortes Estudio")
+
+
+def content_disposition(name: str) -> str:
+    """Cabeçalho de download que aguenta qualquer título.
+
+    O `http.server` codifica cabeçalho em latin-1 estrito: um "…" (o detector trunca o tema
+    com reticências) no nome levantava UnicodeEncodeError DEPOIS do corte gravado, e o
+    navegador recebia conexão vazia (medido 2026-09-23: 6 de 11 cortes, `ERR_EMPTY_RESPONSE`,
+    todos com "…"). `filename=` leva a versão ASCII; `filename*` (RFC 6266) o nome real.
+    """
+    ascii_name = name.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    return "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_name, quote(name, safe=""))
 
 
 def remove_quietly(path: str) -> None:
@@ -419,28 +459,147 @@ def render_background(folder, clip_name):
     return nome, BACKGROUND_OK
 
 
-# As duas identidades do card de titulo. ESPELHO do `studio/src/preset.js`
+# SE o corte tem card. ESPELHO do `studio/src/preset.js`
 # (`TITLE_CARD_STYLES`/`TITLE_CARD_PADRAO`), pela mesma razao pela qual o `captions.py`
 # copia os numeros da tipografia: o preset.js e ESM do projeto Remotion e este modulo e
 # stdlib puro, sem npm no caminho.
 # Copiar exige guarda, e ela existe: o `test_serve.py` LE o preset.js e compara a lista e o
-# padrao. Divergirem faria o servidor descartar calado o valor que a tela mandou, e o video
-# sairia com a OUTRA marca -- o pior desfecho possivel aqui, porque nada na tela erraria.
-# "nenhum" = sem card no video. E valor do MESMO conjunto (nao uma segunda chave), e o
-# PADRAO nunca e ele: valor torto tem de cair na marca de sempre, nao apagar o card calado.
-TITLE_CARD_STYLES = ("primo_rico", "puro_ecommerce", "nenhum")
-TITLE_CARD_PADRAO = "primo_rico"
+# padrao. Divergirem faria o servidor descartar calado o valor que a tela mandou, e o corte
+# sairia sem card -- o pior desfecho possivel aqui, porque nada na tela erraria.
+# O conjunto e FECHADO e diz so isto: "tem card" ou "sem card". QUAL card e DADO, nao enum --
+# a biblioteca e do operador, mora no navegador, e este servidor nunca soube o que e um id de
+# card. Ele recebe UM objeto e o valida (`card_of` abaixo).
+# O PADRAO nunca e "nenhum": valor torto tem de cair em "tem card", nao apagar o card calado.
+TITLE_CARD_STYLES = ("personalizado", "nenhum")
+TITLE_CARD_PADRAO = "personalizado"
 
 
 def title_card_style(valor):
-    """Valor do corpo do POST -> identidade conhecida. Desconhecido = o padrao.
+    """Valor do corpo do POST -> valor conhecido do conjunto. Desconhecido = o padrao.
 
     PURA e no nivel do modulo (nao dentro do `render_props`) para o teste CHAMAR com valor
     construido, em vez de asserir o texto do arquivo -- que so provaria que alguem escreveu
-    a palavra. Recusa `None`, numero, dict, o rotulo da tela ("Primo Rico") e qualquer
-    string fora do conjunto.
+    a palavra. Recusa `None`, numero, dict, o rotulo da tela e qualquer string fora do
+    conjunto -- inclusive os valores das identidades de terceiro que sairam do projeto: o
+    corte salvo antes desta entrega os carrega, e eles tem de cair no padrao.
     """
     return valor if valor in TITLE_CARD_STYLES else TITLE_CARD_PADRAO
+
+
+# ---- o CARD em si: dado do operador, validado aqui -----------------------------------
+# Espelho do `cardOf` do preset.js (o dono) e do `cardOf` do video-ops.js (a copia da tela),
+# pela razao de sempre: nao ha import possivel entre um ES module, uma pagina Vanilla JS e
+# este servidor stdlib. Os NUMEROS que decidem o que passa (pesos carregados e teto do logo)
+# tem check de paridade lendo o preset.js -- divergirem faria o servidor descartar calado
+# aquilo que a tela deixou o operador escolher.
+# Os pesos sao os que o `Clip.jsx` carrega no `loadFont`: peso nao carregado o Chrome
+# SINTETIZA, e sai um engrossamento borrado que so aparece olhando o quadro.
+CARD_PESOS = (600, 700, 800, 900)
+# Teto do logo, em CARACTERES do dataURL -- o mesmo numero contado do mesmo jeito nas tres
+# camadas. O corpo do POST e ENTRADA: sem isto aqui, um dataURL gigante atravessaria ate o
+# props-<token>.json e o render engasgaria carregando a imagem.
+CARD_LOGO_MAX = 512 * 1024
+# So dataURL de imagem, e so estes tipos. `http(s):`, `file:` e qualquer outro esquema sao
+# recusados: o `--public-dir` do render aponta para o cache do YouTube e `staticFile()` nao
+# alcanca o repositorio, entao endereco remoto ou falharia ou viraria busca de rede no meio
+# da captura do quadro.
+CARD_LOGO_RE = re.compile(r"^data:image/(png|svg\+xml|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$")
+CARD_NOME_MAX = 40
+CARD_IDENTIFICADOR_MAX = 60
+# Proporcao da placa (largura/altura), MEDIDA no arquivo pelo navegador. Fora da faixa ela
+# produziria largura zero (placa invisivel) ou uma faixa de milhares de pixels, as duas
+# caladas.
+CARD_PROPORCAO_MIN = 0.05
+CARD_PROPORCAO_MAX = 20.0
+# Cor de CSS, e so as formas que o editor produz. O valor vai direto para um `style` inline
+# do JSX: string arbitraria ali e texto entrando num atributo de estilo, e o desfecho calado
+# (propriedade descartada pelo React) seria um card sem filete e sem borda.
+CARD_COR_RE = re.compile(
+    r"^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$"
+    r"|^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)$")
+# O que o validador monta quando o campo nao veio ou veio torto. Ultima linha de defesa: a
+# tela ja normalizou com o MESMO validador antes de mandar, entao chegar aqui torto significa
+# corpo adulterado ou dado velho -- e o desfecho tem de ser um card legivel, nunca um card
+# sem filete e sem borda.
+CARD_PADROES = {
+    "fileteCor": "#FFFFFF",
+    "bordaCor": "rgba(255, 255, 255, .14)",
+    "identificadorCor": "rgba(255, 255, 255, .72)",
+    "destaqueCor": "#D9A441",
+    "tituloPeso": 900,
+    "destaquePeso": 900,
+    "destaqueSublinhado": False,
+}
+
+
+def _card_cor(valor, padrao):
+    """Cor de CSS conhecida, ou o padrao. Nunca levanta."""
+    if not isinstance(valor, str):
+        return padrao
+    limpo = valor.strip()
+    return limpo if CARD_COR_RE.match(limpo) else padrao
+
+
+def _card_peso(valor, padrao):
+    """Peso do conjunto CARREGADO, ou o padrao. Aceita o numero e a string do <select>."""
+    try:
+        n = int(float(valor))
+    except (TypeError, ValueError):
+        return padrao
+    return n if n in CARD_PESOS else padrao
+
+
+def _card_texto(valor, teto):
+    return valor.strip()[:teto] if isinstance(valor, str) else ""
+
+
+def card_of(valor):
+    """Card do operador (dict do corpo do POST) -> card validado, ou None. PURA.
+
+    Irmao exato do `edit_of`: no nivel do modulo para o teste CHAMAR com valor construido,
+    e NUNCA levanta -- qualquer coisa que ele nao entenda vira `None`, que a composicao le
+    como "este corte nao tem card".
+
+    `None` e desfecho LEGITIMO em dois casos, e os dois sao visiveis na tela: o operador
+    escolheu "Sem card", ou o card que o corte apontava foi apagado da biblioteca. O que
+    NUNCA acontece e cair em outro card -- herdar a identidade de um vizinho seria o pior
+    desfecho possivel, porque nada na tela erraria.
+
+    Card sem logo E sem identificador e INVALIDO, nao vazio: nao sobra identidade nenhuma
+    para vestir o titulo, e a placa viraria um retangulo com uma manchete dentro. A tela
+    recusa salva-lo e este validador concorda -- um dono so para "o que e um card".
+    """
+    if not isinstance(valor, dict):
+        return None
+    logo = valor.get("logo")
+    if not (isinstance(logo, str) and len(logo) <= CARD_LOGO_MAX
+            and CARD_LOGO_RE.match(logo)):
+        logo = ""
+    identificador = _card_texto(valor.get("identificador"), CARD_IDENTIFICADOR_MAX)
+    if not logo and not identificador:
+        return None
+    try:
+        proporcao = float(valor.get("logoProporcao"))
+    except (TypeError, ValueError):
+        proporcao = 1.0
+    if not (CARD_PROPORCAO_MIN <= proporcao <= CARD_PROPORCAO_MAX):
+        proporcao = 1.0
+    ident = valor.get("id")
+    return {
+        "id": ident[:64] if isinstance(ident, str) else "",
+        "nome": _card_texto(valor.get("nome"), CARD_NOME_MAX),
+        "identificador": identificador,
+        "logo": logo,
+        "logoProporcao": proporcao,
+        "fileteCor": _card_cor(valor.get("fileteCor"), CARD_PADROES["fileteCor"]),
+        "bordaCor": _card_cor(valor.get("bordaCor"), CARD_PADROES["bordaCor"]),
+        "identificadorCor": _card_cor(valor.get("identificadorCor"),
+                                      CARD_PADROES["identificadorCor"]),
+        "destaqueCor": _card_cor(valor.get("destaqueCor"), CARD_PADROES["destaqueCor"]),
+        "tituloPeso": _card_peso(valor.get("tituloPeso"), CARD_PADROES["tituloPeso"]),
+        "destaquePeso": _card_peso(valor.get("destaquePeso"), CARD_PADROES["destaquePeso"]),
+        "destaqueSublinhado": valor.get("destaqueSublinhado") is True,
+    }
 
 
 # Os estilos de LEGENDA. Mesmo espelho, mesma razao e mesma guarda do TITLE_CARD_STYLES
@@ -464,7 +623,19 @@ LEGENDA_ALINHAMENTOS = tuple(captions.ALINHAMENTOS)
 # e no video-ops.js -- fora dela o valor e GRAMPEADO, nunca recusado: a tela ja limita os
 # controles, entao um numero fora da faixa e dado velho ou adulterado, e grampear mantem o
 # corte saindo em vez de derrubar o render por causa de um slider.
-EDIT_FAIXAS = {"tamanho": (32, 96), "largura": (360, 1000), "posicaoPct": (0, 100)}
+EDIT_FAIXAS = {"tamanho": (32, 96), "largura": (360, 1000), "posicaoPct": (0, 100),
+               "posicaoXPct": (0, 100)}
+# Profundidade da legenda (2026-09-25). Espelho LITERAL do `LEGENDA_PROFUNDIDADES` do
+# preset.js (o dono, com os numeros): aqui so o conjunto importa, porque o ASS nao a desenha
+# e o Remotion recebe o `edit` inteiro. Esquecer este conjunto apagaria a chave calada -- a
+# previa mostraria o texto inclinado e o MP4 sairia reto.
+LEGENDA_PROFUNDIDADES = ("suave", "funda")
+# Angulo da Profundidade (2026-09-29): espelho LITERAL das chaves do
+# `LEGENDA_PROFUNDIDADE_DIRECOES` do preset.js, na mesma ordem. A geometria nao muda aqui: o
+# pivo de cada angulo mantem a pagina inclinada DENTRO do bloco reto que este servidor ja
+# garante no quadro. Esquecer este conjunto: previa inclinada de lado, MP4 inclinado para tras.
+LEGENDA_PROFUNDIDADE_DIRECOES = ("tras", "frente", "esquerda", "direita", "tras-esquerda",
+                                 "tras-direita", "frente-esquerda", "frente-direita")
 
 
 def edit_of(valor):
@@ -490,10 +661,21 @@ def edit_of(valor):
     legenda = valor.get("legenda")
     if isinstance(legenda, dict):
         for chave, conjunto in (("style", LEGENDA_STYLES), ("familia", LEGENDA_FONTES),
-                                ("cor", LEGENDA_CORES), ("destaqueCor", LEGENDA_CORES),
-                                ("alinhamento", LEGENDA_ALINHAMENTOS)):
+                                ("alinhamento", LEGENDA_ALINHAMENTOS),
+                                ("profundidade", LEGENDA_PROFUNDIDADES),
+                                ("profundidadeDirecao", LEGENDA_PROFUNDIDADE_DIRECOES)):
             if legenda.get(chave) in conjunto:
                 out["legenda"][chave] = legenda[chave]
+        # Espelho do `corLegendaOf`: nome de token (corte antigo), #RRGGBB normalizado em
+        # maiusculas, e `nenhum` so para contorno e caixa.
+        for chave in ("cor", "destaqueCor", "contorno", "fundo"):
+            cor = legenda.get(chave)
+            if not isinstance(cor, str):
+                continue
+            if cor in LEGENDA_CORES or (cor == captions.SEM and chave in ("contorno", "fundo")):
+                out["legenda"][chave] = cor
+            elif captions._HEX.match(cor):
+                out["legenda"][chave] = cor.upper()
         # `isinstance(x, bool)` e NAO um truthy: `caixaAlta: false` e uma escolha do
         # operador ("este estilo em caixa baixa"), nao a ausencia de escolha.
         if isinstance(legenda.get("caixaAlta"), bool):
@@ -505,7 +687,259 @@ def edit_of(valor):
     quadro = valor.get("enquadramento")
     if isinstance(quadro, dict) and quadro.get("reframe") in worker.REFRAMES:
         out["enquadramento"]["reframe"] = quadro["reframe"]
+    # Música de fundo (2026-09-30): a chave só existe quando há faixa válida escolhida — corte
+    # sem música manda o `edit` de sempre, byte a byte.
+    musica = musica_of(valor.get("musica"))
+    if musica:
+        out["musica"] = musica
+    # Remoções (2026-09-30): só a FORMA aqui; grade, junção e mínimos são do dono
+    # (`captions.mapa_saida`). Lista vazia/torta = sem chave = o corte de sempre.
+    remocoes = remocoes_of(valor.get("remocoes"))
+    if remocoes:
+        out["remocoes"] = remocoes
+    textos = textos_of(valor.get("textos"))
+    if textos:
+        out["textos"] = textos
+    zooms = zooms_of(valor.get("zooms"))
+    if zooms:
+        out["zooms"] = zooms
     return out
+
+
+# Zoom pontual leve (2026-09-30): espelho LITERAL do preset.js (dono dos números) e da tela.
+ZOOMS_MAX = 5
+ZOOM_MIN_MS = 1000
+ZOOM_NIVEIS = ("leve", "medio")
+
+
+def zooms_of(valor):
+    """`[{id, deMs, ateMs, nivel}]` -> lista validada. PURA. Janela < 1 s, id torto ou que
+    SOBREPÕE o anterior sai; no máximo `ZOOMS_MAX`; nível torto cai no `leve`."""
+    if not isinstance(valor, list):
+        return []
+    candidatos = []
+    for z in valor:
+        if not isinstance(z, dict) or not isinstance(z.get("id"), str) or not _ID_ITEM_RE.match(z["id"]):
+            continue
+        de, ate = z.get("deMs"), z.get("ateMs")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                   and v >= 0 for v in (de, ate)):
+            continue
+        de, ate = int(math.floor(de + 0.5)), int(math.floor(ate + 0.5))
+        if ate - de >= ZOOM_MIN_MS:
+            candidatos.append({"id": z["id"], "deMs": de, "ateMs": ate,
+                               "nivel": z.get("nivel") if z.get("nivel") in ZOOM_NIVEIS else "leve"})
+    saida = []
+    for z in sorted(candidatos, key=lambda x: (x["deMs"], x["ateMs"])):
+        if saida and z["deMs"] < saida[-1]["ateMs"]:
+            continue
+        if len(saida) < ZOOMS_MAX:
+            saida.append(z)
+    return saida
+
+
+def janelas_props(body, edit, chave, campos):
+    """Textos/zooms no relógio da SAÍDA pelo dono do mapa, ou None (sem itens ou sem o
+    intervalo da fonte). Um caminho só para os dois: mesma regra de aparar e de sumir."""
+    if not edit.get(chave):
+        return None
+    try:
+        comeca, termina = float(body.get("start")), float(body.get("end"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(comeca) and math.isfinite(termina) and termina > comeca):
+        return None
+    mapa = captions.mapa_saida(comeca * 1000.0, termina * 1000.0, edit.get("remocoes") or [])
+    ficam, _removidos = captions.intervalos_saida(edit[chave], mapa)
+    return [dict({c: it[c] for c in campos}, deSec=it["deSec"], ateSec=it["ateSec"]) for it in ficam]
+
+
+# Texto fixo na tela (2026-09-30): espelho LITERAL do preset.js (dono dos números) e da tela.
+TEXTOS_MAX = 3
+TEXTO_MAX_CHARS = 80
+TEXTO_MIN_MS = 1000
+TEXTO_POSICOES = ("alto", "meio")
+TEXTO_ESTILOS = ("rotulo", "nota")
+_ID_ITEM_RE = re.compile(r"^[a-z0-9-]{1,40}$")
+
+
+def textos_of(valor):
+    """`[{id, texto, deMs, ateMs, posicao, estilo}]` -> lista validada. PURA. Texto vazio,
+    janela < 1 s, id torto ou que SOBREPÕE o anterior sai; no máximo `TEXTOS_MAX`; posição e
+    estilo tortos caem no padrão (`alto`, `rotulo`)."""
+    if not isinstance(valor, list):
+        return []
+    candidatos = []
+    for t in valor:
+        if not isinstance(t, dict) or not isinstance(t.get("id"), str) or not _ID_ITEM_RE.match(t["id"]):
+            continue
+        texto = t.get("texto")
+        de, ate = t.get("deMs"), t.get("ateMs")
+        if not isinstance(texto, str) or not texto.strip():
+            continue
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                   and v >= 0 for v in (de, ate)):
+            continue
+        de, ate = int(math.floor(de + 0.5)), int(math.floor(ate + 0.5))
+        if ate - de < TEXTO_MIN_MS:
+            continue
+        candidatos.append({"id": t["id"], "texto": " ".join(texto.split())[:TEXTO_MAX_CHARS],
+                           "deMs": de, "ateMs": ate,
+                           "posicao": t.get("posicao") if t.get("posicao") in TEXTO_POSICOES else "alto",
+                           "estilo": t.get("estilo") if t.get("estilo") in TEXTO_ESTILOS else "rotulo"})
+    saida = []
+    for t in sorted(candidatos, key=lambda x: (x["deMs"], x["ateMs"])):
+        if saida and t["deMs"] < saida[-1]["ateMs"]:
+            continue
+        if len(saida) < TEXTOS_MAX:
+            saida.append(t)
+    return saida
+
+
+def textos_props(body, edit):
+    """O prop `textos` (relógio da SAÍDA, pelo dono do mapa) ou None. Sem textos — ou sem o
+    intervalo da fonte para situá-los — nenhuma chave: props de sempre."""
+    return janelas_props(body, edit, "textos", ("id", "texto", "posicao", "estilo"))
+
+
+def remocoes_of(valor):
+    """`[{deMs, ateMs}]` -> lista validada (inteiros, de < até, em ordem, no máximo
+    `captions.REMOCOES_MAX`). PURA; espelho do `remocoesOf` do preset.js."""
+    if not isinstance(valor, list):
+        return []
+    saida = []
+    for r in valor:
+        if not isinstance(r, dict):
+            continue
+        de, ate = r.get("deMs"), r.get("ateMs")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                   and v >= 0 for v in (de, ate)):
+            continue
+        de, ate = int(math.floor(de + 0.5)), int(math.floor(ate + 0.5))
+        if ate > de:
+            saida.append({"deMs": de, "ateMs": ate})
+    return sorted(saida, key=lambda r: (r["deMs"], r["ateMs"]))[:captions.REMOCOES_MAX]
+
+
+def mapa_do_corpo(body, edit):
+    """O mapa do DONO para este corpo, ou None (sem remoção ou sem o intervalo da fonte)."""
+    if not edit.get("remocoes"):
+        return None
+    try:
+        comeca, termina = float(body.get("start")), float(body.get("end"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(comeca) and math.isfinite(termina) and termina > comeca):
+        return None
+    mapa = captions.mapa_saida(comeca * 1000.0, termina * 1000.0, edit["remocoes"])
+    return mapa if mapa["remocoes"] else None
+
+
+# Música de fundo (2026-09-30, decisão do usuário): só faixa do PC (MP3/M4A/WAV), numa
+# biblioteca fora do repo e do temporário. Espelho LITERAL do `MUSICA_NIVEIS` do preset.js e
+# do video-ops.js. O nível é "quantos dB ABAIXO da voz" — não existe nível mais alto que médio.
+MUSICA_NIVEIS = ("baixo", "medio")
+# Calibrado MEDINDO o MP4 final (2026-09-30): com a partida 20/14 o vão saiu ~18,2/11,9 dB —
+# o `loudnorm` de passe único do `finish_video` comprime ~2 dB da mistura. A correção é aqui,
+# no ganho (nunca no loudnorm): 22/16 põe o vão final em ~20/14.
+MUSICA_DB = {"baixo": 22.0, "medio": 16.0}
+MUSICA_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def musica_of(valor):
+    """`clip.edit.musica` -> `{id, inicioMs, nivel}` validado, ou None. PURA; mesmas regras do
+    preset.js. Id torto = sem música (nunca outra faixa); início torto = 0; nível torto = baixo."""
+    if not isinstance(valor, dict) or not isinstance(valor.get("id"), str) \
+            or not MUSICA_ID_RE.match(valor["id"]):
+        return None
+    inicio = valor.get("inicioMs")
+    ok_inicio = (isinstance(inicio, (int, float)) and not isinstance(inicio, bool)
+                 and math.isfinite(inicio) and inicio >= 0)
+    return {"id": valor["id"], "inicioMs": int(math.floor(inicio + 0.5)) if ok_inicio else 0,
+            "nivel": valor.get("nivel") if valor.get("nivel") in MUSICA_NIVEIS else "baixo"}
+
+
+def default_music_dir() -> str:
+    """Biblioteca de músicas do operador. Fora do repositório e fora do temporário."""
+    return os.path.join(os.path.expanduser("~"), "Music", "Estudio Musicas")
+
+
+_LUFS_RE = re.compile(r"I:\s*(-?\d+(?:\.\d+)?)\s*LUFS")
+_DURACAO_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+
+
+def medir_audio(path: str, timeout: float = 120.0):
+    """Duração (do cabeçalho do FFmpeg, sem ffprobe) e loudness INTEGRADO (`ebur128`) de um
+    arquivo. `None` quando não há áudio legível. Loudness de silêncio absoluto sai -70."""
+    try:
+        proc = subprocess.run(
+            [worker.FFMPEG, "-hide_banner", "-nostats", "-i", path, "-vn",
+             "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+            capture_output=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    saida = proc.stderr.decode("utf-8", "replace")
+    lufs = _LUFS_RE.findall(saida)
+    duracao = _DURACAO_RE.search(saida)
+    if proc.returncode != 0 or not lufs or "Audio:" not in saida:
+        return None
+    segundos = 0.0
+    if duracao:
+        segundos = int(duracao.group(1)) * 3600 + int(duracao.group(2)) * 60 + float(duracao.group(3))
+    return {"durationSec": round(segundos, 2), "lufs": max(-70.0, float(lufs[-1]))}
+
+
+def ganho_musica(voz_lufs, faixa_lufs, nivel):
+    """Ganho LINEAR da faixa para ela ficar `MUSICA_DB[nivel]` dB ABAIXO da voz. PURA; dono
+    ÚNICO da conta (a tela manda intenção, nunca dB). Teto 1: a faixa nunca é AMPLIFICADA —
+    se ela já está mais baixa que o alvo, o vão só fica maior."""
+    alvo = float(voz_lufs) - MUSICA_DB.get(nivel, MUSICA_DB["baixo"])
+    return round(min(1.0, 10 ** ((alvo - float(faixa_lufs)) / 20.0)), 4)
+
+
+def musica_faixa(pasta: str, musica_id: str):
+    """(caminho, sidecar) da faixa `musica_id` na biblioteca, ou (None, None). Id fora do
+    formato não chega a tocar o disco."""
+    if not isinstance(musica_id, str) or not MUSICA_ID_RE.match(musica_id):
+        return None, None
+    try:
+        with open(os.path.join(pasta, musica_id + ".json"), encoding="utf-8") as handle:
+            sidecar = json.load(handle)
+    except (OSError, ValueError):
+        return None, None
+    ext = sidecar.get("ext") if isinstance(sidecar, dict) else None
+    if ext not in MUSICA_EXTS:
+        return None, None
+    caminho = os.path.join(pasta, musica_id + ext)
+    return (caminho, sidecar) if os.path.isfile(caminho) else (None, None)
+
+
+def musicas_lista(pasta: str):
+    """A biblioteca, pelos sidecars, em ordem de nome. Sidecar torto fica de fora."""
+    saida = []
+    try:
+        nomes = sorted(os.listdir(pasta))
+    except OSError:
+        return saida
+    for nome in nomes:
+        base, ext = os.path.splitext(nome)
+        if ext != ".json" or not MUSICA_ID_RE.match(base):
+            continue
+        caminho, sidecar = musica_faixa(pasta, base)
+        if caminho:
+            saida.append({"id": base, "nome": str(sidecar.get("nome") or base)[:120],
+                          "durationSec": sidecar.get("durationSec"), "lufs": sidecar.get("lufs"),
+                          "ext": sidecar["ext"], "url": MUSICAS_URL + base + sidecar["ext"]})
+    return sorted(saida, key=lambda m: m["nome"].lower())
+
+
+def musica_props(musica, faixa_sidecar, faixa_nome, voz_lufs):
+    """O prop `musica` da composição. PURA. `faixaSec`/`inicioSec` deixam a composição
+    terminar a faixa com o próprio fade quando ela acaba antes do corte (sem loop)."""
+    return {"file": faixa_nome,
+            "ganho": ganho_musica(voz_lufs, faixa_sidecar.get("lufs", -14.0), musica["nivel"]),
+            "inicioSec": musica["inicioMs"] / 1000.0,
+            "faixaSec": float(faixa_sidecar.get("durationSec") or 0)}
 
 
 def legenda_style(valor):
@@ -517,6 +951,141 @@ def legenda_style(valor):
     nao tem aparencia definida, e o desfecho seria uma legenda sem fonte e sem corpo, calada.
     """
     return valor if valor in LEGENDA_STYLES else LEGENDA_PADRAO
+
+
+def _pct_inteiro(valor):
+    # Meio para cima, nunca o `round` do Python (que arredonda .5 para o PAR): a partida do
+    # "Ajustar a mao" tem de ser a mesma conta em qualquer maquina.
+    return int(math.floor(valor + 0.5))
+
+
+# Capa do TikTok: espelho LITERAL do `CAPA_ESTILOS`/`CAPA_POSICOES`/`CAPA_TITULO_MAX`/
+# `CAPA_DESTAQUE_MAX` do preset.js (o test_serve compara as três cópias).
+CAPA_ESTILOS = ("negocio", "faixa", "limpo")
+CAPA_POSICOES = ("alto", "meio", "baixo")
+CAPA_TITULO_MAX = 120
+CAPA_DESTAQUE_MAX = 60
+CAPA_ERROS = ("capa_sem_fonte", "capa_sem_quadro", "capa_quadro_fora")
+
+
+def capa_tiktok_of(valor):
+    """`clip.capaTikTok` do POST -> modelo validado, ou None. PURA; mesmas regras do preset.js.
+
+    Estilo/posição desconhecidos caem no padrão; `quadroMs` torto SOME (a rota então recusa
+    com `capa_sem_quadro`, que é a verdade: não há quadro escolhido).
+    """
+    if not isinstance(valor, dict) or valor.get("v") != 1:
+        return None
+    out = {"v": 1,
+           "estilo": valor.get("estilo") if valor.get("estilo") in CAPA_ESTILOS else "negocio",
+           "posicao": valor.get("posicao") if valor.get("posicao") in CAPA_POSICOES else "meio"}
+    q = valor.get("quadroMs")
+    if isinstance(q, (int, float)) and not isinstance(q, bool) and math.isfinite(q) and q >= 0:
+        out["quadroMs"] = int(math.floor(q + 0.5))
+    for chave, teto in (("titulo", CAPA_TITULO_MAX), ("destaque", CAPA_DESTAQUE_MAX)):
+        texto = valor.get(chave)
+        if isinstance(texto, str) and texto.strip():
+            out[chave] = texto.strip()[:teto]
+    return out
+
+
+def capa_props(quadro_file, media, body, capa):
+    """Props da composição `CapaTikTok`. PURA. O enquadramento é o do CORTE (mesma
+    precedência do `render_props`: o manual do `edit` vence o `reframe` cru), e a altura vem
+    do `video_box`, dono único. O título passa pelo `strip_artifacts` como o do card."""
+    edit = edit_of(body.get("edit"))
+    reframe = reframe_profile(edit["enquadramento"].get("reframe") or body.get("reframe"))
+    altura = video_box(reframe, media) or 608
+    titulo = capa.get("titulo") or body.get("title") or ""
+    return {"quadroFile": quadro_file, "reframe": reframe, "videoAltura": altura,
+            "bandaAltura": worker.band_height(altura),
+            "titulo": captions.strip_artifacts(titulo)[:CAPA_TITULO_MAX],
+            "destaque": capa.get("destaque", ""),
+            "estilo": capa["estilo"], "posicao": capa["posicao"]}
+
+
+def capa_name(token: str, body: dict) -> str:
+    """`<vídeo>-<início>-<fim>-capa-tiktok.png`: o MESMO radical do MP4 editado, então os dois
+    ficam lado a lado na pasta dos cortes."""
+    return edited_name(token, body)[:-len("-editado.mp4")] + "-capa-tiktok.png"
+
+
+def legenda_geometria(reframe, manual, media, cues=None, style=None):
+    """A GEOMETRIA da legenda e do video no 9:16, num dict. PURA (sem render, sem ffprobe).
+
+    Dona unica, e usada por DOIS caminhos: o `render_props` (o MP4 e o quadro real) e a rota
+    `/api/legenda-geometria` (a previa "Como sai 9:16" da tela). Um segundo montador faria a
+    previa concordar com ela mesma e discordar do export -- a razao de ser da rota e ela
+    devolver EXATAMENTE os numeros que o render vai usar.
+
+    `manual` e o `edit_of(...)["legenda"]` ja validado. Devolve os numeros resolvidos, a
+    ancora AUTOMATICA (e o percentual de partida do "Ajustar a mao", que sai daqui para a
+    tela nao precisar de formula), as faixas que cabem e o que foi grampeado, e por que.
+
+    Desde 2026-09-28 a posicao manual e LIVRE: o unico limite duro e a pagina nao sair do
+    quadro, e as zonas da interface do TikTok (trilha de botoes a direita, texto embaixo)
+    viraram AVISO (`avisos`) com os numeros das guias (`zonas`), em vez de trava. `cues` sao
+    as falas (ja corrigidas) que o export manda: delas saem a palavra mais longa (o piso da
+    coluna) e as PAGINAS que a previa mostra -- as mesmas do MP4 (`paginas_remotion`).
+    """
+    medida = video_box(reframe, media)
+    # O fallback 608 (16:9) e o do render_props de sempre -- ver o comentario la.
+    altura = medida or int(round(worker.OUT_W * 9 / 16))
+    estilo = captions.estilo_ass(legenda_style(manual.get("style") or style), manual)
+    auto = captions.margem_inferior(worker.OUT_H, altura)
+    pct = manual.get("posicaoPct")
+    lay = captions.layout_legenda(estilo, cues if isinstance(cues, list) else [], worker.OUT_W)
+    limpas = captions.normalize_cues(cues) if isinstance(cues, list) else []
+    paginas = captions.paginas_remotion(limpas, lay["max_linha"] * captions.MAX_LINHAS)
+    # A guarda do topo pela pagina MAIS ALTA deste corte (o CSS pode quebrar em 3 linhas).
+    topo = captions.topo_das_paginas(estilo, paginas, lay["largura"])
+    base = captions.margem_inferior(worker.OUT_H, altura, pct, topo)
+    fundo_px = worker.OUT_H - captions.MARGEM_LATERAL
+    rodape_y = int(round(captions.ZONA_UI_PCT * worker.OUT_H))
+    faixa = [int(math.ceil(topo * 100.0 / worker.OUT_H - 1e-9)),
+             int(math.floor(fundo_px * 100.0 / worker.OUT_H + 1e-9))]
+    desejada = None if pct is None else worker.OUT_H * min(100.0, max(0.0, float(pct))) / 100.0
+    manual_x = manual.get("posicaoXPct") is not None
+    return {
+        "reframe": reframe,
+        "videoAltura": altura,
+        "alturaMedida": medida is not None,
+        "bandaAltura": worker.band_height(altura),
+        "legendaBase": base,
+        "legendaBaseAuto": auto,
+        "posicaoAutoPct": _pct_inteiro((worker.OUT_H - auto) * 100.0 / worker.OUT_H),
+        "faixaPosicao": faixa,
+        # A coluna EFETIVA (estreita perto da borda com X manual) e o maximo do operador.
+        "legendaLargura": lay["largura"],
+        "legendaLarguraMax": estilo["largura"],
+        "legendaEsquerda": lay["esquerda"],
+        "legendaPiso": lay["piso"],
+        "palavraPiso": lay["palavra"],
+        "faixaPosicaoX": list(lay["faixa"]) if lay["faixa"] else None,
+        # As guias da previa, em px do quadro (a tela nao conhece nenhum destes numeros).
+        "zonas": {"trilhaX": captions.TRILHA_X, "rodapeY": rodape_y},
+        "avisos": {
+            "trilha": manual_x and lay["trilha"],
+            "rodape": pct is not None and worker.OUT_H - base > rodape_y,
+            "estreitou": manual_x and lay["estreitou"],
+        },
+        "grampeado": {
+            "posicaoPct": None if desejada is None or abs(worker.OUT_H - base - desejada) <= 1
+            else ("topo" if desejada < topo else "fundo"),
+            "posicaoXPct": lay["grampeado"],
+        },
+        "paginas": paginas,
+    }
+
+
+def geometria_media(largura, altura):
+    """Dimensoes vindas do CORPO da rota -> o `media` do `video_box`. Torto = sem dimensao."""
+    def _lado(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
+            return None
+        return int(v) if 1 <= v <= 16384 else None
+    lados = (_lado(largura), _lado(altura))
+    return {"width": lados[0], "height": lados[1]} if all(lados) else {}
 
 
 def render_props(folder, clip_name, media, body):
@@ -531,6 +1100,11 @@ def render_props(folder, clip_name, media, body):
     Remotion espera e o que mantém o caminho do servidor fora do processo do render.
     """
     cues = body.get("cues")
+    # Remoções: as falas vão para o relógio da SAÍDA pelo DONO (`captions.mapa_saida`), ANTES
+    # da geometria e dos props — a mesma lista desenha, pagina e decide o piso da coluna.
+    _mapa = mapa_do_corpo(body, edit_of(body.get("edit")))
+    if _mapa and isinstance(cues, list):
+        cues = captions.remapear_cues(cues, _mapa)
     # UMA chamada de video_box, e dela saem TRÊS props. Antes eram duas chamadas com o rótulo
     # "blur" cravado (uma para o legendaBase, outra para o bandaAltura), o que impedia
     # qualquer outro enquadramento de existir e permitia que as duas divergissem.
@@ -546,12 +1120,17 @@ def render_props(folder, clip_name, media, body):
     # O enquadramento manual ganha do `reframe` cru do corpo pelo mesmo motivo do estilo: o
     # operador trocou na tela, e o corpo pode ser de um POST antigo repetido.
     reframe = reframe_profile(edit["enquadramento"].get("reframe") or body.get("reframe"))
-    altura = video_box(reframe, media) or int(round(worker.OUT_W * 9 / 16))
+    # As MESMAS falas que viram o prop `cues` (a palavra mais longa decide o piso da coluna).
+    geo = legenda_geometria(reframe, manual, media, cues, body.get("legendaStyle"))
+    altura = geo["videoAltura"]
     # O nome do fundo E o desfecho, do MESMO dono. O estado viaja nos props porque a rota já
     # lê props para decidir coisa sua (`durationSec` -> render_budget); a composição ignora a
     # chave. A alternativa — a rota recalculando o estado — pagaria um segundo ffprobe e
     # divergiria calada da regra de descarte do `render_background`.
     fundo, estado_fundo = render_background(folder, clip_name)
+    # Validado UMA vez e consultado duas (o proprio prop e o portao do `card` abaixo):
+    # validar de novo la deixaria os dois poderem discordar sobre o mesmo corpo.
+    estilo_card = title_card_style(body.get("titleCardStyle"))
     props = {
         "clipFile": clip_name,
         # Qual recorte o Palco aplica à FONTE. Conjunto FECHADO e validado aqui, pela mesma
@@ -579,13 +1158,12 @@ def render_props(folder, clip_name, media, body):
         # `posicaoPct` e a INTENCAO que o operador arrastou na previa, e ela entra AQUI, na
         # unica funcao que sabe virar pixel -- que e tambem quem grampeia contra a zona de
         # botoes do TikTok. Ausente = a ancora automatica de sempre.
-        "legendaBase": captions.margem_inferior(worker.OUT_H, altura,
-                                                manual.get("posicaoPct")),
+        "legendaBase": geo["legendaBase"],
         # Altura de UMA tarja. A miniatura entra no tamanho dela, repetida em cima e
         # embaixo, em vez de UMA esticada cobrindo o quadro. Sai do `worker.band_height`, o
         # MESMO dono que o filtro do FFmpeg usa — dois cálculos independentes fariam o
         # mesmo corte enquadrar a miniatura diferente em cada renderizador, calado.
-        "bandaAltura": worker.band_height(altura),
+        "bandaAltura": geo["bandaAltura"],
         "durationSec": float(media.get("durationSec") or 0.0),
         # Pela regra unica, igual ao caminho FFmpeg. Era copia VERBATIM do corpo, e era o
         # unico ponto do projeto em que texto de legenda entrava num renderizador sem passar
@@ -604,14 +1182,22 @@ def render_props(folder, clip_name, media, body):
         # TITULO ficam ainda mais a vista do que na legenda. Um segundo limpador aqui
         # divergiria calado do `strip_artifacts`, que ja e o dono dessa regra.
         "title": captions.strip_artifacts(body.get("title"))[:180],
-        # Qual das duas identidades o card do titulo veste. Conjunto FECHADO e validado
-        # aqui, pela mesma razao do CAPTION_STATES: o corpo do POST e entrada, e um valor
-        # desconhecido que atravessasse ate a composicao nao tem aparencia definida -- o
-        # desfecho seria um card sem placa, sem filete e sem borda, calado.
-        # Desconhecido/ausente cai no PADRAO, que e a marca que todo corte ja renderiza
-        # hoje: trecho salvo antes desta entrega nao manda a chave e tem de sair como
-        # sempre saiu, nao com a outra marca.
-        "titleCardStyle": title_card_style(body.get("titleCardStyle")),
+        # SE este corte tem card. Conjunto FECHADO e validado aqui, pela mesma razao do
+        # CAPTION_STATES: o corpo do POST e entrada, e um valor desconhecido que
+        # atravessasse ate a composicao nao tem desfecho definido.
+        # Desconhecido/ausente cai no PADRAO ("tem card"): trecho salvo antes desta entrega
+        # manda o valor de uma identidade que saiu do projeto, e ele tem de cair aqui em vez
+        # de apagar o card calado.
+        "titleCardStyle": estilo_card,
+        # QUAL card ele veste, ja validado. O servidor NAO conhece a biblioteca (ela mora no
+        # navegador) nem ids de card: ele recebe o objeto resolvido e o valida, exatamente
+        # como faz com o `edit`. `None` e desfecho legitimo e VISIVEL na tela -- "Sem card",
+        # ou "o card que este corte apontava foi apagado" --, e a composicao o le como
+        # "este corte nao tem card". Nunca se cai em OUTRO card.
+        # O `if` do estilo existe para o "Sem card" nao depender de o corpo mandar
+        # `card: null`: escolher nao ter card e decisao da TELA, e o objeto que vier junto
+        # com ela e irrelevante.
+        "card": card_of(body.get("card")) if estilo_card == "personalizado" else None,
         # Qual aparencia a legenda veste. Conjunto FECHADO e validado aqui, pela mesma razao
         # do titleCardStyle: o corpo do POST e entrada. Desconhecido/ausente cai no
         # "classico", que e a legenda que todo corte ja renderiza -- trecho salvo antes deste
@@ -625,6 +1211,21 @@ def render_props(folder, clip_name, media, body):
         # Só o slug: a categoria escolhe a cor do destaque na composição e nada mais.
         "category": re.sub(r"[^a-z_]", "", str(body.get("category") or "").lower())[:40],
     }
+    # A borda esquerda da coluna so viaja quando o operador a moveu: sem `posicaoXPct` o
+    # Clip.jsx centraliza pela formula de sempre, e o corte salvo antes desta entrega manda
+    # EXATAMENTE os mesmos props de antes (nenhuma chave nova no objeto).
+    if manual.get("posicaoXPct") is not None:
+        props["legendaEsquerda"] = geo["legendaEsquerda"]
+        # E a coluna EFETIVA (estreita perto da borda): o `resolveLegenda` a usa uma vez para
+        # desenhar E para paginar -- o mesmo teto que o ASS tira do `layout_legenda`.
+        props["legendaColuna"] = geo["legendaLargura"]
+    # Texto fixo: só com textos no corpo (corte sem eles = os props de sempre).
+    textos = textos_props(body, edit)
+    if textos:
+        props["textos"] = textos
+    zooms = janelas_props(body, edit, "zooms", ("id", "nivel"))
+    if zooms:
+        props["zooms"] = zooms
     if props["durationSec"] <= 0:
         raise worker.WorkerError("probe_failed", "Não consegui medir a duração do trecho.")
     return props
@@ -960,6 +1561,46 @@ def clip_args(src: str, dest: str, start: float, duration: float,
              if has_audio else ["-an"])
     # "-f mp4" é obrigatório: escrevendo em ".part" o FFmpeg não deduz o container.
     args += ["-movflags", "+faststart", "-f", "mp4", dest]
+    return args
+
+
+JUNCAO_FADE_SEC = 0.012
+
+
+def concat_args(src: str, dest: str, start: float, pedacos, has_audio: bool,
+                fps: int = captions.FPS_SAIDA) -> List[str]:
+    """O recorte COM REMOÇÕES: os pedaços mantidos (ms da FONTE, do `captions.mapa_saida`)
+    concatenados num ÚNICO encode. Mesmo `-ss` antes do `-i` do `clip_args` (seek rápido e
+    corte exato porque recodifica). `fps` ANTES do `trim`: a grade da fonte vira a da saída e os
+    cortes caem em quadro inteiro — a duração sai a soma exata dos pedaços. No áudio, fade de
+    `JUNCAO_FADE_SEC` só nas JUNÇÕES (o começo e o fim do corte ficam como sempre), para a
+    emenda não estalar. Os mesmos encoders do `clip_args`."""
+    rel = [((a / 1000.0) - start, (b / 1000.0) - start) for a, b in pedacos]
+    n = len(rel)
+    total = sum(b - a for a, b in rel)
+    partes = ["[0:v]fps=%d,split=%d%s" % (fps, n, "".join("[s%d]" % i for i in range(n)))]
+    for i, (a, b) in enumerate(rel):
+        partes.append("[s%d]trim=start=%.6f:end=%.6f,setpts=PTS-STARTPTS[v%d]" % (i, a, b, i))
+    if has_audio:
+        partes.append("[0:a]asplit=%d%s" % (n, "".join("[t%d]" % i for i in range(n))))
+        for i, (a, b) in enumerate(rel):
+            cadeia = "[t%d]atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS" % (i, a, b)
+            if i > 0:
+                cadeia += ",afade=t=in:st=0:d=%.3f" % JUNCAO_FADE_SEC
+            if i < n - 1:
+                cadeia += ",afade=t=out:st=%.6f:d=%.3f" % (max(0.0, b - a - JUNCAO_FADE_SEC), JUNCAO_FADE_SEC)
+            partes.append(cadeia + "[a%d]" % i)
+        partes.append("".join("[v%d][a%d]" % (i, i) for i in range(n))
+                      + "concat=n=%d:v=1:a=1[v][a]" % n)
+    else:
+        partes.append("".join("[v%d]" % i for i in range(n)) + "concat=n=%d:v=1:a=0[v]" % n)
+    args = ["-hide_banner", "-loglevel", "error", "-y",
+            "-ss", "%.3f" % start, "-i", src, "-t", "%.3f" % (rel[-1][1] + 1.0),
+            "-filter_complex", ";".join(partes), "-map", "[v]"]
+    args += (["-map", "[a]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+             if has_audio else ["-an"])
+    args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+             "-t", "%.3f" % total, "-movflags", "+faststart", "-f", "mp4", dest]
     return args
 
 
@@ -1341,7 +1982,7 @@ class CutHandler(SimpleHTTPRequestHandler):
         # do player só deixa arrastar para dentro do que já baixou, e num arquivo de 2 GB isso
         # é o mesmo que não deixar arrastar. Vive aqui pelo mesmo motivo do Cache-Control —
         # `end_headers` é por onde TODA resposta passa, então nenhuma rota pode esquecer.
-        if urlparse(self.path).path.startswith(SOURCES_URL):
+        if urlparse(self.path).path.startswith((SOURCES_URL, MUSICAS_URL)):
             self.send_header("Accept-Ranges", "bytes")
         SimpleHTTPRequestHandler.end_headers(self)
 
@@ -1370,6 +2011,14 @@ class CutHandler(SimpleHTTPRequestHandler):
         # roda antes. A pasta é a do sidecar porque é lá que a fonte e a legenda dela moram.
         if limpo.startswith(SOURCES_URL):
             return os.path.join(_sidecar_dir(), os.path.basename(unquote(limpo)))
+        # A biblioteca de músicas: mesma guarda (`basename` + componente com ponto no
+        # `send_head`) e, além dela, só as extensões FECHADAS de áudio saem — o sidecar `.json`
+        # e qualquer outro arquivo da pasta caem num caminho inexistente (404).
+        if limpo.startswith(MUSICAS_URL):
+            nome = os.path.basename(unquote(limpo))
+            if os.path.splitext(nome)[1].lower() not in MUSICA_EXTS:
+                return os.path.join(self._musicas_dir(), ".nao-servido", "x")
+            return os.path.join(self._musicas_dir(), nome)
         return SimpleHTTPRequestHandler.translate_path(self, path)
 
     # Só a forma simples de Range, que é a que todo `<video>` manda. Múltiplas faixas numa
@@ -1396,7 +2045,10 @@ class CutHandler(SimpleHTTPRequestHandler):
         if caminho_get in (ROUTE_TT_LOGIN, ROUTE_TT_CALLBACK):
             self._get_tiktok(caminho_get)
             return
-        if self.headers.get("Range") and urlparse(self.path).path.startswith(SOURCES_URL):
+        if caminho_get == ROUTE_MUSICAS:
+            self._send_json({"musicas": musicas_lista(self._musicas_dir())})
+            return
+        if self.headers.get("Range") and urlparse(self.path).path.startswith((SOURCES_URL, MUSICAS_URL)):
             try:
                 if self._send_partial(self.translate_path(self.path)):
                     return
@@ -1454,6 +2106,9 @@ class CutHandler(SimpleHTTPRequestHandler):
 
     def _clips_dir(self) -> str:
         return self.clips_folder or default_clips_dir()
+
+    def _musicas_dir(self) -> str:
+        return getattr(self, "musicas_folder", None) or default_music_dir()
 
     # ---------------------------------------------------------------- log
     def log_request(self, code="-", size="-"):
@@ -1533,6 +2188,9 @@ class CutHandler(SimpleHTTPRequestHandler):
             ROUTE_FETCH: self._handle_fetch,
             ROUTE_RENDER: self._handle_render,
             ROUTE_STILL: self._handle_still,
+            ROUTE_CAPA: self._handle_capa,
+            ROUTE_MUSICA_IMPORT: self._handle_musica_importar,
+            ROUTE_GEO: self._handle_legenda_geometria,
             ROUTE_MR: self._handle_most_replayed,
             ROUTE_CAPS: self._handle_clip_captions,
             ROUTE_CLIP_STATUS: self._handle_clip_status,
@@ -1604,7 +2262,7 @@ class CutHandler(SimpleHTTPRequestHandler):
         aviso_externo = ""
         if os.environ.get(muapi.ENV_KEY):
             info["muapiHighlights"], aviso_externo = muapi.highlights(
-                info["url"], num_highlights=ytclip.MAX_CANDIDATES)
+                info["url"], num_highlights=muapi.NUM_HIGHLIGHTS)
         sugestoes, descarte = ytclip.candidates_report(info)
         # "Descartei sete porque terminavam no meio da frase" e "não achei nada" são coisas
         # diferentes para quem olha a tela (BP-008): o resumo entra na `note`, junto do que
@@ -1880,7 +2538,7 @@ class CutHandler(SimpleHTTPRequestHandler):
                          "error": ""})
 
     def _cut_for_render(self, src: str, media: dict, start: float, end: float,
-                        token: str) -> Tuple[str, dict, List[str]]:
+                        token: str, pedacos=None) -> Tuple[str, dict, List[str]]:
         """Extrai o trecho da fonte e devolve (caminho, media, temporários a apagar).
 
         ponytail: um encode intermediário por exportação editada. O caminho sem encode seria
@@ -1894,10 +2552,14 @@ class CutHandler(SimpleHTTPRequestHandler):
                                % (base, int(start), int(end), uuid.uuid4().hex[:8]))
         duracao = end - start
         com_audio = bool(media.get("audioCodec"))
+        # Com remoções, os pedaços mantidos saem concatenados no MESMO encode; sem elas, o
+        # recorte de sempre, byte a byte.
+        montar = ((lambda part: concat_args(src, part, start, pedacos, com_audio))
+                  if pedacos and len(pedacos) > 1
+                  else (lambda part: clip_args(src, part, start, duracao, com_audio)))
         with self._render_slot():
             worker.write_atomic(destino, lambda part: worker.run_ffmpeg(
-                clip_args(src, part, start, duracao, com_audio),
-                timeout=self.ffmpeg_timeout))
+                montar(part), timeout=self.ffmpeg_timeout))
         recortado = worker.validate_input(destino)
         sobras = [destino]
         # A miniatura viaja com o recorte: o `render_background` a descobre pelo STEM do
@@ -2001,6 +2663,41 @@ class CutHandler(SimpleHTTPRequestHandler):
             return None, "missing_file"
 
         return None, "insufficient_info"
+
+    def _handle_legenda_geometria(self) -> None:
+        """`{reframe, edit, width, height, source?, cues?, legendaStyle?}` -> o `legenda_geometria`.
+
+        A tela manda INTENCAO e recebe pixel; nunca o contrario. `width`/`height` sao os da
+        FONTE (o corte sai dela, entao a proporcao e a mesma). No `blur` a proporcao da fonte
+        e o que decide a caixa do video, e sem ela a rota RECUSA em vez de mandar o 608 de
+        fallback: a previa desenharia um retangulo inventado como se fosse o export.
+        `source` (o nome do arquivo em /sources/) so serve para achar a miniatura que o
+        export usa de fundo -- existencia do arquivo, sem abrir processo nenhum.
+        """
+        body = self._json_body()
+        media = geometria_media(body.get("width"), body.get("height"))
+        edit = edit_of(body.get("edit"))
+        reframe = reframe_profile(edit["enquadramento"].get("reframe") or body.get("reframe"))
+        # `cues`/`legendaStyle`: os MESMOS campos do corpo do export (`renderBody`), para a
+        # previa receber a coluna e as paginas que o MP4 vai usar.
+        # Remoções: as MESMAS falas remapeadas do export (prévia == export); cada página ganha o
+        # instante equivalente na FONTE, que é o relógio do player da tela.
+        mapa = mapa_do_corpo(body, edit)
+        falas = body.get("cues")
+        if mapa and isinstance(falas, list):
+            falas = captions.remapear_cues(falas, mapa)
+        geo = legenda_geometria(reframe, edit["legenda"], media, falas,
+                                body.get("legendaStyle"))
+        if mapa and isinstance(geo.get("paginas"), list):
+            geo["paginas"] = captions.paginas_na_fonte(geo["paginas"], mapa)
+        if not geo["alturaMedida"]:
+            raise worker.WorkerError("job_invalid",
+                                     "Sem as dimensões da fonte não dá para saber onde o vídeo "
+                                     "fica no quadro.")
+        nome = os.path.basename(str(body.get("source") or ""))
+        capa = ytclip.thumbnail_beside(_sidecar_dir(), nome) if nome else ""
+        geo["fundoUrl"] = SOURCES_URL + quote(capa) if capa else ""
+        self._send_json(geo)
 
     def _handle_clip_status(self) -> None:
         """Verifica se um clip MP4 existe na pasta permanente de clips.
@@ -2143,6 +2840,149 @@ class CutHandler(SimpleHTTPRequestHandler):
         """
         self._handle_render(still=True)
 
+    def _handle_capa(self) -> None:
+        """A CAPA do TikTok: um quadro EXATO da fonte + a manchete, em PNG 1080x1920, salvo AO
+        LADO do MP4 na pasta dos cortes (servido pelo `/clips/`).
+
+        O quadro sai do FFmpeg (`-ss` ANTES do `-i`, com decodificação: cai no quadro exato sem
+        decodificar a fonte desde o começo) e entra na composição `CapaTikTok` por `Img`. Nome
+        do quadro e do PNG do cache vêm do CONTEÚDO (fonte + instante; hash dos props), então
+        reapertar sem mexer em nada não paga render. Entra na fila de render (`_render_slot`):
+        é FFmpeg + Chrome, e disputaria a máquina com um export em andamento.
+        """
+        import shutil as _shutil
+        body = self._json_body()
+        token = str(body.get("clipToken") or "")
+        entry = self.cache.get(token) if token and TOKEN_FILE_RE.match(token) else None
+        if not entry:
+            raise worker.WorkerError(
+                "capa_sem_fonte",
+                "O vídeo original não está no servidor. Importe o vídeo de novo para gerar a capa.")
+        capa = capa_tiktok_of(body.get("capaTikTok"))
+        if capa is None or "quadroMs" not in capa:
+            raise worker.WorkerError(
+                "capa_sem_quadro",
+                "Nenhum quadro escolhido. Pause o vídeo no quadro da capa e use \"Usar este quadro\".")
+        comeca = _finite(str(body.get("start")), "start")
+        termina = _finite(str(body.get("end")), "end")
+        instante = capa["quadroMs"] / 1000.0
+        if not (comeca <= instante <= termina):
+            raise worker.WorkerError(
+                "capa_quadro_fora",
+                "O quadro escolhido (%.1fs) está fora do corte (%.0fs–%.0fs). Escolha um quadro "
+                "dentro dele." % (instante, comeca, termina))
+        src, media = entry
+        if not os.path.isdir(os.path.join(STUDIO_DIR, "node_modules")):
+            raise worker.WorkerError(
+                "job_invalid",
+                "O Remotion não está instalado. Rode `npm install` dentro da pasta studio.")
+        npx = _shutil.which("npx") or _shutil.which("npx.cmd")
+        if not npx:
+            raise worker.WorkerError("job_invalid", "npx não encontrado no PATH.")
+        folder = self.cache.folder
+        quadro = "capa-quadro-%s-%d.png" % (
+            hashlib.sha1(os.path.basename(src).encode("utf-8")).hexdigest()[:12], capa["quadroMs"])
+        props = capa_props(quadro, media, body, capa)
+        dest = still_path(folder, props)
+        props_path = render_paths(folder, token)[0]
+        try:
+            with self._render_slot():
+                quadro_path = os.path.join(folder, quadro)
+                if not (os.path.isfile(quadro_path) and os.path.getsize(quadro_path) > 0):
+                    proc = subprocess.run(
+                        [worker.FFMPEG, "-y", "-loglevel", "error", "-ss", "%.3f" % instante,
+                         "-i", src, "-frames:v", "1", quadro_path],
+                        capture_output=True, timeout=STILL_TIMEOUT)
+                    if proc.returncode != 0 or not os.path.isfile(quadro_path):
+                        remove_quietly(quadro_path)
+                        raise worker.WorkerError(
+                            "ffmpeg_failed", "O FFmpeg não conseguiu tirar o quadro da capa.")
+                if not (os.path.isfile(dest) and os.path.getsize(dest) > 0):
+                    with open(props_path, "w", encoding="utf-8") as handle:
+                        json.dump(props, handle, ensure_ascii=False)
+                    proc = subprocess.run(
+                        [npx, "remotion", "still", STUDIO_ENTRY, "CapaTikTok", dest,
+                         "--props=" + props_path, "--public-dir=" + folder, "--frame=0",
+                         "--image-format=png", "--log=error"],
+                        cwd=STUDIO_DIR, capture_output=True, timeout=STILL_TIMEOUT)
+                    if proc.returncode != 0 or not os.path.isfile(dest):
+                        remove_quietly(dest)
+                        raise worker.WorkerError(
+                            "ffmpeg_failed", "O Remotion falhou: %s" % _falha_render(proc))
+        except subprocess.TimeoutExpired:
+            remove_quietly(dest)
+            raise worker.WorkerError(
+                "ffmpeg_failed",
+                "A capa passou de %.0fs e foi encerrada. O Chrome do Remotion pode estar "
+                "abrindo pela primeira vez; tente de novo." % STILL_TIMEOUT)
+        finally:
+            remove_quietly(props_path)
+        nome = capa_name(token, body)
+        clips = self._clips_dir()
+        os.makedirs(clips, exist_ok=True)
+        shutil.copyfile(dest, os.path.join(clips, nome))
+        self._send_json({"arquivo": nome, "url": CLIPS_URL + quote(nome),
+                         "titulo": props["titulo"], "quadroMs": capa["quadroMs"]})
+
+    def _handle_musica_importar(self) -> None:
+        """Uma faixa do PC entra na biblioteca. Corpo CRU (o arquivo), nome no cabeçalho
+        `X-Musica-Nome` (URL-encoded). Toda recusa diz o motivo e drena o corpo (o `_error`
+        drena). Id = hash do CONTEÚDO: importar a mesma faixa duas vezes não duplica nada."""
+        nome = worker.safe_component(unquote(self.headers.get("X-Musica-Nome") or ""),
+                                     fallback="musica", max_len=120)
+        ext = os.path.splitext(nome)[1].lower()
+        if ext not in MUSICA_EXTS:
+            raise worker.WorkerError(
+                "musica_tipo", "Só entram faixas .mp3, .m4a ou .wav (\"%s\" não é uma delas)." % nome)
+        length = self._content_length()
+        if length == 0:
+            raise worker.WorkerError("musica_vazia", "O arquivo \"%s\" está vazio." % nome)
+        if length > MUSICA_MAX_BYTES:
+            raise worker.WorkerError(
+                "musica_grande", "A faixa tem %.1f MB; o teto é %d MB."
+                % (length / 1024 ** 2, MUSICA_MAX_BYTES // 1024 ** 2))
+        pasta = self._musicas_dir()
+        os.makedirs(pasta, exist_ok=True)
+        temp = os.path.join(self.cache.folder, "musica-%s%s" % (uuid.uuid4().hex[:12], ext))
+        self._receive(temp, length)
+        try:
+            medida = medir_audio(temp)
+            if not medida:
+                raise worker.WorkerError(
+                    "musica_ilegivel", "O FFmpeg não achou áudio legível em \"%s\"." % nome)
+            with open(temp, "rb") as handle:
+                musica_id = hashlib.sha256(handle.read()).hexdigest()[:16]
+            destino = os.path.join(pasta, musica_id + ext)
+            if not os.path.isfile(destino):
+                shutil.move(temp, destino)
+            sidecar = {"nome": os.path.splitext(nome)[0], "durationSec": medida["durationSec"],
+                       "lufs": medida["lufs"], "ext": ext}
+            with open(os.path.join(pasta, musica_id + ".json"), "w", encoding="utf-8") as handle:
+                json.dump(sidecar, handle, ensure_ascii=False)
+        finally:
+            remove_quietly(temp)
+        self._send_json(dict(sidecar, id=musica_id, url=MUSICAS_URL + musica_id + ext))
+
+    def _musica_para_render(self, edit, recorte, media):
+        """(prop `musica` ou None, estado) — só quando o corte TEM música. A faixa é COPIADA
+        para a pasta pública do render com sufixo aleatório (o `staticFile()` não sai de lá) e
+        a voz é medida no RECORTE que o Remotion vai tocar. Faixa sumida ou ilegível: o MP4 sai
+        SEM música e o estado diz por quê — nunca outra faixa no lugar."""
+        musica = edit.get("musica")
+        if not musica:
+            return None, ""
+        caminho, sidecar = musica_faixa(self._musicas_dir(), musica["id"])
+        if not caminho:
+            return None, MUSICA_AUSENTE
+        nome = "musica-%s%s" % (uuid.uuid4().hex[:12], sidecar["ext"])
+        try:
+            shutil.copyfile(caminho, os.path.join(self.cache.folder, nome))
+        except OSError:
+            return None, MUSICA_ILEGIVEL
+        voz = medir_audio(recorte) if media.get("audioCodec") else None
+        voz_lufs = voz["lufs"] if voz and voz["lufs"] > -70.0 else VOZ_NOMINAL_LUFS
+        return musica_props(musica, sidecar, nome, voz_lufs), MUSICA_OK
+
     def _handle_render(self, still: bool = False) -> None:
         """Manda o trecho aprovado para o Remotion e devolve o MP4 editado.
 
@@ -2220,9 +3060,19 @@ class CutHandler(SimpleHTTPRequestHandler):
                     "cut_invalid", "O trecho termina em %.1fs, depois do fim do vídeo (%.1fs)."
                     % (termina, fonte_dur))
             worker.ensure_space(self.cache.folder, termina - comeca)
-            src, media, temporarios = self._cut_for_render(src, media, comeca, termina, token)
+            mapa = mapa_do_corpo(body, edit_of(body.get("edit")))
+            src, media, temporarios = self._cut_for_render(
+                src, media, comeca, termina, token, mapa["pedacos"] if mapa else None)
 
         props = render_props(self.cache.folder, os.path.basename(src), media, body)
+        # Música: só no MP4 (o still é um quadro, e música nos props mudaria o hash do cache à
+        # toa). Sem música no corpo, props e cabeçalhos idênticos aos de sempre.
+        estado_musica = ""
+        if not still:
+            prop_musica, estado_musica = self._musica_para_render(edit_of(body.get("edit")), src, media)
+            if prop_musica:
+                props["musica"] = prop_musica
+                temporarios.append(os.path.join(self.cache.folder, prop_musica["file"]))
 
         # Sufixo aleatório, e não só o token: desde que a fonte passou a ser o vídeo inteiro o
         # token é o MESMO para todos os cortes dele, então dois "Baixar vídeo editado" do
@@ -2279,7 +3129,8 @@ class CutHandler(SimpleHTTPRequestHandler):
                 self._send_still(dest, props)
             else:
                 self._send_video(dest, edited_name(token, body),
-                                 background_state=props["backgroundState"])
+                                 background_state=props["backgroundState"],
+                                 musica_state=estado_musica)
         except subprocess.TimeoutExpired:
             if still:
                 remove_quietly(dest)
@@ -2387,7 +3238,10 @@ class CutHandler(SimpleHTTPRequestHandler):
             with self._render_slot():
                 render_to(dest, src, req, has_audio, self.ffmpeg_timeout, ass_file, fundo,
                           banda)
-            self._send_video(dest, req.output, legenda, estado_fundo)
+            # Prévia do editor: mesmo recorte, mas temporário, sem poluir os exports.
+            preview = (req.profile == "horizontal" and
+                       parse_qs(urlparse(self.path).query).get("preview") == ["1"])
+            self._send_video(dest, req.output, legenda, estado_fundo, keep=not preview)
         finally:
             # O MP4 não precisa sobreviver à resposta: quem guarda é a pasta de Downloads.
             remove_quietly(dest)
@@ -2520,7 +3374,8 @@ class CutHandler(SimpleHTTPRequestHandler):
         return estado, ""
 
     def _send_video(self, path: str, download_name: str, captions_state: str = "",
-                    background_state: str = "") -> None:
+                    background_state: str = "", keep: bool = True,
+                    musica_state: str = "") -> None:
         # O áudio é normalizado ANTES do _keep, senão o arquivo que fica no disco e o que o
         # navegador recebe seriam o de -21 LUFS enquanto a tela diz que normalizou.
         audio_state, normalizado = self._finish_video(path)
@@ -2528,7 +3383,7 @@ class CutHandler(SimpleHTTPRequestHandler):
             path = normalizado
         try:
             self._deliver_video(path, download_name, captions_state, audio_state,
-                                background_state)
+                                background_state, keep=keep, musica_state=musica_state)
         finally:
             # No caminho normal o _keep já MOVEU este arquivo (os.replace) e isto é no-op; ele
             # existe para o caminho em que guardar falhou e o temporário sobraria.
@@ -2536,17 +3391,18 @@ class CutHandler(SimpleHTTPRequestHandler):
                 remove_quietly(normalizado)
 
     def _deliver_video(self, path: str, download_name: str, captions_state: str,
-                       audio_state: str, background_state: str = "") -> None:
+                       audio_state: str, background_state: str = "", keep: bool = True,
+                       musica_state: str = "") -> None:
         # Guardar ANTES de responder: os bytes que o navegador recebe são os do arquivo que
         # ficou no disco, então o que a revisão toca depois é exatamente o que foi baixado.
-        guardado = self._keep(path, download_name)
+        guardado = self._keep(path, download_name) if keep else ""
         if guardado:
             path = guardado
         size = os.path.getsize(path)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "video/mp4")
         self.send_header("Content-Length", str(size))
-        self.send_header("Content-Disposition", 'attachment; filename="%s"' % download_name)
+        self.send_header("Content-Disposition", content_disposition(download_name))
         if guardado:
             # quote porque o cabeçalho é latin-1 e a pasta pessoal pode ter acento.
             self.send_header("X-Clip-Path", quote(guardado))
@@ -2567,6 +3423,11 @@ class CutHandler(SimpleHTTPRequestHandler):
             # `UNREADABLE` dão o mesmo letterbox, e sem este cabeçalho o operador não tinha
             # como saber qual dos dois foi — o motivo ia só ao console (BP-008).
             self.send_header("X-Clip-Background", _background_state(background_state))
+        if musica_state in MUSICA_STATES:
+            # CONDICIONAL: só sai quando o corte pediu música. Faixa sumida/ilegível NÃO
+            # derruba o export — sai sem música, e este cabeçalho é o que a tela transforma
+            # em frase (BP-008).
+            self.send_header("X-Clip-Musica", musica_state)
         # O navegador marca a sessão como já enviada ao ver este cabeçalho (video-ops.js:1995).
         self.send_header("X-Video-Source-Cached", "1")
         # `Cache-Control: no-store` sai do end_headers, que vale para TODA resposta.
@@ -2594,7 +3455,8 @@ def build_server(root: str, port: int = 0, max_seconds: float = DEFAULT_MAX_SECO
                  max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
                  ffmpeg_timeout: Optional[float] = DEFAULT_FFMPEG_TIMEOUT,
                  folder: Optional[str] = None,
-                 clips: Optional[str] = None) -> ThreadingHTTPServer:
+                 clips: Optional[str] = None,
+                 musicas: Optional[str] = None) -> ThreadingHTTPServer:
     """port=0 pega porta livre — é assim que o teste sobe o servidor sem brigar pela 8765.
 
     Todo temporário fica num mkdtemp fora da pasta do projeto: nenhuma requisição escreve
@@ -2613,6 +3475,7 @@ def build_server(root: str, port: int = 0, max_seconds: float = DEFAULT_MAX_SECO
         "render_lock": threading.Lock(),
         "render_lock_wait": RENDER_LOCK_WAIT,
         "clips_folder": clips or default_clips_dir(),
+        "musicas_folder": musicas or default_music_dir(),
         "caption_edits": {},
         "caption_lock": threading.Lock(),
         "imports": {},

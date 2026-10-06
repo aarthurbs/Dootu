@@ -346,22 +346,69 @@ ok('a legenda que chega do helper é tratada como dado externo', () => {
   assert.deepStrictEqual(ops.capCuesFrom({ cues: 'nem é lista' }), []);
 });
 
-ok('o painel mostra cada fala com o tempo em leitura e o texto editável', () => {
+ok('o painel mostra a fala como texto corrido, editável, com o tempo fora de vista', () => {
   const painel = ops.capHTML('c1', {
     state: 'ok',
     cues: [{ start: 0, end: 2.4, text: 'Finalmente saiu o escritório, [ __ ]' },
            { start: 2.4, end: 4, text: 'e a gente começou a faturar' }],
     original: [{ start: 0, end: 2.4, text: 'Finalmente saiu o escritório, [ __ ]' },
                { start: 2.4, end: 4, text: 'e a gente começou a faturar' }]
-  });
-  assert.ok(/0:00\.0 → 0:02\.4/.test(painel), 'o tempo da fala tem de aparecer');
-  assert.ok(/data-cap-field/.test(painel), 'o texto tem de ser editável');
-  assert.strictEqual((painel.match(/data-cap-field/g) || []).length, 2, 'um campo por fala');
-  /* O tempo é <span>, nunca <input>: quem manda no relógio é o corte. */
-  assert.ok(/<span class="vop-cap-time">/.test(painel), 'o tempo é leitura');
+  }, 600, 640);
+  const leitura = painel.slice(painel.indexOf('vop-cap-read'), painel.indexOf('vop-cap-acts'));
+  assert.strictEqual((leitura.match(/contenteditable="plaintext-only"/g) || []).length, 2, 'uma frase editável por fala');
+  assert.ok(!/\d:\d\d\.\d/.test(leitura.replace(/<[^>]*>/g, '')), 'nenhum horário visível no texto');
+  assert.ok(/Horários \(avançado\)/.test(painel), 'o tempo mora na opção avançada');
+  assert.ok(/data-cap-time="start"[^>]*value|value="0" data-cap-field data-cap-time="start"/.test(painel), 'início editável lá');
+  assert.ok(/max="40"/.test(painel), 'o horário vai de 0 à duração do corte');
+  assert.ok(/data-in="600"/.test(painel), 'o painel sabe onde o corte começa (para acender a frase tocando)');
   assert.ok(/Restaurar texto do YouTube/.test(painel), 'dá para voltar ao original');
-  assert.ok(/o que entra no vídeo/.test(painel), 'diz que este texto é o que será queimado');
+  assert.ok(/data-act="cap-undo"/.test(painel) && /data-act="cap-play"/.test(painel), 'desfazer e ouvir');
+  assert.ok(/>Texto da legenda</.test(painel), 'a área tem nome');
+  /* Editor sem frase (decisão do usuário, 2026-10-01): o painel não explica o que é o texto. */
+  assert.ok(!/o que entra no vídeo/.test(painel) && !/vop-cap-note/.test(painel), 'nenhuma nota de estado no painel');
   assert.ok(painel.indexOf('[ __ ]') > 0, 'o que o YouTube detectou aparece como está');
+});
+
+ok('o estado sai da comparação com o original: palavra, acento, pontuação, inclusão, remoção', () => {
+  const orig = [{ start: 0, end: 2, text: 'voce vai perder dinheiro' }, { start: 2, end: 4, text: 'se nao medir' }];
+  const com = (i, t) => orig.map((c, j) => Object.assign({}, c, j === i ? { text: t } : {}));
+  assert.strictEqual(ops.capState(com(0, 'voce vai perder dinheiro'), orig, 'x'), 'ok');
+  assert.strictEqual(ops.capState(com(0, 'você vai perder dinheiro'), orig, 'x'), 'edited', 'acento');
+  assert.strictEqual(ops.capState(com(0, 'voce vai perder dinheiro.'), orig, 'x'), 'edited', 'pontuação');
+  assert.strictEqual(ops.capState(com(1, 'se não medir o caixa'), orig, 'x'), 'edited', 'inclusão');
+  assert.strictEqual(ops.capState(com(1, ''), orig, 'x'), 'edited', 'remoção de uma fala');
+  assert.strictEqual(ops.capState(orig.map(c => Object.assign({}, c, { text: '' })), orig, 'x'),
+    'CAPTIONS_EDITED_EMPTY', 'apagar tudo é dito');
+  assert.strictEqual(ops.capState(orig.map(c => Object.assign({}, c, { end: c.end + 0.5 })), orig, 'x'),
+    'edited', 'mudar horário também é correção');
+  assert.strictEqual(ops.capState([], [], 'CAPTIONS_NOT_AVAILABLE'), 'CAPTIONS_NOT_AVAILABLE');
+});
+
+ok('a frase tocando é achada pelo tempo relativo ao corte', () => {
+  const cues = [{ start: 0, end: 2 }, { start: 2, end: 4.5 }];
+  assert.strictEqual(ops.capIndexAt(cues, 0), 0);
+  assert.strictEqual(ops.capIndexAt(cues, 2), 1, 'a borda pertence à fala que começa');
+  assert.strictEqual(ops.capIndexAt(cues, 4.5), -1);
+  assert.strictEqual(ops.capIndexAt(cues, -1), -1);
+});
+
+ok('parágrafos de leitura quebram em pausa longa e em fim de frase, sem perder fala', () => {
+  const cues = [
+    { start: 0, end: 1, text: 'a' }, { start: 1, end: 2, text: 'b' }, { start: 2, end: 3, text: 'c' },
+    { start: 3, end: 4, text: 'd.' }, { start: 4, end: 5, text: 'e' }, { start: 8, end: 9, text: 'f' }];
+  assert.deepStrictEqual(ops.capParagrafos(cues), [[0, 1, 2, 3], [4], [5]]);
+  assert.deepStrictEqual(ops.capParagrafos([]), [[]]);
+});
+
+ok('a correção salva no projeto é validada ao carregar, nos DOIS ramos (BP-014)', () => {
+  const com = ops.candidateSanitize({ id: 'x', capEdit: [{ start: '1.5', end: 3, text: ' Olá. ' },
+    { start: 5, end: 4, text: 'tempo invertido' }] });
+  assert.deepStrictEqual(com.capEdit, [{ start: 1.5, end: 3, text: 'Olá.' }]);
+  assert.ok(!('capEdit' in ops.candidateSanitize({ id: 'x', capEdit: 'lixo' })), 'lixo sai');
+  assert.ok(!('capEdit' in ops.candidateSanitize({ id: 'x' })), 'corte antigo abre sem a chave');
+  assert.strictEqual(ops.capSaveText({ state: 'edited', saved: true }), 'Correções salvas neste projeto');
+  assert.ok(/Não consegui salvar/.test(ops.capSaveText({ state: 'edited', saved: false })), 'cota cheia é dita');
+  assert.strictEqual(ops.capSaveText({ state: 'ok' }), 'Sem correções');
 });
 
 ok('cada desfecho da legenda tem frase, inclusive quando não há nada a mostrar', () => {
@@ -369,7 +416,9 @@ ok('cada desfecho da legenda tem frase, inclusive quando não há nada a mostrar
     'CAPTIONS_OUT_OF_RANGE', 'CAPTIONS_EDITED_EMPTY', 'CAPTIONS_TOO_MANY'].forEach(estado => {
     assert.ok(ops.capMessage(estado).length > 20, 'estado sem frase: ' + estado);
     const vazio = ops.capHTML('c1', { state: estado, cues: [], original: [] });
-    assert.ok(vazio.indexOf(ops.capMessage(estado)) > 0, 'painel mudo no estado ' + estado);
+    /* A frase continua no contrato (CAP_MSG, lido pelo test_serve), mas o editor não a escreve. */
+    assert.ok(vazio.indexOf(ops.capMessage(estado)) < 0 && />Texto da legenda</.test(vazio),
+      'o painel não escreve a frase do estado ' + estado);
   });
   assert.strictEqual(ops.capHTML('c1', null), '');
   /* Os dois motivos de ausência continuam DISTINTOS na tela, como no servidor. */
@@ -423,8 +472,14 @@ ok('projectsSanitize aceita projeto COM candidates sem explodir', () => {
 
 ok('projectsSanitize corta a lista de candidatos no teto, e o teto é o do detector', () => {
   // O teto tem de casar com `ytclip.MAX_CANDIDATES` (video-worker/ytclip.py): dois números
-  // diferentes fariam a tela descartar sugestão que o servidor mandou, calado.
-  assert.strictEqual(ops.MAX_CANDIDATES, 12);
+  // diferentes fariam a tela descartar sugestão que o servidor mandou, calado. LÊ o .py
+  // (corolário do BP-014): número escrito à mão aqui só provaria que alguém o digitou.
+  const ytclipPy = require('fs').readFileSync(
+    require('path').join(__dirname, 'video-worker', 'ytclip.py'), 'utf8');
+  const tetoPy = /^MAX_CANDIDATES = (\d+)$/m.exec(ytclipPy);
+  assert.ok(tetoPy, 'não achei `MAX_CANDIDATES = N` no ytclip.py — se foi renomeado, ajuste '
+    + 'este check: conferência que não acha nada é pior que nenhuma');
+  assert.strictEqual(ops.MAX_CANDIDATES, Number(tetoPy[1]));
   const muitos = Array.from({ length: 30 }, (_, i) => ({ id: 'c' + i, inSec: i, outSec: i + 5 }));
   const limpo = ops.projectsSanitize({
     version: 1,
@@ -433,11 +488,236 @@ ok('projectsSanitize corta a lista de candidatos no teto, e o teto é o do detec
   assert.strictEqual(limpo.projects[0].candidates.length, ops.MAX_CANDIDATES);
 });
 
+ok('a fila automática de MP4 segue a nota, da maior para a menor, e pula o que já tem arquivo', () => {
+  // 20 notas distintas embaralhadas: a fila tem de sair 99 → 97 → … sem depender da ordem
+  // em que os trechos chegaram, e o que já foi salvo não volta para a fila.
+  const yt = ops.__ytState();
+  const antes = yt.candidates;
+  const notas = Array.from({ length: 20 }, (_, i) => 99 - 2 * i);
+  const embaralhado = notas.map((n, i) => notas[(i * 7) % 20]);
+  yt.candidates = embaralhado.map((n, i) => ({ id: 'q' + i, inSec: 10 * i, outSec: 10 * i + 30, score: n }));
+  yt.candidates[3].clipSaved = 'ja-salvo.mp4';
+  try {
+    const fila = ops.__autoCutsQueue();
+    assert.strictEqual(fila.length, 19);
+    assert.ok(!fila.some(c => c.clipSaved), 'trecho com arquivo não entra na fila');
+    const esperado = notas.filter(n => n !== embaralhado[3]);
+    assert.deepStrictEqual(fila.map(c => c.score), esperado);
+  } finally {
+    yt.candidates = antes;
+  }
+});
+
 ok('projectsSanitize sem candidates devolve lista vazia (era o caminho que não quebrava)', () => {
   const limpo = ops.projectsSanitize({
     version: 1, projects: [{ id: 'p1', videoId: 'abc12345678', createdAt: '' }]
   });
   assert.deepStrictEqual(limpo.projects[0].candidates, []);
+});
+
+/* ------------------------------ o portão de direitos ao REABRIR um projeto (2026-09-22)
+   `openProject` carrega dado PERSISTIDO para dentro da sessão, então os DOIS ramos são
+   cobertos (BP-014) — e o que interessa é justamente o do operador que já tinha o projeto
+   salvo. Até esta entrega a declaração caía sempre: declarar, importar e reabrir o projeto
+   DO MESMO vídeo fechava o portão com o arquivo já no disco, o que é mais restrito que a
+   regra escrita ("vale para esta sessão e para esta URL") e não protege direito nenhum. */
+function projetoSalvo(videoId) {
+  return {
+    id: 'proj-' + videoId, videoId: videoId, url: 'https://youtu.be/' + videoId,
+    title: 'Podcast', thumbnail: '', durationSec: 3170, status: 'ready',
+    candidates: [], clipCount: 0, error: '', note: '',
+    createdAt: '2026-09-22T12:00:00.000Z', updatedAt: '2026-09-22T12:00:00.000Z'
+  };
+}
+
+ok('reabrir o projeto do MESMO vídeo mantém a declaração de direitos', () => {
+  const yt = ops.__ytState();
+  ops.__setProjects([projetoSalvo('abcdefghijk')]);
+  yt.videoId = 'abcdefghijk';
+  yt.url = 'https://youtu.be/abcdefghijk';
+  yt.authorized = true;
+  /* Fonte já na sessão: é o caso do operador que acabou de importar e volta ao projeto. */
+  ops.__setSource({ videoId: 'abcdefghijk', state: 'ready', token: 'abcdefghijk',
+                    url: '/sources/abcdefghijk.mp4' });
+  ops.openProject('proj-abcdefghijk');
+  assert.strictEqual(yt.authorized, true, 'a declaração continua valendo para a MESMA URL');
+  assert.ok(/data-yt-rights checked/.test(ops.ytStepHTML()), 'e a caixa continua marcada na tela');
+  assert.strictEqual(ops.srcReady(), true, 'e a fonte importada não foi derrubada');
+  ops.srcReset();
+});
+
+ok('reabrir projeto de OUTRO vídeo derruba a declaração (autorização não atravessa vídeo)', () => {
+  const yt = ops.__ytState();
+  ops.__setProjects([projetoSalvo('abcdefghijk'), projetoSalvo('zxywvutsrq1')]);
+  yt.videoId = 'abcdefghijk';
+  yt.url = 'https://youtu.be/abcdefghijk';
+  yt.authorized = true;
+  ops.__setSource({ videoId: 'abcdefghijk', state: 'ready', token: 'abcdefghijk',
+                    url: '/sources/abcdefghijk.mp4' });
+  ops.openProject('proj-zxywvutsrq1');
+  assert.strictEqual(yt.authorized, false, 'vídeo diferente exige declarar de novo');
+  assert.ok(!/data-yt-rights checked/.test(ops.ytStepHTML()), 'e a caixa nasce desmarcada');
+  assert.strictEqual(ops.srcReady(), false, 'e a fonte do vídeo anterior saiu da sessão');
+});
+
+ok('reabrir o MESMO vídeo religa a fonte do disco sem baixar nada', () => {
+  /* O arquivo sobrevive à sessão, a declaração não — mas aqui ela sobreviveu (mesma
+     sessão), então quem falta é só a fonte. Uma chamada, e é a rota de ESTADO: ela só
+     redescobre o que já está no disco. Obrigar a "Importar vídeo" seria o clique sem
+     função que esta entrega tirou. */
+  const yt = ops.__ytState();
+  const rotas = [];
+  const fetchAntes = global.fetch;
+  global.fetch = function (rota) { rotas.push(rota); return Promise.reject(new Error('sem rede')); };
+  try {
+    ops.__setProjects([projetoSalvo('abcdefghijk')]);
+    ops.srcReset();
+    yt.videoId = 'abcdefghijk';
+    yt.url = 'https://youtu.be/abcdefghijk';
+    yt.authorized = true;
+    ops.openProject('proj-abcdefghijk');
+  } finally { global.fetch = fetchAntes; }
+  assert.deepStrictEqual(rotas, ['/api/yt-import-state']);
+});
+
+ok('sem declaração, reabrir o mesmo vídeo NÃO religa a fonte', () => {
+  /* O portão não é afrouxado pela comodidade: sem declaração a mídia não volta à tela.
+     Ramo espelho do de cima — cobrir só o que age deixaria passar uma religação calada. */
+  const yt = ops.__ytState();
+  const rotas = [];
+  const fetchAntes = global.fetch;
+  global.fetch = function (rota) { rotas.push(rota); return Promise.reject(new Error('sem rede')); };
+  try {
+    ops.__setProjects([projetoSalvo('abcdefghijk')]);
+    ops.srcReset();
+    yt.videoId = 'abcdefghijk';
+    yt.url = 'https://youtu.be/abcdefghijk';
+    yt.authorized = false;
+    ops.openProject('proj-abcdefghijk');
+  } finally { global.fetch = fetchAntes; }
+  assert.deepStrictEqual(rotas, []);
+  assert.strictEqual(yt.authorized, false);
+  /* Devolve o módulo ao estado de antes do `init`: com `PROJECTS` carregado, todo
+     `projectsPersist` dos casos seguintes tentaria o `localStorage` que esta suíte não tem. */
+  ops.__setProjects(null);
+});
+
+/* --- Entrada direta nos Clips (decisão do usuário, 2026-09-23) --------------------------
+   A declaração passou a ser gravada POR URL no projeto, e o corte gerado guarda o nome do
+   arquivo salvo. Os dois são dado PERSISTIDO: BP-014 manda testar campo presente e ausente. */
+ok('projectsSanitize guarda a declaração só quando ela é o booleano true', () => {
+  const base = projetoSalvo('abcdefghijk');
+  const com = ops.projectsSanitize({ projects: [Object.assign({}, base, { authorized: true })] });
+  assert.strictEqual(com.projects[0].authorized, true);
+  const sem = ops.projectsSanitize({ projects: [base] });
+  assert.strictEqual(sem.projects[0].authorized, false, 'projeto salvo antes disto abre sem declaração');
+  const torto = ops.projectsSanitize({ projects: [Object.assign({}, base, { authorized: 'sim' })] });
+  assert.strictEqual(torto.projects[0].authorized, false, 'string não vale como declaração');
+});
+
+ok('candidateSanitize guarda o nome do corte salvo e descarta o que não é nome de arquivo', () => {
+  const base = projetoSalvo('abcdefghijk');
+  const cands = [
+    { id: 'a', inSec: 1, outSec: 9, clipSaved: 'corte-00-01.mp4' },
+    { id: 'b', inSec: 1, outSec: 9 },
+    { id: 'c', inSec: 1, outSec: 9, clipSaved: '../../etc/passwd' },
+    { id: 'd', inSec: 1, outSec: 9, clipSaved: 42 }
+  ];
+  const out = ops.projectsSanitize({ projects: [Object.assign({}, base, { candidates: cands })] }).projects[0].candidates;
+  assert.strictEqual(out[0].clipSaved, 'corte-00-01.mp4');
+  assert.ok(!('clipSaved' in out[1]), 'trecho sem corte continua sem a chave');
+  assert.ok(!('clipSaved' in out[2]), 'caminho com barra não entra no /clips/');
+  assert.ok(!('clipSaved' in out[3]));
+});
+
+ok('abrir projeto de OUTRO vídeo usa a declaração gravada NELE e religa a fonte do disco', () => {
+  const yt = ops.__ytState();
+  const rotas = [];
+  const fetchAntes = global.fetch;
+  global.fetch = function (rota) { rotas.push(rota); return Promise.reject(new Error('sem rede')); };
+  try {
+    ops.__setProjects([projetoSalvo('abcdefghijk'),
+      Object.assign(projetoSalvo('zxywvutsrq1'), { authorized: true })]);
+    ops.srcReset();
+    yt.videoId = 'abcdefghijk'; yt.url = 'https://youtu.be/abcdefghijk'; yt.authorized = false;
+    ops.openProject('proj-zxywvutsrq1');
+    assert.strictEqual(yt.authorized, true, 'recarregar não derruba a declaração desta URL');
+    assert.deepStrictEqual(rotas, ['/api/yt-import-state'], 'e a fonte volta pela rota de ESTADO, sem baixar');
+    /* E o contrário: a declaração de um vídeo nunca cobre outro. */
+    ops.openProject('proj-abcdefghijk');
+    assert.strictEqual(yt.authorized, false);
+  } finally { global.fetch = fetchAntes; ops.srcReset(); ops.__setProjects(null); }
+});
+
+ok('projectAuthWrite grava no projeto da URL e não cria projeto', () => {
+  ops.__setProjects([Object.assign(projetoSalvo('abcdefghijk'), { candidates: [{ id: 'x' }] })]);
+  assert.strictEqual(ops.projectAuthWrite('naoexiste00', true), false);
+  const gravado = {};
+  global.localStorage = { setItem(k, v) { gravado[k] = v; } };
+  try { ops.projectAuthWrite('abcdefghijk', true); } finally { delete global.localStorage; }
+  assert.ok(/"authorized":true/.test(gravado.pp_video_projects_v1 || ''), 'e isso vai para o disco');
+  assert.strictEqual(ops.lastProject().authorized, true);
+  ops.__setProjects(null);
+});
+
+ok('lastProject devolve o projeto pronto mais recente com trechos', () => {
+  const velho = Object.assign(projetoSalvo('abcdefghijk'), { candidates: [{ id: 'x' }], updatedAt: '2026-09-20T00:00:00.000Z' });
+  const novo = Object.assign(projetoSalvo('zxywvutsrq1'), { candidates: [{ id: 'y' }], updatedAt: '2026-09-23T00:00:00.000Z' });
+  const vazio = Object.assign(projetoSalvo('qwertyuiop1'), { updatedAt: '2026-09-24T00:00:00.000Z' });
+  ops.__setProjects([velho, vazio, novo]);
+  assert.strictEqual(ops.lastProject().videoId, 'zxywvutsrq1', 'projeto sem trecho não é reaberto');
+  ops.__setProjects([]);
+  assert.strictEqual(ops.lastProject(), null);
+  ops.__setProjects(null);
+});
+
+ok('a posição vem da nota do detector; trecho sem nota não ganha posição', () => {
+  const a = { id: 'a', score: 60, inSec: 50, outSec: 80 };
+  const b = { id: 'b', score: 90, inSec: 10, outSec: 40 };
+  const c = { id: 'c', score: 60, inSec: 20, outSec: 45 };
+  const m = { id: 'm', score: 0, inSec: 5, outSec: 30 };
+  ops.__setCandidates([a, b, c, m]);
+  assert.deepStrictEqual([b, c, a, m].map(ops.ytRank), [1, 2, 3, 0], 'empate desempata pelo começo');
+  assert.ok(/Sem classificação do detector/.test(ops.ytCandidateCardHTML(m, 'abcdefghijk', { allowed: true })));
+  assert.ok(/<strong>#1<\/strong> recomendado/.test(ops.ytCandidateCardHTML(b, 'abcdefghijk', { allowed: true })));
+  ops.__setCandidates([]);
+});
+
+ok('card com corte salvo toca o arquivo e baixa o MESMO arquivo, sem gerar de novo', () => {
+  const clip = { id: 'k', score: 70, inSec: 10, outSec: 40, topic: 'Tema', evidence: 'Pico de audiência.',
+                 clipSaved: 'tema-00-10.mp4', clipBytes: 2048 };
+  ops.__setCandidates([clip]);
+  const yt = ops.__ytState();
+  yt.dlMenu = 'k';
+  const html = ops.ytCandidateCardHTML(clip, 'abcdefghijk', { allowed: true });
+  assert.ok(/<video[^>]*data-cut-video[^>]*src="\/clips\/tema-00-10\.mp4"/.test(html));
+  assert.ok(/href="\/clips\/tema-00-10\.mp4" download="tema-00-10\.mp4"/.test(html));
+  assert.ok(!/data-act="yt-fetch"/.test(html), 'baixar não recorta de novo');
+  assert.ok(/Pico de audiência\./.test(html), 'a justificativa aparece');
+  yt.dlMenu = '';
+  ops.__setCandidates([]);
+});
+
+ok('cada etapa diz o que está acontecendo, e a falha oferece tentar de novo', () => {
+  const yt = ops.__ytState();
+  yt.url = 'https://youtu.be/abcdefghijk'; yt.authorized = true; yt.state = 'idle'; yt.probeError = '';
+  ops.__setCandidates([]);
+  ops.__setSource({ videoId: 'abcdefghijk', state: 'error', error: 'Sem espaço em disco.' });
+  let html = ops.ytStepsHTML();
+  assert.ok(/Sem espaço em disco\./.test(html) && /data-act="yt-import"[^>]*>Tentar novamente/.test(html));
+  yt.probeError = 'vídeo privado';
+  html = ops.ytStepsHTML();
+  assert.ok(/A análise falhou: vídeo privado/.test(html) && /data-act="yt-probe"/.test(html));
+  ops.__setSource({ state: 'ready', token: 'abcdefghijk', url: '/sources/abcdefghijk.mp4', error: '' });
+  yt.probeError = ''; yt.state = 'ready';
+  ops.__setCandidates([{ id: 'q', score: 50, inSec: 1, outSec: 9 }]);
+  ops.__autoCutFail().q = 'o renderizador caiu';
+  html = ops.ytStepsHTML();
+  assert.ok(/1 corte\(s\) falharam: o renderizador caiu/.test(html) && /data-act="yt-cuts-retry"/.test(html));
+  delete ops.__autoCutFail().q;
+  yt.authorized = false;
+  assert.ok(/Bloqueado: você ainda não declarou/.test(ops.ytStepsHTML()), 'sem declaração, os cortes dizem por que não saem');
+  ops.__setCandidates([]); ops.srcReset(); yt.url = ''; yt.state = 'idle';
 });
 
 /* --------------------------------- corpo do render (o card da marca depende dele) */
@@ -502,130 +782,472 @@ ok('título gigante é aparado no campo, antes mesmo de subir', () => {
   assert.strictEqual(clip.topic.length, 180);
 });
 
-/* --------------------------- "Card visual": qual identidade o card do título veste
-   O card tinha UMA marca fixa. Agora o operador escolhe por trecho, e o valor tem de
-   atravessar intacto: tela -> estado do trecho -> corpo do POST -> servidor -> composição.
-   O que erra CALADO aqui é o valor não chegar (o vídeo sai com a outra marca e nada na
-   tela erra), então cada elo tem check próprio. */
-ok('as duas identidades mais o "sem card", e o padrão é a que todo corte já renderiza', () => {
-  assert.deepStrictEqual(ops.TITLE_CARD_STYLES, ['primo_rico', 'puro_ecommerce', 'nenhum']);
-  assert.strictEqual(ops.TITLE_CARD_PADRAO, 'primo_rico');
-  // O padrão NUNCA é "sem card": valor torto tem de cair na marca de sempre, e não apagar
-  // o card calado de quem nunca escolheu nada.
-  assert.notStrictEqual(ops.TITLE_CARD_PADRAO, 'nenhum');
+/* --------------------------- "Card visual": qual card o título veste
+   O card tinha duas identidades de terceiro fechadas no código. Agora é uma BIBLIOTECA que
+   o operador constrói aqui no navegador, e o valor tem de atravessar intacto: tela ->
+   estado do trecho -> corpo do POST -> servidor -> composição.
+   O que erra CALADO mudou de lugar e ficou pior: além de "o valor não chegar" (o corte sai
+   sem card e nada na tela erra), agora existe "o card apontado não existe mais". Nenhum dos
+   dois pode terminar em silêncio, e nenhum pode cair em OUTRO card. */
+
+/* Bancada de `localStorage` só para a biblioteca: o módulo grava a cada mudança, e sem isto
+   o console enche de aviso. `travar` é o que prova o ramo da COTA CHEIA — uma escrita que
+   falha calada perde o trabalho do operador, que é o BP-008 no caso mais caro dele. */
+function comStorage(travar, fn) {
+  const antes = global.localStorage;
+  const loja = Object.create(null);
+  global.localStorage = {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(loja, k) ? loja[k] : null; },
+    setItem(k, v) {
+      if (travar) { const e = new Error('cota'); e.name = 'QuotaExceededError'; throw e; }
+      loja[k] = String(v);
+    },
+    removeItem(k) { delete loja[k]; }
+  };
+  const silencio = console.warn;
+  console.warn = function () {};
+  try { return fn(loja); } finally { console.warn = silencio; global.localStorage = antes; }
+}
+const LOGO_PNG = 'data:image/png;base64,' + 'A'.repeat(64);
+const LOGO_SVG_SEM_TAMANHO = 'data:image/svg+xml;base64,'
+  + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 169"></svg>')
+    .toString('base64');
+
+ok('o conjunto diz só SE tem card, e o padrão nunca é "sem card"', () => {
+  assert.deepStrictEqual(ops.TITLE_CARD_STYLES, ['personalizado', 'nenhum']);
+  assert.strictEqual(ops.TITLE_CARD_PADRAO, 'personalizado');
+  // O padrão NUNCA é "sem card": valor torto tem de cair em "tem card", e não apagar o card
+  // calado de quem nunca escolheu nada.
+  assert.notStrictEqual(ops.TITLE_CARD_PADRAO, ops.TITLE_CARD_SEM);
+  assert.strictEqual(ops.TITLE_CARD_SEM, 'nenhum');
 });
-ok('"sem card" é escolha válida, guardada e enviada como as outras', () => {
-  const clip = { id: 'cand-26', clipToken: 't', topic: 'Manchete que fica no nome do arquivo' };
-  ops.__setCandidates([clip]);
-  ops.clipFieldWrite({
-    value: 'nenhum', dataset: { clipField: 'titleCardStyle', id: 'cand-26' },
-  });
-  assert.strictEqual(clip.titleCardStyle, 'nenhum');
-  const corpo = ops.renderBody(clip, true);
-  assert.strictEqual(corpo.titleCardStyle, 'nenhum');
-  // E o TÍTULO continua subindo: é ele que nomeia o arquivo baixado e o cartão da Central.
-  // Apagar o card não pode custar a manchete — se custasse, "sem card" seria a mesma coisa
-  // que apagar o título, que já era possível antes desta opção existir.
-  assert.strictEqual(corpo.title, 'Manchete que fica no nome do arquivo');
-});
-ok('trecho SEM a chave cai no padrão — clip antigo não muda de marca', () => {
-  // É o caso do trecho salvo em `pp_video_projects_v1` antes desta entrega.
-  assert.strictEqual(ops.titleCardStyleOf({ id: 'x' }), 'primo_rico');
-  assert.strictEqual(ops.titleCardStyleOf({}), 'primo_rico');
-  assert.strictEqual(ops.titleCardStyleOf(null), 'primo_rico');
-  assert.strictEqual(ops.titleCardStyleOf(undefined), 'primo_rico');
-});
-ok('valor válido passa intacto (senão o seletor não seleciona nada)', () => {
-  assert.strictEqual(ops.titleCardStyleOf({ titleCardStyle: 'puro_ecommerce' }), 'puro_ecommerce');
-  assert.strictEqual(ops.titleCardStyleOf({ titleCardStyle: 'primo_rico' }), 'primo_rico');
-});
-ok('valor torto e o RÓTULO da tela são normalizados, nunca aceitos', () => {
-  // O rótulo visível não é a chave da lógica: é isto que impede "Puro Ecommerce" de virar
-  // identificador quando alguém reescrever o texto do botão.
-  for (const v of ['Puro Ecommerce', 'Primo Rico', 'PURO_ECOMMERCE', 'puro-ecommerce',
-    'outra_marca', '', 7, {}, [], true]) {
-    assert.strictEqual(ops.titleCardStyleOf({ titleCardStyle: v }), 'primo_rico',
-      'valor torto tem de cair no padrão: ' + JSON.stringify(v));
+ok('trecho SEM a chave, e trecho de entrega anterior, caem no padrão', () => {
+  // É o caso do trecho salvo em `pp_video_projects_v1` antes desta entrega: ele carrega o
+  // valor de uma identidade que saiu do projeto, e esse valor está fora do conjunto.
+  for (const v of [{ id: 'x' }, {}, null, undefined,
+    { titleCardStyle: 'identidade_antiga' }, { titleCardStyle: 7 }, { titleCardStyle: {} }]) {
+    assert.strictEqual(ops.titleCardStyleOf(v), 'personalizado');
   }
 });
-ok('clicar no seletor grava a escolha no trecho, sem re-render', () => {
-  const clip = { id: 'cand-20', clipToken: 't', topic: 'Manchete' };
-  ops.__setCandidates([clip]);
-  ops.clipFieldWrite({
-    value: 'puro_ecommerce', dataset: { clipField: 'titleCardStyle', id: 'cand-20' },
-  });
-  assert.strictEqual(clip.titleCardStyle, 'puro_ecommerce');
-  // E volta: a escolha não é de mão única.
-  ops.clipFieldWrite({
-    value: 'primo_rico', dataset: { clipField: 'titleCardStyle', id: 'cand-20' },
-  });
-  assert.strictEqual(clip.titleCardStyle, 'primo_rico');
+ok('valor válido passa intacto, e o rótulo da tela nunca é aceito como valor', () => {
+  assert.strictEqual(ops.titleCardStyleOf({ titleCardStyle: 'nenhum' }), 'nenhum');
+  assert.strictEqual(ops.titleCardStyleOf({ titleCardStyle: 'personalizado' }), 'personalizado');
+  for (const r of Object.values(ops.TITLE_CARD_LABELS)) {
+    assert.strictEqual(ops.titleCardStyleOf({ titleCardStyle: r }), 'personalizado',
+      'rótulo visível não pode virar identificador: ' + r);
+  }
 });
-ok('o seletor passa pelo validador: DOM é entrada, não fonte de verdade', () => {
-  const clip = { id: 'cand-21', clipToken: 't', topic: 'M', titleCardStyle: 'puro_ecommerce' };
-  ops.__setCandidates([clip]);
-  // `value` adulterado (extensão, DevTools, HTML velho em cache) não pode virar estado.
-  ops.clipFieldWrite({
-    value: 'marca_inventada', dataset: { clipField: 'titleCardStyle', id: 'cand-21' },
-  });
-  assert.strictEqual(clip.titleCardStyle, 'primo_rico');
-});
-ok('cada trecho tem a SUA escolha (um seletor não mexe no vizinho)', () => {
-  const a = { id: 'cand-22', clipToken: 't', topic: 'A' };
-  const b = { id: 'cand-23', clipToken: 't', topic: 'B' };
-  ops.__setCandidates([a, b]);
-  ops.clipFieldWrite({
-    value: 'puro_ecommerce', dataset: { clipField: 'titleCardStyle', id: 'cand-22' },
-  });
-  assert.strictEqual(a.titleCardStyle, 'puro_ecommerce');
-  assert.strictEqual(b.titleCardStyle, undefined, 'o vizinho não foi tocado');
-  assert.strictEqual(ops.renderBody(b, true).titleCardStyle, 'primo_rico');
-});
-ok('escolha de trecho que saiu da lista não grava (nem cria candidato fantasma)', () => {
-  ops.__setCandidates([]);
-  ops.clipFieldWrite({
-    value: 'puro_ecommerce', dataset: { clipField: 'titleCardStyle', id: 'sumiu' },
-  });
-});
-/* O ELO que erra calado: o corpo do POST. Foi exatamente aqui que `title: ''` atravessou a
-   entrega inteira do destaque de título — o recurso existia, tinha teste, e nunca chegava
-   ao render. Por isso o corpo é montado por função PURA e o teste a CHAMA. */
-ok('a escolha sobe no corpo do render, nos dois presets', () => {
-  const clip = {
-    clipToken: 'tok', id: 'cand-24', topic: 'Manchete', titleCardStyle: 'puro_ecommerce',
-    clipCues: [{ start: 0, end: 1, text: 'oi' }],
-  };
-  assert.strictEqual(ops.renderBody(clip, true).titleCardStyle, 'puro_ecommerce');
-  // O preset "limpo" não leva legenda, mas a identidade do card continua indo.
-  assert.strictEqual(ops.renderBody(clip, false).titleCardStyle, 'puro_ecommerce');
-});
-ok('a chave vai SEMPRE no corpo, mesmo em trecho antigo sem ela', () => {
-  // Mandar sempre é o que fecha o caminho: chave ausente cairia no defaultProps da
-  // composição em vez da escolha (ou do padrão) que a tela mostrou.
-  const corpo = ops.renderBody({ clipToken: 't', id: 'cand-25', topic: 'M' }, true);
-  assert.ok('titleCardStyle' in corpo, 'a chave tem de existir no corpo');
-  assert.strictEqual(corpo.titleCardStyle, 'primo_rico');
-});
-/* PARIDADE com o preset.js. Esta é uma das TRÊS cópias do conjunto (aqui, no preset.js e no
-   serve.py) e não há import possível entre elas: o index.html é Vanilla JS sem npm e o
-   preset.js é ESM do projeto Remotion. Divergirem faria a tela oferecer um valor que o
-   servidor descarta — e o vídeo sairia com a OUTRA marca, calado. */
-ok('a cópia do conjunto bate com o preset.js (as duas listas e os dois padrões)', () => {
-  const preset = require('fs').readFileSync(
-    require('path').join(__dirname, 'studio', 'src', 'preset.js'), 'utf8');
-  const lista = /export const TITLE_CARD_STYLES = \[([^\]]*)\]/.exec(preset);
-  const padrao = /export const TITLE_CARD_PADRAO = '([^']+)'/.exec(preset);
-  assert.ok(lista && padrao, 'não achei o conjunto no preset.js — se ele foi renomeado, '
-    + 'este check tem de ser ajustado: conferência que não acha nada é pior que nenhuma');
-  const doPreset = lista[1].split(',').map((s) => s.trim().replace(/'/g, '')).filter(Boolean);
-  assert.deepStrictEqual(ops.TITLE_CARD_STYLES, doPreset);
-  assert.strictEqual(ops.TITLE_CARD_PADRAO, padrao[1]);
-});
-ok('cada identidade tem rótulo de tela, e nenhum rótulo sobra', () => {
+ok('cada valor tem rótulo de tela, e nenhum rótulo sobra', () => {
   for (const estilo of ops.TITLE_CARD_STYLES) {
     assert.match(ops.TITLE_CARD_LABELS[estilo], /\S/, 'sem rótulo o botão sai vazio');
   }
   assert.strictEqual(Object.keys(ops.TITLE_CARD_LABELS).length, ops.TITLE_CARD_STYLES.length);
+});
+
+/* --- o validador do CARD, CHAMADO com valor construído (BP-014). Este é o elo novo: a
+   identidade deixou de ser um valor de enum e virou DADO que atravessa localStorage, POST e
+   um JSON no disco antes de virar quadro. */
+ok('card completo sobrevive inteiro ao validador', () => {
+  const c = ops.cardOf({
+    id: 'card-1', nome: '  Casa  ', identificador: ' DOOTU | CORTES ',
+    logo: LOGO_PNG, logoProporcao: 2.5, fileteCor: '#FF0000',
+    bordaCor: 'rgba(255, 0, 0, .3)', identificadorCor: '#ccc',
+    destaqueCor: 'rgb(0, 128, 255)', tituloPeso: 800, destaquePeso: 900,
+    destaqueSublinhado: true
+  });
+  assert.deepStrictEqual(c, {
+    id: 'card-1', nome: 'Casa', identificador: 'DOOTU | CORTES',
+    logo: LOGO_PNG, logoProporcao: 2.5, fileteCor: '#FF0000',
+    bordaCor: 'rgba(255, 0, 0, .3)', identificadorCor: '#ccc',
+    destaqueCor: 'rgb(0, 128, 255)', tituloPeso: 800, destaquePeso: 900,
+    destaqueSublinhado: true
+  });
+});
+ok('lixo de qualquer forma vira null, e nada levanta', () => {
+  for (const v of [null, undefined, 0, 7, '', 'card', [], [{}], true, NaN]) {
+    assert.strictEqual(ops.cardOf(v), null, 'lixo tem de virar null: ' + JSON.stringify(v));
+  }
+});
+ok('card sem logo E sem identificador é inválido (não há identidade para vestir)', () => {
+  assert.strictEqual(ops.cardOf({}), null);
+  assert.strictEqual(ops.cardOf({ nome: 'só o nome' }), null);
+  assert.strictEqual(ops.cardOf({ logo: '', identificador: '   ' }), null);
+  // E os dois meios-cards valem: só placa (o wordmark já está nela) e só texto.
+  assert.strictEqual(ops.cardOf({ logo: LOGO_PNG }).identificador, '');
+  assert.strictEqual(ops.cardOf({ identificador: 'DOOTU' }).logo, '');
+});
+ok('só dataURL de imagem vira logo — endereço remoto ou local é descartado', () => {
+  // `staticFile()` não alcança o repositório (o `--public-dir` é o cache do YouTube), então
+  // endereço remoto ou falharia em carregar ou viraria busca de rede no meio da captura.
+  for (const u of ['http://x/a.png', 'https://x/a.png', 'file:///a.png',
+    'javascript:alert(1)', 'data:text/html;base64,AAAA', 'data:image/png,AAAA',
+    'data:image/gif;base64,AAAA', '/logo.png', 'logo.png', 7, null]) {
+    assert.strictEqual(ops.cardOf({ logo: u, identificador: 'D' }).logo, '',
+      'endereço proibido não pode virar logo: ' + JSON.stringify(u));
+  }
+  for (const t of ['png', 'svg+xml', 'jpeg', 'webp']) {
+    assert.notStrictEqual(ops.cardOf({ logo: 'data:image/' + t + ';base64,AAAA' }).logo, '');
+  }
+});
+ok('logo acima do teto de 512 KB é descartado, e um caractere abaixo passa', () => {
+  const gigante = 'data:image/png;base64,' + 'A'.repeat(ops.CARD_LOGO_MAX);
+  assert.ok(gigante.length > ops.CARD_LOGO_MAX);
+  assert.strictEqual(ops.cardOf({ logo: gigante, identificador: 'D' }).logo, '');
+  const cabe = 'data:image/png;base64,'
+    + 'A'.repeat(ops.CARD_LOGO_MAX - 'data:image/png;base64,'.length);
+  assert.strictEqual(cabe.length, ops.CARD_LOGO_MAX);
+  assert.strictEqual(ops.cardOf({ logo: cabe }).logo, cabe);
+});
+ok('proporção ilegível cai em 1 — nunca em placa de largura zero', () => {
+  for (const v of [undefined, 0, -3, NaN, Infinity, 1e6, 'larga', null]) {
+    assert.strictEqual(ops.cardOf({ logo: LOGO_PNG, logoProporcao: v }).logoProporcao, 1);
+  }
+  assert.strictEqual(ops.cardOf({ logo: LOGO_PNG, logoProporcao: 4.4957 }).logoProporcao, 4.4957);
+});
+ok('peso fora do conjunto carregado cai no padrão, e a string do <select> vale', () => {
+  // Peso que o `loadFont` do Clip.jsx não carregou o Chrome SINTETIZA: sai um engrossamento
+  // borrado, sem erro e sem check reprovando — só aparece olhando o quadro.
+  for (const v of [100, 450, 1000, 0, null, 'bold', {}]) {
+    assert.strictEqual(ops.cardOf({ identificador: 'D', tituloPeso: v }).tituloPeso,
+      ops.CARD_PADROES.tituloPeso);
+  }
+  // O `value` de um `<option>` é SEMPRE string: sem a conversão, toda escolha de peso do
+  // editor cairia no padrão calada e o operador veria o controle mexer sem nada mudar.
+  assert.strictEqual(ops.cardOf({ identificador: 'D', tituloPeso: '700' }).tituloPeso, 700);
+  assert.strictEqual(ops.pesoDoCard('900', 0), 900);
+});
+ok('cor inválida cai no padrão — string arbitrária não entra num style inline', () => {
+  for (const c of ['vermelho', 'red; background:url(x)', '#12', 'rgb(1,2)', '', 7, null,
+    {}, 'var(--x)', 'url(javascript:1)']) {
+    assert.strictEqual(ops.cardOf({ identificador: 'D', fileteCor: c }).fileteCor,
+      ops.CARD_PADROES.fileteCor);
+  }
+  for (const c of ['#fff', '#A1B2C3', 'rgb(10, 20, 30)', 'rgba(10, 20, 30, .5)']) {
+    assert.strictEqual(ops.corDoCard(c, 'X'), c);
+  }
+});
+ok('sublinhado só liga com o booleano true (o value de um radio é string)', () => {
+  const v = (x) => ops.cardOf({ identificador: 'D', destaqueSublinhado: x }).destaqueSublinhado;
+  assert.deepStrictEqual([true, false, 'true', 'false', 1, 0, undefined].map(v),
+    [true, false, false, false, false, false, false]);
+});
+ok('nome e identificador são aparados nos tetos, e o entorno em branco some', () => {
+  assert.strictEqual(ops.cardOf({ identificador: 'x'.repeat(200) }).identificador.length,
+    ops.CARD_IDENTIFICADOR_MAX);
+  assert.strictEqual(ops.cardOf({ identificador: 'D', nome: 'y'.repeat(200) }).nome.length,
+    ops.CARD_NOME_MAX);
+  assert.strictEqual(ops.cardOf({ identificador: '  DOOTU  ' }).identificador, 'DOOTU');
+});
+ok('o card padrão nunca fica sem sinal de destaque', () => {
+  // Sabotagem que isto reprova: padrão com a cor do texto e o peso do título — o trecho
+  // escolhido sairia igual ao resto, e o algoritmo de destaque viraria cálculo jogado fora.
+  const c = ops.cardOf({ identificador: 'DOOTU' });
+  assert.ok(c.destaqueCor !== '#FFFFFF' || c.destaquePeso > c.tituloPeso || c.destaqueSublinhado);
+});
+
+/* --- a BIBLIOTECA: criar, nomear, editar, duplicar, apagar, e sobreviver ao recarregamento. */
+ok('criar, duplicar e apagar mexem só na biblioteca, e ela sobrevive ao reload', () => {
+  comStorage(false, (loja) => {
+    ops.__setCards([]);
+    const a = ops.cardCreate();
+    assert.ok(a && a.id, 'o card nasce com id');
+    // Nasce VÁLIDO: um editor que abre num estado que ele mesmo recusa é o pior primeiro
+    // contato possível.
+    assert.notStrictEqual(ops.cardOf(a), null);
+    assert.strictEqual(ops.cardsList().length, 1);
+    const b = ops.cardDuplicate(a.id);
+    assert.ok(b && b.id !== a.id, 'a cópia tem id PRÓPRIO (id reaproveitado adotaria órfãos)');
+    assert.match(b.nome, /cópia/);
+    assert.strictEqual(ops.cardsList().length, 2);
+    // Sobreviveu ao disco, e volta igual.
+    const salvo = JSON.parse(loja[ops.CARDS_KEY]);
+    assert.strictEqual(salvo.cards.length, 2);
+    assert.deepStrictEqual(ops.cardsSanitize(salvo).cards.map((c) => c.id), [a.id, b.id]);
+    assert.strictEqual(ops.cardRemove(a.id), true);
+    assert.deepStrictEqual(ops.cardsList().map((c) => c.id), [b.id]);
+    assert.strictEqual(ops.cardRemove('nao-existe'), false);
+    ops.__setCards(null);
+  });
+});
+ok('editar um campo guarda só o que foi ESCOLHIDO, e "auto" apaga a escolha', () => {
+  comStorage(false, () => {
+    ops.__setCards([]);
+    const c = ops.cardCreate();
+    // Campo ausente = "segue o padrão". É isto que dá ao botão "auto" o que desfazer, e o
+    // que permite o padrão do projeto mudar sem reescrever a biblioteca de ninguém.
+    assert.strictEqual(ops.cardValor(c, 'destaqueCor').manual, false);
+    assert.strictEqual(ops.cardValor(c, 'destaqueCor').valor, ops.CARD_PADROES.destaqueCor);
+    assert.strictEqual(ops.cardFieldWrite(c.id, 'destaqueCor', '#112233'), '');
+    assert.strictEqual(ops.cardValor(c, 'destaqueCor').manual, true);
+    assert.strictEqual(ops.cardValor(c, 'destaqueCor').valor, '#112233');
+    assert.strictEqual(ops.cardFieldWrite(c.id, 'destaqueCor', null), '');
+    assert.strictEqual(ops.cardValor(c, 'destaqueCor').manual, false);
+    assert.ok(!Object.prototype.hasOwnProperty.call(c, 'destaqueCor'), 'sem chave morta');
+    ops.__setCards(null);
+  });
+});
+ok('esvaziar logo E texto é RECUSADO com o motivo, e o card volta ao que era', () => {
+  comStorage(false, () => {
+    ops.__setCards([]);
+    const c = ops.cardCreate();
+    const antes = c.identificador;
+    const falha = ops.cardFieldWrite(c.id, 'identificador', '');
+    assert.match(falha, /logo/, 'a recusa tem de dizer POR QUÊ (BP-008)');
+    assert.strictEqual(c.identificador, antes, 'a escrita recusada não deixa rastro');
+    assert.notStrictEqual(ops.cardOf(c), null);
+    // Com logo, apagar o texto passa a valer: a placa já carrega a identidade.
+    assert.strictEqual(ops.cardLogoWrite(c.id, LOGO_PNG, 2.5), '');
+    assert.strictEqual(ops.cardFieldWrite(c.id, 'identificador', ''), '');
+    assert.strictEqual(ops.cardOf(c).logoProporcao, 2.5);
+    // E agora remover o logo é que fica proibido — não sobraria identidade nenhuma.
+    assert.match(ops.cardLogoWrite(c.id, '', 0), /texto ao lado/);
+    assert.strictEqual(ops.cardOf(c).logo, LOGO_PNG);
+    ops.__setCards(null);
+  });
+});
+ok('logo grande, de formato errado ou sem proporção medida é recusado com o motivo', () => {
+  comStorage(false, () => {
+    ops.__setCards([]);
+    const c = ops.cardCreate();
+    assert.match(
+      ops.cardLogoWrite(c.id, 'data:image/png;base64,' + 'A'.repeat(ops.CARD_LOGO_MAX), 1),
+      /512 KB/);
+    assert.match(ops.cardLogoWrite(c.id, 'https://exemplo/a.png', 1), /Formato/);
+    assert.match(ops.cardLogoWrite(c.id, LOGO_PNG, 0), /proporção/);
+    assert.strictEqual(ops.cardOf(c).logo, '', 'nenhuma das recusas gravou');
+    ops.__setCards(null);
+  });
+});
+/* Uma escrita que falha CALADA perde o trabalho do operador. A cota é o limite real desta
+   biblioteca, porque um logo é um dataURL. */
+ok('cota cheia é REPORTADA, nunca engolida', () => {
+  comStorage(true, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    const falha = ops.cardFieldWrite('c1', 'destaqueCor', '#112233');
+    assert.match(falha, /cheia/, 'a falha de gravação tem de virar frase');
+    ops.__setCards(null);
+  });
+});
+ok('biblioteca corrompida não derruba a tela — carrega o que der e descarta o resto', () => {
+  // Card sem id não pode ser apontado por corte nenhum; card sem identidade não tem o que
+  // vestir. Os dois somem em vez de virarem estado.
+  const limpa = ops.cardsSanitize({
+    v: 1,
+    cards: [{ id: 'ok', identificador: 'DOOTU' }, { identificador: 'sem id' },
+      { id: 'vazio' }, null, 7, [], { id: 'ok2', logo: LOGO_PNG }]
+  });
+  assert.deepStrictEqual(limpa.cards.map((c) => c.id), ['ok', 'ok2']);
+  assert.strictEqual(ops.cardsSanitize(null), null);
+  assert.strictEqual(ops.cardsSanitize({ cards: 'x' }), null);
+});
+ok('SVG sem largura intrínseca tira a proporção do viewBox; sem ele, é recusado', () => {
+  // Chutar a proporção distorce a placa, e num emblema circular vira elipse.
+  assert.ok(Math.abs(ops.svgViewBoxRatio(LOGO_SVG_SEM_TAMANHO) - 760 / 169) < 1e-9);
+  assert.strictEqual(ops.svgViewBoxRatio(
+    'data:image/svg+xml;base64,' + Buffer.from('<svg></svg>').toString('base64')), 0);
+  assert.strictEqual(ops.svgViewBoxRatio(LOGO_PNG), 0);
+  assert.strictEqual(ops.svgViewBoxRatio('não é dataURL'), 0);
+});
+ok('o seletor de cor abre no hex da cor resolvida, inclusive quando ela tem alfa', () => {
+  // `<input type="color">` só entende `#rrggbb`; a AMOSTRA ao lado é quem mostra o alfa.
+  assert.strictEqual(ops.corHex('rgba(255, 255, 255, .14)'), '#ffffff');
+  assert.strictEqual(ops.corHex('rgb(10, 20, 30)'), '#0a141e');
+  assert.strictEqual(ops.corHex('#ABC'), '#aabbcc');
+  assert.strictEqual(ops.corHex('#A1B2C3'), '#a1b2c3');
+  assert.strictEqual(ops.corHex('qualquer coisa'), '#ffffff');
+});
+
+/* --- a ESCOLHA do corte, e o ramo que erra calado: o card apagado. */
+ok('escolher um card grava o id E o enum, sem re-render', () => {
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }, { id: 'c2', identificador: 'OUTRO' }]);
+    const clip = { id: 'cand-20', clipToken: 't', topic: 'Manchete' };
+    ops.__setCandidates([clip]);
+    ops.clipFieldWrite({ value: 'c2', dataset: { clipField: 'cardId', id: 'cand-20' } });
+    assert.strictEqual(clip.cardId, 'c2');
+    assert.strictEqual(clip.titleCardStyle, 'personalizado');
+    // E volta: a escolha não é de mão única.
+    ops.clipFieldWrite({ value: 'c1', dataset: { clipField: 'cardId', id: 'cand-20' } });
+    assert.strictEqual(clip.cardId, 'c1');
+    // Vazio é "Sem card" — o ENUM mudando, não um card vazio.
+    ops.clipFieldWrite({ value: '', dataset: { clipField: 'cardId', id: 'cand-20' } });
+    assert.strictEqual(clip.titleCardStyle, 'nenhum');
+    assert.strictEqual(clip.cardId, '');
+    ops.__setCards(null);
+  });
+});
+ok('radio adulterado não vira estado, e não cai em card nenhum', () => {
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    const clip = { id: 'cand-21', clipToken: 't', topic: 'M', cardId: 'c1',
+      titleCardStyle: 'personalizado' };
+    ops.__setCandidates([clip]);
+    // `value` de card que não existe (DevTools, extensão, HTML velho em cache): cair num
+    // card qualquer faria o corte sair com a identidade errada sem nada na tela errar.
+    ops.clipFieldWrite({ value: 'card-inventado', dataset: { clipField: 'cardId', id: 'cand-21' } });
+    assert.strictEqual(clip.cardId, 'c1', 'o estado anterior fica de pé');
+    ops.__setCards(null);
+  });
+});
+ok('cada trecho tem a SUA escolha (um seletor não mexe no vizinho)', () => {
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    const a = { id: 'cand-22', clipToken: 't', topic: 'A' };
+    const b = { id: 'cand-23', clipToken: 't', topic: 'B' };
+    ops.__setCandidates([a, b]);
+    ops.clipFieldWrite({ value: 'c1', dataset: { clipField: 'cardId', id: 'cand-22' } });
+    assert.strictEqual(a.cardId, 'c1');
+    assert.strictEqual(b.cardId, undefined, 'o vizinho não foi tocado');
+    assert.strictEqual(ops.renderBody(b, true).card, null);
+    ops.__setCards(null);
+  });
+});
+ok('escolha de trecho que saiu da lista não grava (nem cria candidato fantasma)', () => {
+  ops.__setCandidates([]);
+  ops.clipFieldWrite({ value: 'c1', dataset: { clipField: 'cardId', id: 'sumiu' } });
+});
+/* O RAMO QUE ERRA CALADO. Apagar um card não reescreve corte nenhum — trocar a identidade de
+   vídeo antigo sem ninguém pedir seria pior —, então o corte fica órfão e TEM de anunciar
+   isso. Nunca cair em outro card, nunca falhar em silêncio. */
+ok('corte que aponta para card apagado sai sem card, e a tela DIZ isso', () => {
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    const clip = { id: 'cand-30', clipToken: 't', topic: 'M', cardId: 'c1',
+      titleCardStyle: 'personalizado' };
+    assert.notStrictEqual(ops.cardDoClip(clip), null);
+    assert.match(ops.cardPickState(clip).msg, /veste/);
+    ops.cardRemove('c1');
+    assert.strictEqual(ops.cardDoClip(clip), null, 'não cai em outro card');
+    assert.strictEqual(clip.cardId, 'c1', 'o corte NÃO é reescrito');
+    const estado = ops.cardPickState(clip);
+    assert.strictEqual(estado.tone, 'warn');
+    assert.match(estado.msg, /apagado/);
+    assert.strictEqual(ops.renderBody(clip, true).card, null);
+    ops.__setCards(null);
+  });
+});
+ok('todo estado do seletor tem frase — inclusive os que não agem (BP-008)', () => {
+  comStorage(false, () => {
+    ops.__setCards([]);
+    // Biblioteca vazia.
+    const vazio = ops.cardPickState({ id: 'a' });
+    assert.strictEqual(vazio.tone, 'warn');
+    assert.match(vazio.msg, /vazia/);
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    // Biblioteca cheia, nada escolhido.
+    assert.match(ops.cardPickState({ id: 'a' }).msg, /Nenhum card escolhido/);
+    // "Sem card" é escolha, não falta de escolha — e o tom diz isso.
+    const sem = ops.cardPickState({ id: 'a', titleCardStyle: 'nenhum' });
+    assert.strictEqual(sem.tone, 'ok');
+    assert.match(sem.msg, /Sem card/);
+    // Nenhum ramo termina mudo.
+    for (const clip of [{ id: 'a' }, { id: 'a', titleCardStyle: 'nenhum' },
+      { id: 'a', cardId: 'c1' }, { id: 'a', cardId: 'sumiu' }]) {
+      assert.match(ops.cardPickState(clip).msg, /\S/);
+    }
+    ops.__setCards(null);
+  });
+});
+
+/* O ELO que erra calado: o corpo do POST. Foi exatamente aqui que `title: ''` atravessou a
+   entrega inteira do destaque de título — o recurso existia, tinha teste, e nunca chegava
+   ao render. Por isso o corpo é montado por função PURA e o teste a CHAMA. */
+ok('o card RESOLVIDO sobe no corpo do render, nos dois presets', () => {
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', nome: 'Casa', identificador: 'DOOTU | CORTES',
+      logo: LOGO_PNG, logoProporcao: 2.5, tituloPeso: 800 }]);
+    const clip = { clipToken: 'tok', id: 'cand-24', topic: 'Manchete', cardId: 'c1',
+      titleCardStyle: 'personalizado', clipCues: [{ start: 0, end: 1, text: 'oi' }] };
+    const corpo = ops.renderBody(clip, true);
+    assert.strictEqual(corpo.titleCardStyle, 'personalizado');
+    // Vai o OBJETO e não o id: o servidor não tem biblioteca para consultar.
+    assert.strictEqual(corpo.card.identificador, 'DOOTU | CORTES');
+    assert.strictEqual(corpo.card.logo, LOGO_PNG);
+    assert.strictEqual(corpo.card.logoProporcao, 2.5);
+    assert.strictEqual(corpo.card.tituloPeso, 800);
+    assert.ok(!('cardId' in corpo), 'o id não serve para nada do outro lado');
+    // O preset "limpo" não leva legenda, mas o card continua indo.
+    assert.strictEqual(ops.renderBody(clip, false).card.identificador, 'DOOTU | CORTES');
+    ops.__setCards(null);
+  });
+});
+ok('"Sem card" sobe como null e o TÍTULO continua indo', () => {
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    const clip = { clipToken: 't', id: 'cand-26', cardId: 'c1', titleCardStyle: 'nenhum',
+      topic: 'Manchete que fica no nome do arquivo' };
+    const corpo = ops.renderBody(clip, true);
+    assert.strictEqual(corpo.titleCardStyle, 'nenhum');
+    assert.strictEqual(corpo.card, null);
+    // Apagar o card não pode custar a manchete — se custasse, "Sem card" seria a mesma coisa
+    // que apagar o título, que já era possível antes desta opção existir.
+    assert.strictEqual(corpo.title, 'Manchete que fica no nome do arquivo');
+    ops.__setCards(null);
+  });
+});
+ok('as duas chaves vão SEMPRE no corpo, mesmo em trecho antigo sem nenhuma delas', () => {
+  // Mandar sempre é o que fecha o caminho: chave ausente deixaria a composição cair no
+  // `defaultProps` (que traz um card de exemplo) em vez do que a tela mostrou.
+  const corpo = ops.renderBody({ clipToken: 't', id: 'cand-25', topic: 'M' }, true);
+  assert.ok('titleCardStyle' in corpo && 'card' in corpo);
+  assert.strictEqual(corpo.titleCardStyle, 'personalizado');
+  assert.strictEqual(corpo.card, null);
+});
+/* PARIDADE com o preset.js. Esta é uma das TRÊS cópias (aqui, no preset.js e no serve.py) e
+   não há import possível entre elas: o index.html é Vanilla JS sem npm e o preset.js é ESM
+   do projeto Remotion. Divergirem faria a tela oferecer algo que o servidor descarta. */
+ok('as cópias do conjunto e dos números do card batem com o preset.js', () => {
+  const preset = require('fs').readFileSync(
+    require('path').join(__dirname, 'studio', 'src', 'preset.js'), 'utf8');
+  const lista = /export const TITLE_CARD_STYLES = \[([^\]]*)\]/.exec(preset);
+  const padrao = /export const TITLE_CARD_PADRAO = '([^']+)'/.exec(preset);
+  const pesos = /export const CARD_PESOS = \[([^\]]*)\]/.exec(preset);
+  const teto = /export const CARD_LOGO_MAX = ([0-9 *]+);/.exec(preset);
+  assert.ok(lista && padrao && pesos && teto, 'não achei o conjunto/os números no preset.js '
+    + '— se foram renomeados, este check tem de ser ajustado: conferência que não acha nada '
+    + 'é pior que nenhuma');
+  const doPreset = lista[1].split(',').map((s) => s.trim().replace(/'/g, '')).filter(Boolean);
+  assert.deepStrictEqual(ops.TITLE_CARD_STYLES, doPreset);
+  assert.strictEqual(ops.TITLE_CARD_PADRAO, padrao[1]);
+  assert.deepStrictEqual(ops.CARD_PESOS,
+    pesos[1].split(',').map((s) => Number(s.trim())).filter((n) => !isNaN(n)));
+  assert.strictEqual(ops.CARD_LOGO_MAX, eval(teto[1].trim()));
+});
+/* BP-014 no lugar exato em que ele nasceu: o saneador de dado PERSISTIDO, chamado com o
+   trecho construído, nos DOIS ramos — com a chave e sem ela. Cobrir só o ramo vazio é cobrir
+   o caminho de quem nunca usou a ferramenta, e o ramo que quebra é o do usuário antigo. */
+ok('projeto salvo abre com cardId, sem cardId e com cardId pendurado', () => {
+  const salvo = {
+    version: 1,
+    projects: [{
+      id: 'p1', videoId: 'v1', createdAt: '2026-09-20T10:00:00.000Z', status: 'ready',
+      candidates: [
+        { id: 'a', topic: 'com card', cardId: 'c1' },
+        { id: 'b', topic: 'trecho de antes desta entrega' },
+        { id: 'c', topic: 'card apagado', cardId: 'sumiu' },
+        { id: 'd', topic: 'id torto', cardId: { nao: 'string' } }
+      ]
+    }]
+  };
+  const limpo = ops.projectsSanitize(salvo);
+  const cands = limpo.projects[0].candidates;
+  assert.strictEqual(cands[0].cardId, 'c1');
+  assert.ok(!('cardId' in cands[1]), 'trecho antigo continua sem a chave');
+  // Pendurado SOBREVIVE de propósito: é ele que faz a tela anunciar "o card foi apagado".
+  assert.strictEqual(cands[2].cardId, 'sumiu');
+  // Id de tipo errado some, em vez de virar `String(objeto)` e fingir um órfão que nunca
+  // existiu.
+  assert.ok(!('cardId' in cands[3]));
+  // E nenhum deles derruba a leitura nem o corpo do render (era o caminho da tela preta).
+  comStorage(false, () => {
+    ops.__setCards([{ id: 'c1', identificador: 'DOOTU' }]);
+    for (const c of cands) {
+      assert.doesNotThrow(() => ops.renderBody(Object.assign({ clipToken: 't' }, c), true));
+    }
+    assert.strictEqual(
+      ops.renderBody(Object.assign({ clipToken: 't' }, cands[2]), true).card, null);
+    ops.__setCards(null);
+  });
 });
 
 /* --------------------------- "Legenda": qual aparência a legenda veste
@@ -634,8 +1256,8 @@ ok('cada identidade tem rótulo de tela, e nenhum rótulo sobra', () => {
    errar. Aqui pesa mais que no card, porque o estilo muda também a QUEBRA DE LINHA (o
    `tetoDaPagina` do preset.js) — uma página cortada para um estilo e desenhada no outro
    estoura a coluna. */
-ok('dois estilos de legenda, e o padrão é o que todo corte já renderiza', () => {
-  assert.deepStrictEqual(ops.LEGENDA_STYLES, ['classico', 'impacto']);
+ok('seis estilos de legenda, e o padrão é o que todo corte já renderiza', () => {
+  assert.deepStrictEqual(ops.LEGENDA_STYLES, ['classico', 'impacto', 'faixa', 'podcast', 'papel', 'discreta']);
   assert.strictEqual(ops.LEGENDA_PADRAO, 'classico');
 });
 ok('o validador: trecho sem a chave e valor torto caem no clássico', () => {
@@ -1211,8 +1833,10 @@ ok('editOf valida escolhas, booleano falso e limites sem aceitar strings numéri
   const clip = { edit: { v: 1, legenda: { style: 'impacto', familia: 'montserrat',
     tamanho: 999, largura: 10, posicaoPct: 200, caixaAlta: false,
     cor: 'texto', destaqueCor: '#ff00ff', alinhamento: 'left' }, enquadramento: { reframe: 'crop11' } } };
+  /* Cor livre `#RRGGBB` é aceita desde 2026-09-23 (pedido do operador), em maiúsculas. */
   assert.deepStrictEqual(ops.editOf(clip), { v: 1, legenda: { style: 'impacto', familia: 'montserrat',
-    cor: 'texto', alinhamento: 'left', caixaAlta: false, tamanho: 96, largura: 360, posicaoPct: 100 },
+    cor: 'texto', destaqueCor: '#FF00FF', alinhamento: 'left', caixaAlta: false, tamanho: 96,
+    largura: 360, posicaoPct: 100 },
     enquadramento: { reframe: 'crop11' } });
   assert.deepStrictEqual(ops.editOf({ edit: { v: 1, legenda: { tamanho: '58', largura: Infinity,
     posicaoPct: NaN, familia: 'Inter', caixaAlta: 'false' } } }).legenda, {});
@@ -1275,34 +1899,41 @@ ok('um override marca só o SEU controle, e caixaAlta false conta como escolha',
   assert.deepStrictEqual(ops.legendaValor(clip, 'tamanho'), { valor: 72, manual: false });
   assert.strictEqual(ops.legendaManuais(clip), 2);
 });
-ok('a tabela de automáticos cobre os dois estilos e só o que a tela mostra', () => {
+ok('a tabela de automáticos cobre todos os estilos e só o que a tela mostra', () => {
   assert.deepStrictEqual(Object.keys(ops.LEGENDA_AUTO).sort(), ops.LEGENDA_STYLES.slice().sort());
   for (const estilo of ops.LEGENDA_STYLES) {
     const a = ops.LEGENDA_AUTO[estilo];
     assert.ok(ops.LEGENDA_FONTES.indexOf(a.familia) >= 0);
-    assert.ok(ops.LEGENDA_CORES.indexOf(a.destaqueCor) >= 0);
+    /* `null` = o leque colorido; senão um hex. As quatro cores são sempre valor que a tela
+       sabe desenhar (hex ou `nenhum`), nunca `undefined`. */
+    assert.ok(a.destaqueCor === null || /^#[0-9A-F]{6}$/.test(a.destaqueCor));
+    assert.ok(/^#[0-9A-F]{6}$/.test(a.cor));
+    assert.ok(['contorno', 'fundo'].every(k => a[k] === 'nenhum' || /^#[0-9A-F]{6}$/.test(a[k])));
     assert.strictEqual(typeof a.caixaAlta, 'boolean');
     assert.ok(a.tamanho >= 32 && a.tamanho <= 96);
   }
   /* Nenhuma chave dos dois lados pode faltar: um controle sem automático mostraria
      `undefined` no slider, que é pior que mostrar o número errado. */
   assert.deepStrictEqual(Object.keys(ops.LEGENDA_AUTO_COMUM).sort(),
-    ['alinhamento', 'cor', 'largura', 'posicaoPct']);
+    ['alinhamento', 'largura', 'posicaoPct', 'posicaoXPct', 'profundidade', 'profundidadeDirecao']);
   assert.ok(ops.LEGENDA_CORES.every(c => /^#[0-9A-F]{6}$/.test(ops.LEGENDA_COR_HEX[c])));
 });
 ok('o painel marca a linha ajustada e desabilita o "auto" que não tem o que desfazer', () => {
   const clip = { id: 'abc', legendaStyle: 'classico' };
   const limpo = ops.legendaPanelHTML(clip);
-  assert.ok(limpo.indexOf('Tudo automático') > 0, 'o ramo que NÃO age também fala (BP-008)');
+  /* Editor sem frase (2026-10-01): o ramo que não age não escreve nada — o estado é o controle. */
+  assert.ok(limpo.indexOf('tudo no automático') < 0 && limpo.indexOf('data-leg-state') < 0, 'sem faixa de estado');
+  assert.ok(/data-act="leg-reset"[^>]*disabled/.test(limpo), 'nada a desfazer: "Voltar ao padrão" parado');
   assert.strictEqual((limpo.match(/data-manual="1"/g) || []).length, 0);
   /* Um botão por linha, todos desabilitados quando nada foi ajustado. */
   assert.strictEqual((limpo.match(/data-act="leg-auto"/g) || []).length,
     (limpo.match(/data-leg-row=/g) || []).length);
-  assert.strictEqual((limpo.match(/disabled/g) || []).length,
+  assert.strictEqual((limpo.match(/data-act="leg-auto"[^>]*disabled/g) || []).length,
     (limpo.match(/data-leg-row=/g) || []).length);
   ops.editFieldWrite(clip, 'legenda', 'cor', 'destaque');
   const sujo = ops.legendaPanelHTML(clip);
-  assert.ok(sujo.indexOf('1 controle ajustado') > 0);
+  assert.ok(sujo.indexOf('ajuste seu') < 0, 'o ajuste aparece na linha, não numa frase');
+  assert.ok(!/data-act="leg-reset"[^>]*disabled/.test(sujo));
   assert.strictEqual((sujo.match(/data-manual="1"/g) || []).length, 1);
   assert.ok(sujo.indexOf('data-leg-row="cor" data-manual="1"') > 0);
 });
@@ -1310,7 +1941,8 @@ ok('a posição vertical só vira slider depois que o operador assume o controle
   const clip = { id: 'p' };
   const auto = ops.legendaPanelHTML(clip);
   assert.ok(auto.indexOf('data-act="leg-posicao"') > 0);
-  assert.ok(auto.indexOf('automática — o servidor ancora dentro da imagem') > 0);
+  /* Automática mostra só o VALOR (decisão 2026-10-01), não a frase que a explicava. */
+  assert.ok(auto.indexOf('>Automática<') > 0 && auto.indexOf('dentro da imagem') < 0);
   assert.ok(auto.indexOf('data-leg-field="posicaoPct"') < 0, 'sem slider enquanto é automática');
   ops.editFieldWrite(clip, 'legenda', 'posicaoPct', 62);
   const manual = ops.legendaPanelHTML(clip);
@@ -1324,7 +1956,11 @@ ok('a prévia veste o resolvido e só passa NÚMEROS do quadro (ela não pagina)
   assert.ok(html.indexOf('--leg-fonte:72;') > 0 && html.indexOf('--leg-col:820;') > 0);
   assert.ok(html.indexOf('data-familia="montserrat"') > 0);
   assert.ok(html.indexOf('data-caixa="1"') > 0 && html.indexOf('data-auto="1"') > 0);
-  assert.ok(html.indexOf('A maioria não vai conseguir') > 0, 'mostra a fala REAL do trecho');
+  /* 2026-09-28: a prévia mostra a PÁGINA do export, que vem da rota. Sem a rota ela mostra
+     a frase de exemplo — NUNCA a fala inteira (era a torre de linhas do P9). A página real
+     é provada no test-video-ops-dom.js, com a rota respondendo. */
+  assert.ok(/>Assim<\/b> fica a legenda/.test(html) && html.indexOf('maioria') < 0,
+    'sem as páginas da rota, amostra — nunca a fala inteira');
   /* Sem `px` nas custom properties: o CSS multiplica o número pelo tamanho de UM pixel do
      quadro, e `calc(px * px)` seria inválido — a conversão mora num lugar só. */
   assert.ok(!/--leg-(fonte|col):\d+px/.test(html));
@@ -1332,11 +1968,98 @@ ok('a prévia veste o resolvido e só passa NÚMEROS do quadro (ela não pagina)
   const movida = ops.legendaPreviewHTML(clip);
   assert.ok(movida.indexOf('--leg-pos:40%') > 0 && movida.indexOf('data-auto="0"') > 0);
   /* Trecho sem fala usa amostra em vez de caixa vazia — ramo que não age também fala. */
-  assert.ok(ops.legendaPreviewHTML({ id: 'x' }).indexOf('Assim fica a legenda') > 0);
+  assert.ok(/>Assim<\/b> fica a legenda/.test(ops.legendaPreviewHTML({ id: 'x' })));
 });
 ok('o caminho ASS declara na tela o que ele não reproduz', () => {
   assert.ok(Array.isArray(ops.ASS_NAO_REPRODUZ) && ops.ASS_NAO_REPRODUZ.length >= 3);
   assert.ok(ops.ASS_NAO_REPRODUZ.every(f => typeof f === 'string' && f.trim().length > 10));
+});
+
+/* --- o painel reorganizado (2026-09-23): estilos prontos, combinações e cor livre ------ */
+ok('estilo pronto: cada um vira um cartão com amostra, e o escolhido fica marcado', () => {
+  const html = ops.legendaPanelHTML({ id: 'k', legendaStyle: 'papel' });
+  assert.strictEqual((html.match(/class="vop-leg-look"/g) || []).length, ops.LEGENDA_STYLES.length);
+  assert.ok(/value="papel" checked/.test(html));
+  /* A amostra desenha o estilo: a caixa branca do Papel aparece na miniatura. */
+  assert.ok(html.indexOf('--a-fundo:#FFFFFF') > 0);
+});
+ok('trocar de estilo limpa o que o estilo decide e mantém posição e largura', () => {
+  const clip = { id: 'k', legendaStyle: 'classico' };
+  ['tamanho', 'cor', 'fundo', 'posicaoPct', 'largura'].forEach((k, i) =>
+    ops.editFieldWrite(clip, 'legenda', k, [80, '#FFD23F', '#0E0E10', 60, 700][i]));
+  ops.legendaStyleWrite(clip, 'podcast');
+  assert.strictEqual(clip.legendaStyle, 'podcast');
+  assert.deepStrictEqual(ops.editOf(clip).legenda, { posicaoPct: 60, largura: 700 });
+  ops.legendaStyleWrite(clip, 'inventado');
+  assert.strictEqual(clip.legendaStyle, 'classico', 'estilo torto cai no padrão');
+});
+ok('"Voltar ao padrão" zera a legenda inteira e deixa o enquadramento', () => {
+  const clip = { id: 'k', legendaStyle: 'faixa' };
+  ops.editFieldWrite(clip, 'legenda', 'tamanho', 80);
+  ops.editFieldWrite(clip, 'enquadramento', 'reframe', 'crop45');
+  ops.legendaReset(clip);
+  assert.deepStrictEqual(ops.editOf(clip), { v: 1, legenda: {}, enquadramento: { reframe: 'crop45' } });
+  assert.strictEqual(clip.legendaStyle, 'faixa', 'o estilo fica: só os ajustes voltam');
+});
+ok('combinação de cores grava só o que DIFERE do estilo, e fica marcada', () => {
+  const clip = { id: 'k', legendaStyle: 'faixa' };
+  /* "Faixa escura" é exatamente o automático do estilo Faixa: não é ajuste. */
+  const faixa = ops.LEGENDA_COMBOS.findIndex(c => c.nome === 'Faixa escura');
+  ops.legendaComboWrite(clip, faixa);
+  assert.deepStrictEqual(ops.editOf(clip).legenda, {});
+  assert.strictEqual(ops.legendaComboAtivo(clip), faixa);
+  const papel = ops.LEGENDA_COMBOS.findIndex(c => c.nome === 'Papel');
+  ops.legendaComboWrite(clip, papel);
+  assert.deepStrictEqual(ops.editOf(clip).legenda,
+    { cor: '#141414', destaqueCor: '#D62839', fundo: '#FFFFFF' });
+  assert.strictEqual(ops.legendaComboAtivo(clip), papel);
+  assert.ok(new RegExp('data-leg-combo[^>]*value="' + papel + '" checked').test(ops.legendaPanelHTML(clip)));
+  assert.strictEqual(ops.legendaComboWrite(clip, 99), false, 'índice torto não grava nada');
+});
+ok('cor personalizada: qualquer #RRGGBB entra (normalizado); cor torta não', () => {
+  const clip = { id: 'k' };
+  ops.legendaGravar(clip, 'cor', '#a1b2c3');
+  assert.strictEqual(ops.editOf(clip).legenda.cor, '#A1B2C3');
+  ops.legendaGravar(clip, 'destaqueCor', 'rgb(1,2,3)');
+  assert.ok(!('destaqueCor' in ops.editOf(clip).legenda));
+  /* Escolher de volta a cor do estilo não é ajuste: a chave some. */
+  ops.legendaGravar(clip, 'cor', '#ffffff');
+  assert.ok(!('cor' in ops.editOf(clip).legenda));
+  /* O "Colorido" do clássico é o automático dele. */
+  ops.legendaGravar(clip, 'destaqueCor', '#FFD23F');
+  ops.legendaGravar(clip, 'destaqueCor', 'auto');
+  assert.deepStrictEqual(ops.editOf(clip).legenda, {});
+});
+ok('corte salvo com os NOMES de cor antigos abre marcando a cor certa (sem migrar)', () => {
+  const clip = { id: 'k', edit: { v: 1, legenda: { cor: 'destaque', destaqueCor: 'palavraCor' } } };
+  const antes = JSON.stringify(clip);
+  const previa = ops.legendaPreviewHTML(clip);
+  ops.legendaPanelHTML(clip);
+  assert.ok(previa.indexOf('--leg-cor:#D9A441') > 0, 'cor antiga do texto na prévia');
+  assert.ok(previa.indexOf('color:#59E36A') > 0, 'destaque antigo na prévia');
+  assert.strictEqual(JSON.stringify(clip), antes, 'ler não regrava o clip');
+});
+ok('a prévia veste contorno, caixa, peso e entrelinha do estilo (como o export)', () => {
+  const podcast = ops.legendaPreviewHTML({ id: 'k', legendaStyle: 'podcast' });
+  assert.ok(podcast.indexOf('data-contorno="1"') > 0 && podcast.indexOf('--leg-contorno:#000000') > 0);
+  assert.ok(podcast.indexOf('--leg-traco:8;') > 0, 'traço = 2 x round(66 x 0,06)');
+  assert.ok(podcast.indexOf('--leg-peso:800') > 0 && podcast.indexOf('--leg-lh:1.1') > 0);
+  const faixa = ops.legendaPreviewHTML({ id: 'k', legendaStyle: 'faixa' });
+  assert.ok(faixa.indexOf('vop-leg-prev-caixa') > 0 && faixa.indexOf('data-sombra="0"') > 0);
+  const semCaixa = ops.legendaPreviewHTML({ id: 'k', legendaStyle: 'faixa',
+    edit: { v: 1, legenda: { fundo: 'nenhum' } } });
+  assert.ok(semCaixa.indexOf('vop-leg-prev-caixa') < 0 && semCaixa.indexOf('data-sombra="1"') > 0);
+  /* A 1ª palavra acende como a do karaokê: amarelo do leque no clássico, o destaque no resto. */
+  assert.ok(ops.legendaPreviewHTML({ id: 'k' }).indexOf('color:#FFE600') > 0);
+  assert.ok(faixa.indexOf('color:#FFD23F') > 0);
+});
+/* 2026-10-01: "Ajustes avançados" virou a subaba Avançado; só "Escolher cada cor" segue recolhido. */
+ok('"Escolher cada cor" nasce recolhido e o avançado virou subaba', () => {
+  const html = ops.legendaPanelHTML({ id: 'k' });
+  assert.strictEqual((html.match(/<details class="vop-leg-mais">/g) || []).length, 1);
+  assert.ok(html.indexOf('Ajustes avançados') < 0 && html.indexOf('Escolher cada cor') > 0
+    && html.indexOf('data-leg-aba-painel="avancado"') > 0);
+  assert.strictEqual((html.match(/type="color"/g) || []).length, 4, 'uma cor livre por papel');
 });
 
 /* --- TikTok: enviar um clip pronto para os RASCUNHOS ---------------------------------
@@ -1409,4 +2132,275 @@ ok('TikTok: libCardHTML tem UM parametro (map passa o indice no segundo)', () =>
   assert.strictEqual(ops.libCardHTML.length, 1);
 });
 
-console.log(provas + ' provas OK — lógica pura do Estúdio de Vídeos');
+/* A tabela da tela contra o dono, IMPORTADO (não lido por regex): cada campo que a prévia e
+   os cartões desenham tem de ser o que o `resolveLegenda` entrega ao MP4. */
+import(require('url').pathToFileURL(require('path').join(__dirname, 'studio', 'src', 'preset.js')).href)
+  .then((preset) => {
+    ok('LEGENDA_AUTO da tela bate campo a campo com o LEGENDA_PRESETS do preset.js', () => {
+      assert.deepStrictEqual(ops.LEGENDA_STYLES, preset.LEGENDA_STYLES);
+      for (const estilo of preset.LEGENDA_STYLES) {
+        const p = preset.LEGENDA_PRESETS[estilo];
+        const a = ops.LEGENDA_AUTO[estilo];
+        assert.deepStrictEqual(
+          [a.familia, a.tamanho, a.caixaAlta, a.peso, a.entrelinha, a.cor],
+          [p.familia, p.fonte, p.caixaAlta, p.peso, p.entrelinha, p.cor], estilo);
+        assert.strictEqual(a.destaqueCor, p.destaqueCor || null, estilo + ' destaque');
+        assert.strictEqual(a.contorno, p.contorno || 'nenhum', estilo + ' contorno');
+        assert.strictEqual(a.fundo, p.fundo || 'nenhum', estilo + ' fundo');
+        assert.strictEqual(a.sombra, p.sombra !== 'none', estilo + ' sombra');
+      }
+      assert.deepStrictEqual(ops.LEGENDA_LEQUE, preset.TOKENS.palavraCores);
+      /* A prévia calcula o traço com o mesmo fator do preset. */
+      assert.strictEqual(preset.TOKENS.legendaContornoFator, 0.06);
+    });
+    ok('os validadores de cor da tela e do preset concordam', () => {
+      for (const v of ['#abcdef', 'destaque', 'nenhum', '#FFF', 'red', 7, null]) {
+        for (const campo of ['cor', 'fundo']) {
+          assert.deepStrictEqual(ops.editOf({ edit: { v: 1, legenda: { [campo]: v } } }),
+            preset.editOf({ edit: { v: 1, legenda: { [campo]: v } } }), String(v));
+        }
+      }
+    });
+    ok('a Profundidade da prévia é a MESMA do preset (números e camadas, × --px)', () => {
+      assert.deepStrictEqual(ops.LEGENDA_PROFUNDIDADES, preset.LEGENDA_PROFUNDIDADES);
+      for (const nome of Object.keys(preset.LEGENDA_PROFUNDIDADES)) {
+        const ap = preset.resolveLegenda('classico', { v: 1, legenda: { profundidade: nome } });
+        const dono = preset.profundidadeLegenda(ap).textShadow.split(/,\s*(?![^()]*\))/);
+        const tela = ops.legProfundidadeSombra(ops.LEGENDA_PROFUNDIDADES[nome], ap.cor, '')
+          .split(/,\s*(?![^()]*\))/);
+        const camadas = preset.LEGENDA_PROFUNDIDADES[nome].camadas;
+        assert.strictEqual(tela.length, camadas, nome);
+        tela.forEach((c, i) => {
+          const px = /^0 calc\(([\d.]+) \* var\(--px\)\) 0 (.*)$/.exec(c);
+          const ref = /^0 ([\d.]+)px 0 (.*)$/.exec(dono[i]);
+          assert.ok(px && ref && px[1] === ref[1] && px[2] === ref[2], nome + ' camada ' + i);
+        });
+      }
+    });
+    ok('Profundidade e posição lateral: validador da tela == preset', () => {
+      for (const legenda of [{ profundidade: 'funda' }, { profundidade: 'x' }, { posicaoXPct: 44.6 },
+        { posicaoXPct: -3 }, { posicaoXPct: '40' }, { profundidade: 'suave', posicaoXPct: 100 }]) {
+        assert.deepStrictEqual(ops.editOf({ edit: { v: 1, legenda } }),
+          preset.editOf({ edit: { v: 1, legenda } }), JSON.stringify(legenda));
+      }
+    });
+    /* ÂNGULO (2026-09-29): a prévia é a MESMA conta do preset nas 16 combinações. `calc(N *
+       var(--px))` é o N px do quadro; tirado isso, as strings têm de ser idênticas. */
+    const semPx = (s) => s.replace(/calc\((-?[\d.]+) \* var\(--px\)\)/g, (_, v) => v + 'px');
+    ok('as tabelas do Ângulo da prévia são as do preset (direções, pivôs, sinais e fator da diagonal)', () => {
+      assert.deepStrictEqual(ops.LEGENDA_PROFUNDIDADE_DIRECOES, preset.LEGENDA_PROFUNDIDADE_DIRECOES);
+      assert.strictEqual(ops.LEGENDA_PROFUNDIDADE_DIAGONAL, preset.LEGENDA_PROFUNDIDADE_DIAGONAL);
+    });
+    ok('transform, pivô e volume da prévia == preset nas 8 direções × 2 intensidades', () => {
+      for (const nome of Object.keys(preset.LEGENDA_PROFUNDIDADES)) {
+        for (const d of Object.keys(preset.LEGENDA_PROFUNDIDADE_DIRECOES)) {
+          for (const [fonte, entrelinha] of [[32, 1.1], [72, 1.2], [96, 1.3]]) {
+            const ap = { profundidade: nome, profundidadeDirecao: d, fonte, entrelinha, cor: '#FFFFFF' };
+            const dono = preset.profundidadeLegenda(ap);
+            const p = ops.LEGENDA_PROFUNDIDADES[nome];
+            const tela = ops.legProfundidadeTransform(p, d, fonte, entrelinha);
+            const rotulo = nome + ' ' + d + ' ' + fonte;
+            assert.strictEqual(semPx(tela.transform), dono.transform, rotulo);
+            assert.strictEqual(tela.origem, dono.transformOrigin, rotulo);
+            assert.strictEqual(semPx(ops.legProfundidadeSombra(p, '#FFFFFF', '', d)), dono.textShadow, rotulo);
+          }
+        }
+      }
+      /* Sem o argumento de direção, a sombra continua a de 2026-09-25 (o `tras`). */
+      const p = ops.LEGENDA_PROFUNDIDADES.funda;
+      assert.strictEqual(ops.legProfundidadeSombra(p, '#FFFFFF', ''), ops.legProfundidadeSombra(p, '#FFFFFF', '', 'tras'));
+    });
+    /* CAPA DO TIKTOK (2026-09-30). */
+    ok('capa: conjuntos, tetos, zonas, escada e avanços da tela == preset', () => {
+      assert.deepStrictEqual(ops.CAPA_ESTILOS, preset.CAPA_ESTILOS);
+      assert.deepStrictEqual(ops.CAPA_POSICOES, preset.CAPA_POSICOES);
+      assert.deepStrictEqual(ops.CAPA_ZONAS, preset.CAPA_ZONAS);
+      assert.deepStrictEqual(ops.CAPA_FONTES, preset.CAPA_FONTES);
+      assert.strictEqual(ops.CAPA_LARGURA, preset.CAPA_LARGURA);
+      assert.strictEqual(ops.CAPA_MAX_LINHAS, preset.CAPA_MAX_LINHAS);
+      assert.strictEqual(ops.CAPA_TITULO_MAX, preset.CAPA_TITULO_MAX);
+      assert.strictEqual(ops.CAPA_DESTAQUE_MAX, preset.CAPA_DESTAQUE_MAX);
+      for (const e of preset.CAPA_ESTILOS) assert.strictEqual(ops.CAPA_AVANCO[e], preset.CAPA_ESTILO_DEF[e].avanco, e);
+    });
+    ok('capa: validador da tela == preset (presente, torto, ausente, outra versão)', () => {
+      for (const v of [undefined, null, [], 'x', { v: 2, quadroMs: 1 }, { v: 1 },
+        { v: 1, quadroMs: 1234.6, estilo: 'x', posicao: 'alto', titulo: '  Oi ', destaque: ' ' },
+        { v: 1, quadroMs: '100' }, { v: 1, quadroMs: -1 }, { v: 1, quadroMs: true },
+        { v: 1, titulo: 'a'.repeat(300), destaque: 'b'.repeat(300), estilo: 'faixa' }]) {
+        assert.deepStrictEqual(ops.capaTikTokOf(v), preset.capaTikTokOf(v), JSON.stringify(v));
+      }
+    });
+    ok('capa: o corpo da manchete na prévia == o do PNG (escada medida)', () => {
+      for (const t of ['Perdi 40 mil no primeiro ano', 'Curto', '',
+        'Como sair de uma cidade pequena e chegar a cem mil pedidos por mes sem investidor']) {
+        for (const e of preset.CAPA_ESTILOS) assert.deepStrictEqual(ops.capaTituloTela(t, e), preset.capaTitulo(t, e), t + ' ' + e);
+      }
+    });
+    ok('capa: candidateSanitize valida a capa (presente fica, torta some, ausente não cria)', () => {
+      const presente = ops.candidateSanitize({ id: 'a', capaTikTok: { v: 1, quadroMs: 5000.4, estilo: 'limpo' } });
+      assert.deepStrictEqual(presente.capaTikTok, { v: 1, estilo: 'limpo', posicao: 'meio', quadroMs: 5000 });
+      assert.ok(!('capaTikTok' in ops.candidateSanitize({ id: 'b', capaTikTok: { v: 9 } })));
+      assert.ok(!('capaTikTok' in ops.candidateSanitize({ id: 'c', capaTikTok: 'lixo' })));
+      assert.ok(!('capaTikTok' in ops.candidateSanitize({ id: 'd' })));
+    });
+    ok('capa: o destaque da prévia é o trecho digitado (sem diferenciar maiúsculas), escapado', () => {
+      assert.strictEqual(ops.capaTextoHTML('Perdi 40 mil no ano', '40 MIL'),
+        'Perdi <b class="vop-capa-destaque">40 mil</b> no ano');
+      assert.strictEqual(ops.capaTextoHTML('A <b>', 'zzz'), 'A &lt;b&gt;');
+    });
+    /* MÚSICA DE FUNDO (2026-09-30). */
+    ok('música: níveis e validador da tela == preset; editOf com música == preset', () => {
+      assert.deepStrictEqual(ops.MUSICA_NIVEIS, preset.MUSICA_NIVEIS);
+      const ID = '0123456789abcdef';
+      for (const v of [undefined, { id: 'x' }, { id: ID }, { id: ID, inicioMs: 1500.6, nivel: 'medio' },
+        { id: ID, inicioMs: -1, nivel: 'alto' }, { id: ID.toUpperCase() }]) {
+        assert.deepStrictEqual(ops.musicaOf(v), preset.musicaOf(v), JSON.stringify(v));
+        assert.deepStrictEqual(ops.editOf({ edit: { v: 1, musica: v } }), preset.editOf({ edit: { v: 1, musica: v } }));
+      }
+    });
+    ok('música: gravar, trocar nível, "Sem música"; o export leva só a INTENÇÃO', () => {
+      const ID = '0123456789abcdef';
+      const clip = { id: 'm1', inSec: 10, outSec: 40, topic: 'x', clipCues: [] };
+      ops.musicaWrite(clip, { id: ID });
+      assert.deepStrictEqual(clip.edit.musica, { id: ID, inicioMs: 0, nivel: 'baixo' });
+      ops.musicaWrite(clip, { nivel: 'medio', inicioMs: 2000 });
+      assert.deepStrictEqual(clip.edit.musica, { id: ID, inicioMs: 2000, nivel: 'medio' });
+      const corpo = ops.renderBody(clip, true, { token: 't', name: 'n' });
+      assert.deepStrictEqual(corpo.edit.musica, { id: ID, inicioMs: 2000, nivel: 'medio' });
+      assert.ok(!('ganho' in corpo.edit.musica) && JSON.stringify(corpo).indexOf('dB') < 0);
+      ops.musicaWrite(clip, null);
+      assert.ok(!('musica' in clip.edit) && !('edit' in ops.renderBody(clip, true, { token: 't', name: 'n' })));
+    });
+    ok('música: a prévia usa a MESMA tabela (baixo mais baixo que médio, nunca acima de 1)', () => {
+      const f = { lufs: -14 };
+      const baixo = ops.musicaPreviaVolume({ nivel: 'baixo' }, f);
+      const medio = ops.musicaPreviaVolume({ nivel: 'medio' }, f);
+      assert.ok(Math.abs(baixo - Math.pow(10, -ops.MUSICA_DB.baixo / 20)) < 1e-9 && medio > baixo && medio < 1);
+      assert.strictEqual(ops.musicaPreviaVolume({ nivel: 'medio' }, { lufs: -60 }), 1);
+      assert.strictEqual(ops.MUSICA_VOZ_PREVIA, -14);
+    });
+    ok('música: faixa curta diz quantos segundos antes termina; sem faixa carregada, nada', () => {
+      const ID = '0123456789abcdef';
+      const clip = { id: 'm2', inSec: 0, outSec: 30, edit: { v: 1, musica: { id: ID, inicioMs: 5000 } } };
+      ops.MUS.lista = [{ id: ID, nome: 'Tom', durationSec: 20 }];
+      ops.MUS.estado = 'pronta';
+      assert.strictEqual(ops.musicaAviso(clip), 'A faixa termina 15 s antes do fim do corte (ela não repete).');
+      assert.strictEqual(ops.musicaEstado(clip).tom, 'ok');
+      ops.MUS.lista = [];
+      assert.strictEqual(ops.musicaEstado(clip).tom, 'warn');
+      ops.MUS.lista = null; ops.MUS.estado = 'nunca';
+    });
+    /* REMOVER TRECHOS (2026-09-30). */
+    ok('remoções: validador da tela == preset; editOf com remoções == preset', () => {
+      assert.strictEqual(ops.REMOCOES_MAX, preset.REMOCOES_MAX);
+      for (const v of [undefined, 'x', [], [{ deMs: 5000.4, ateMs: 6000.6 }, { deMs: 1000, ateMs: 2000 }],
+        [{ deMs: 3, ateMs: 1 }, { deMs: true, ateMs: 9 }, 'lixo', { deMs: -1, ateMs: 5 }],
+        Array.from({ length: 50 }, (_, i) => ({ deMs: i, ateMs: i + 1 }))]) {
+        assert.deepStrictEqual(ops.remocoesOf(v), preset.remocoesOf(v), String(JSON.stringify(v)).slice(0, 60));
+        assert.deepStrictEqual(ops.editOf({ edit: { v: 1, remocoes: v } }), preset.editOf({ edit: { v: 1, remocoes: v } }));
+      }
+    });
+    ok('remoções: cada gesto inválido é recusado com o motivo', () => {
+      const clip = { id: 'r1', inSec: 100, outSec: 140, edit: { v: 1, remocoes: [{ deMs: 120000, ateMs: 121000 }] } };
+      assert.strictEqual(ops.remocaoConfere(clip, 110000, 112000), '');
+      assert.ok(/borda do corte/.test(ops.remocaoConfere(clip, 100000, 103000)));
+      assert.ok(/borda do corte/.test(ops.remocaoConfere(clip, 135000, 140000)));
+      assert.ok(/0,3 s/.test(ops.remocaoConfere(clip, 100200, 103000)));
+      assert.ok(/curto demais/.test(ops.remocaoConfere(clip, 110000, 110150)));
+      assert.ok(/sobrepõe/.test(ops.remocaoConfere(clip, 120500, 125000)));
+      assert.ok(/depois do início/.test(ops.remocaoConfere(clip, 112000, 111000)));
+    });
+    ok('remoções: gravar invalida SÓ o exportado — falas, correção, corte cru e id ficam', () => {
+      const cues = [{ start: 0, end: 1, text: 'oi' }];
+      const clip = { id: 'r2', inSec: 100, outSec: 140, rev: 3, clipToken: 'tok', clipFilename: 'x.mp4',
+        clipBytes: 9, clipCues: cues, capEdit: [{ start: 0, end: 1, text: 'olá' }], clipSaved: 'cru.mp4' };
+      ops.remocoesWrite(clip, [{ deMs: 110000, ateMs: 112000 }]);
+      assert.deepStrictEqual(clip.edit.remocoes, [{ deMs: 110000, ateMs: 112000 }]);
+      assert.strictEqual(clip.rev, 4);
+      assert.ok(clip.clipToken === '' && clip.clipFilename === '' && clip.clipBytes === 0);
+      assert.ok(clip.clipCues === cues && clip.capEdit && clip.clipSaved === 'cru.mp4' && clip.id === 'r2');
+      ops.remocoesWrite(clip, []);
+      assert.ok(!('remocoes' in clip.edit));
+    });
+    ok('remoções: o corpo da geometria só leva intervalo e remoções quando há remoção', () => {
+      const sem = ops.legGeoCorpo({ id: 'g1', inSec: 10, outSec: 40 });
+      assert.ok(!('start' in sem) && !('remocoes' in sem.edit));
+      const com = ops.legGeoCorpo({ id: 'g2', inSec: 10, outSec: 40, edit: { v: 1, remocoes: [{ deMs: 15000, ateMs: 16000 }] } });
+      assert.strictEqual(com.start, 10); assert.strictEqual(com.end, 40);
+      assert.deepStrictEqual(com.edit.remocoes, [{ deMs: 15000, ateMs: 16000 }]);
+    });
+    ok('remoções: quadro da capa dentro de um trecho removido = capa desatualizada', () => {
+      const clip = { id: 'g3', inSec: 10, outSec: 40, edit: { v: 1, remocoes: [{ deMs: 15000, ateMs: 16000 }] } };
+      assert.strictEqual(ops.capaForaDoCorte(clip, { quadroMs: 15500 }), true);
+      assert.strictEqual(ops.capaForaDoCorte(clip, { quadroMs: 20000 }), false);
+      assert.strictEqual(ops.capaForaDoCorte(clip, {}), false);
+    });
+    /* TEXTO FIXO NA TELA (2026-09-30). */
+    ok('texto: validador, conjuntos, tetos e geometria da tela == preset', () => {
+      assert.deepStrictEqual(ops.TEXTO_POSICOES, preset.TEXTO_POSICOES);
+      assert.deepStrictEqual(ops.TEXTO_ESTILOS, preset.TEXTO_ESTILOS);
+      assert.deepStrictEqual(ops.TEXTO_GEOMETRIA, preset.TEXTO_GEOMETRIA);
+      assert.strictEqual(ops.TEXTOS_MAX, preset.TEXTOS_MAX);
+      const T = { id: 't1', texto: ' oi  mundo ', deMs: 1000, ateMs: 2500, posicao: 'meio', estilo: 'nota' };
+      for (const v of [undefined, [T], [{ ...T, posicao: 'x' }], [T, { ...T, id: 't2', deMs: 2000, ateMs: 4000 }],
+        [{ ...T, texto: '' }, { ...T, ateMs: 1500 }, 'x'], Array.from({ length: 5 }, (_, i) => ({ ...T, id: 't' + i, deMs: i * 3000, ateMs: i * 3000 + 1500 }))]) {
+        assert.deepStrictEqual(ops.textosOf(v), preset.textosOf(v));
+        assert.deepStrictEqual(ops.editOf({ edit: { v: 1, textos: v } }), preset.editOf({ edit: { v: 1, textos: v } }));
+      }
+    });
+    ok('texto: cada gesto inválido é recusado com o motivo', () => {
+      const clip = { id: 'x1', inSec: 10, outSec: 40, edit: { v: 1, textos: [{ id: 'a', texto: 'A', deMs: 20000, ateMs: 22000 }] } };
+      assert.strictEqual(ops.textoConfere(clip, 'Oi', 12000, 14000), '');
+      assert.ok(/Escreva o texto/.test(ops.textoConfere(clip, '  ', 12000, 14000)));
+      assert.ok(/1 s/.test(ops.textoConfere(clip, 'Oi', 12000, 12500)));
+      assert.ok(/dentro do corte/.test(ops.textoConfere(clip, 'Oi', 9000, 12000)));
+      assert.ok(/sobrepõe/.test(ops.textoConfere(clip, 'Oi', 21000, 23000)));
+    });
+    ok('texto: avisa (sem travar) inteiro num trecho removido; nada a avisar no caso comum', () => {
+      const clip = { id: 'x2', inSec: 10, outSec: 40, titleCardStyle: 'nenhum',
+        edit: { v: 1, remocoes: [{ deMs: 15000, ateMs: 20000 }] } };
+      assert.ok(ops.textoAvisos(clip, { deMs: 16000, ateMs: 18000, posicao: 'alto' }).some(a => /removido/.test(a)));
+      assert.deepStrictEqual(ops.textoAvisos(clip, { deMs: 25000, ateMs: 27000, posicao: 'alto' }), []);
+    });
+    /* ZOOM PONTUAL LEVE (2026-09-30). */
+    ok('zoom: validador, níveis, escalas e tetos da tela == preset', () => {
+      assert.deepStrictEqual(ops.ZOOM_NIVEIS, preset.ZOOM_NIVEIS);
+      assert.deepStrictEqual(ops.ZOOM_ESCALAS, preset.ZOOM_ESCALAS);
+      assert.strictEqual(ops.ZOOMS_MAX, preset.ZOOMS_MAX);
+      assert.strictEqual(ops.ZOOM_MIN_MS, preset.ZOOM_MIN_MS);
+      const Z = { id: 'z1', deMs: 1000, ateMs: 3000, nivel: 'medio' };
+      for (const v of [undefined, [Z], [{ ...Z, nivel: 'x' }], [Z, { ...Z, id: 'z2', deMs: 2000, ateMs: 4000 }],
+        [{ ...Z, ateMs: 1500 }, 'x'], Array.from({ length: 8 }, (_, i) => ({ ...Z, id: 'z' + i, deMs: i * 3000, ateMs: i * 3000 + 1500 }))]) {
+        assert.deepStrictEqual(ops.zoomsOf(v), preset.zoomsOf(v));
+        assert.deepStrictEqual(ops.editOf({ edit: { v: 1, zooms: v } }), preset.editOf({ edit: { v: 1, zooms: v } }));
+      }
+    });
+    ok('zoom: cada gesto inválido é recusado com o motivo', () => {
+      const clip = { id: 'zz', inSec: 10, outSec: 40, edit: { v: 1, zooms: [{ id: 'a', deMs: 20000, ateMs: 22000 }] } };
+      assert.strictEqual(ops.zoomConfere(clip, 12000, 14000), '');
+      assert.ok(/1 s/.test(ops.zoomConfere(clip, 12000, 12500)));
+      assert.ok(/dentro do corte/.test(ops.zoomConfere(clip, 9000, 12000)));
+      assert.ok(/sobrepõe/.test(ops.zoomConfere(clip, 21000, 23000)));
+    });
+    /* REGRESSÃO da entrega capa + edição manual: corte salvo SEM os campos novos manda o MESMO
+       corpo de antes dela (fixture gravada em 2026-09-30, antes da primeira linha). */
+    ok('regressão: renderBody de corte salvo sem os campos novos == fixture (10 casos)', () => {
+      const fix = JSON.parse(require('fs').readFileSync(require('path').join(__dirname,
+        'video-worker', 'fixtures', 'regressao-antes-capa-edicao.json'), 'utf8'));
+      assert.strictEqual(Object.keys(fix.clips).length, 5);
+      for (const [caso, clip] of Object.entries(fix.clips)) {
+        assert.deepStrictEqual(ops.renderBody(JSON.parse(JSON.stringify(clip)), true, fix.fonte), fix.corpos[caso].legenda, caso);
+        assert.deepStrictEqual(ops.renderBody(JSON.parse(JSON.stringify(clip)), false, fix.fonte), fix.corpos[caso].limpo, caso);
+      }
+    });
+    ok('Ângulo: validador da tela == preset (válido, torto, ausente)', () => {
+      for (const legenda of [{ profundidade: 'funda', profundidadeDirecao: 'frente-esquerda' },
+        { profundidade: 'suave', profundidadeDirecao: 'cima' }, { profundidadeDirecao: 'direita' },
+        { profundidadeDirecao: 7 }, { profundidade: 'funda' }]) {
+        assert.deepStrictEqual(ops.editOf({ edit: { v: 1, legenda } }),
+          preset.editOf({ edit: { v: 1, legenda } }), JSON.stringify(legenda));
+      }
+    });
+    console.log(provas + ' provas OK — lógica pura do Estúdio de Vídeos');
+  })
+  .catch((erro) => { console.error(erro); process.exit(1); });
