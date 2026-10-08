@@ -30,7 +30,7 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
 | `video-ops.js` / `.css` (tela do Estúdio) | `.claude/rules/estudio-ui.md` | `HISTORICO-estudio-video.md` |
 | `video-results.js` (Resultados dos cortes) | `.claude/rules/estudio-resultados.md` | — |
 | `baixador/**` (extensão + helper) | `.claude/rules/baixador.md` | `HISTORICO-estudio-video.md` |
-| `web/**` (lançamento Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
+| `publicar.mjs` / `vercel.json` (site publicado = `dist/`) · `web/**` (Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
 | `index.html`, `empreendedor.js` | `.claude/rules/modulos-index-html.md` | — |
 
 # Domínio do Negócio (Multi-marketplace)

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "site-publicado",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3.12", "-m", "http.server", "8791", "--bind", "127.0.0.1", "--directory", "dist"],
+      "port": 8791
+    }
+  ]
+}

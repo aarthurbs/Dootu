@@ -2,10 +2,34 @@
 paths:
   - "web/**"
   - "PASSO-A-PASSO.md"
-description: Registro da Fase 1 do lançamento público. A pasta `cloud/` foi aposentada; só `web/` segue ativo.
+  - "publicar.mjs"
+  - "vercel.json"
+description: Publicação do site pessoal (dist/ via publicar.mjs, ATIVA) e registro da Fase 1 (web/ e cloud/, sem motor).
 ---
 
-# Lançamento público, Fase 1 — `web/` (ativo) e `cloud/` (aposentado)
+# Publicação do site pessoal — `dist/` (ATIVA, decisão do usuário, 2026-10-08)
+
+Pedido: "organize nosso arquivo para que eu possa lançar ele em uma hospedagem" → escolhido
+"site para eu acessar", na Vercel. Passos manuais em `PASSO-A-PASSO.md`.
+- **Vai ao ar só `dist/`**, montada por `node publicar.mjs`: `index.html` + todo
+  `<script src>`/`<link href>` LOCAL que ele carrega + `assets/` inteira. A lista sai do
+  próprio HTML (script novo entra sozinho); arquivo pedido e ausente vira `AVISO`, não queda.
+  `vercel.json` fixa `buildCommand`/`outputDirectory` — é ele que impede publicar a raiz
+  (docs, `CLAUDE.md`, motor, ~400 MB de vídeo). `dist/` está no `.gitignore`.
+- **O Estúdio NÃO vai junto.** Fora da porta 8765 (`location.port !== '8765'`, script de
+  NAVEGAÇÃO do `index.html`) o `#video-ops-root` é removido — o `init()` do `video-ops.js`
+  para na guarda `if (!root) return` — e aparece `#estudio-local`, um `.hub-card` que leva a
+  `http://127.0.0.1:8765/index.html`. **Descartado de propósito:** a página publicada chamar o
+  motor por CORS. O `<a download>` é ignorado entre origens (Baixar quebraria), o Chrome pede
+  permissão de rede local, e o `localStorage` dos projetos é do endereço `127.0.0.1:8765`.
+- **Medido (2026-10-08):** `dist/` = 13 itens, 8,2 MB, maior arquivo 2,2 MB; servida em
+  `:8791` → card visível, zero `/api/*`, único 404 = `supabase-sync.js` (o `index.html` o pede
+  desde que ele foi apagado em `79b682c`); servida pelo `serve.py` em `:8765` → Estúdio monta e
+  o card fica escondido.
+- O `analise-local.ps1` e a página `web/` dependem do `cloud/probe_server.py` APAGADO — não
+  funcionam e **não são publicados**.
+
+# Lançamento público, Fase 1 — `web/` e `cloud/` (registro; nenhum dos dois está no ar)
 
 > **`cloud/` foi aposentada em 2026-09-14 (decisão do usuário).** A pasta saiu da árvore no
 > commit `9d726ef "melhora edit"` — `Dockerfile`, `probe_server.py` e `test_probe_server.py`,
@@ -37,7 +61,8 @@ onde a declaração de autorização existe.
 - **`web/` é um SEGUNDO ponto de entrada, não uma reorganização.** Nada foi movido:
   o `index.html` da raiz tem 0 `import`, 15 `<script src>` cuja ordem importa e 138
   buscas por id — mover arquivo ali troca benefício zero por tela em branco calada.
-  **O Cloudflare Pages tem de apontar para `web`**, nunca para a raiz.
+  **O Cloudflare Pages tem de apontar para `web`**, nunca para a raiz. **[Superado em
+  2026-10-08: o que se publica é `dist/`, ver o topo.]**
 
 ## A resposta pública é RECORTADA
 `{video, note, candidates[]}`, 8 campos por candidato (`CANDIDATE_FIELDS`).
