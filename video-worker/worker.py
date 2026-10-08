@@ -195,6 +195,15 @@ ERROR_CODES = (
     "tiktok_video",           # o MP4 do clip não está lá, está vazio ou o nome não serve
     "tiktok_recusou",         # o TikTok respondeu erro (escopo faltando, formato, cota)
     "tiktok_sem_rede",        # não deu para alcançar o TikTok
+    # Capa do TikTok (serve.py, /api/capa-tiktok). Cada um tem AÇÃO própria na tela.
+    "capa_sem_fonte",         # o vídeo original não está no servidor (importar de novo)
+    "capa_sem_quadro",        # nenhum quadro escolhido ("Usar este quadro")
+    "capa_quadro_fora",       # o quadro escolhido está fora do corte
+    # Música de fundo (serve.py, /api/musica-importar). Cada recusa diz o que fazer.
+    "musica_vazia",           # arquivo vazio
+    "musica_grande",          # passa do teto da rota (50 MB)
+    "musica_tipo",            # extensão fora de .mp3 .m4a .wav
+    "musica_ilegivel",        # o FFmpeg não achou áudio legível
 )
 
 

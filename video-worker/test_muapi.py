@@ -231,7 +231,10 @@ def main():
         muapi.POLL_MAX_SEC = teto
 
     # ------------------------------------------------------ 7. fiacao no ytclip
-    fala = ytclip.parse_json3(test_ytclip.json3(test_ytclip.falar(0.0, 100)))
+    # Enchimento SEM gancho: o `FALA_PADRAO` tem uma marca forte, e desde o segundo nivel de
+    # ancora do ytclip (2026-10-06) ele acharia sugestao sozinho -- a base deixaria de ser limpa.
+    fala = ytclip.parse_json3(test_ytclip.json3(
+        test_ytclip.falar(0.0, 100, texto="A empresa gastou todo o lucro naquele ano.")))
     base = {"durationSec": 300.0, "chapters": [], "heatmap": [], "cues": fala}
     sem_chave = ytclip.candidates(base)
     check("7a. sem sinal nenhum o detector nao sugere nada (base limpa)", sem_chave == [])
@@ -281,6 +284,36 @@ def main():
         js = fh.read()
     check("9a. o `video-ops.js` nomeia o sinal novo (senao a tela mostra 'muapi' cru)",
           "muapi:" in js.split("SIGNAL_LABEL")[1][:300])
+
+    # ------------------------------- 10. tamanho do pedido a MuAPI (2026-10-06)
+    # O teto de sugestoes subiu para 20, o gasto com o terceiro nao. A rota e CHAMADA com
+    # `probe` e `highlights` falsos (nenhuma rede): o que conta e o numero que ela PEDE.
+    import types
+    import serve  # noqa: E402
+    pedidos, respostas = [], []
+    falso = {"videoId": "abc12345678", "url": "https://www.youtube.com/watch?v=abc12345678",
+             "title": "", "uploader": "", "durationSec": 300.0, "captionLang": "",
+             "captionKind": "", "cues": [], "chapters": [], "heatmap": [], "note": ""}
+    antes = (serve.ytclip.probe, muapi.highlights, os.environ.get(muapi.ENV_KEY))
+    def pedir(url, num_highlights=3, **_):
+        pedidos.append(num_highlights)
+        return [], ""
+
+    serve.ytclip.probe = lambda url: dict(falso)
+    muapi.highlights = pedir
+    os.environ[muapi.ENV_KEY] = "chave-de-teste"
+    try:
+        serve.CutHandler._handle_probe(types.SimpleNamespace(
+            _json_body=lambda: {"url": falso["url"]}, _send_json=respostas.append))
+    finally:
+        serve.ytclip.probe, muapi.highlights = antes[0], antes[1]
+        if antes[2] is None:
+            os.environ.pop(muapi.ENV_KEY, None)
+        else:
+            os.environ[muapi.ENV_KEY] = antes[2]
+    check("10a. a analise pede 12 trechos a MuAPI", pedidos == [12] and len(respostas) == 1)
+    check("10b. e esse numero NAO segue o teto de sugestoes",
+          muapi.NUM_HIGHLIGHTS == 12 and ytclip.MAX_CANDIDATES != muapi.NUM_HIGHLIGHTS)
 
     # ---------------------------------------------------------------- relatorio
     print("\n--- verificacoes ---")

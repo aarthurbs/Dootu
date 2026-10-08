@@ -1,7 +1,7 @@
 # Estado atual
 
-Última atualização da base: 2026-09-18. Estado técnico abaixo registrado em 2026-09-15.
-Branch: `estudio/hub-recomendacoes` · commit base: `656dcd9`
+Última atualização da base: 2026-09-22.
+Referência histórica de 2026-09-15: branch `estudio/hub-recomendacoes` · commit base `656dcd9`.
 
 ## Descoberta do negócio
 
@@ -10,6 +10,40 @@ Dootu é a marca geral do empreendimento. Em 2026-09-18, o fundador priorizou a 
 Próximo passo: definir cliente, quem decide as operações e onde ficam os recursos, para distinguir ferramenta, gestão e produto de investimento. Oferta, estratégia e orçamento não estão definidos. Esta atualização é documental; o estado técnico abaixo é um registro datado, não uma revalidação do software atual.
 
 ## Última tarefa técnica registrada
+
+- **2026-10-01 — Editor do Estúdio em ferramentas: entregue** (plano
+  `../02-Execution/PLANO-editor-ferramentas.md`, decisão
+  `../03-Decisions/2026-10-01-editor-em-ferramentas.md`). Barra fixa de ferramentas entre o
+  vídeo e o painel, tela que não rola (hub ≥ 800 px e janela ≥ 600 px), título e exportar no
+  topo, e nenhum texto explicativo no editor (falha = rótulo do próprio controle). Conferido no
+  Chrome com um corte real em sete tamanhos de janela, troca de ferramenta tocando, arrasto da
+  legenda, teclado na barra e um export real. `.provas.ps1` confere a linha `Checks:`.
+  **Próximo passo exato:** o operador usa o editor num corte real e diz se algum caminho que
+  ficou sem aviso (lista na decisão) precisa de estado visual próprio.
+
+- **2026-10-01 — Capa do TikTok + edição manual: entregue** (plano
+  `../02-Execution/PLANO-capa-e-edicao-manual.md`, decisão
+  `../03-Decisions/2026-09-30-capa-e-edicao-manual.md`). Capa PNG ao lado do MP4, música de fundo
+  da biblioteca local, remover trechos do meio, texto fixo e zoom leve, todos opcionais e
+  marcados pelo operador. Antes, a entrega do Ângulo da Profundidade (2026-09-29), que tinha
+  ficado sem testes nem docs, foi terminada. `.\provas.ps1` confere a linha `Checks:` do
+  `CLAUDE.md`. **Não conferido no Chrome** nesta entrega (o servidor do DevTools não conectou).
+  **Próximo passo exato:** rodar `.\estudio.ps1` (reiniciado), abrir um corte e conferir no
+  navegador as cinco seções novas nas larguras 390/800/1440, inclusive prévia × PNG/MP4 real.
+
+- **2026-09-22 — rolagem da bancada e validação do fluxo real: concluídas.**
+  A coluna do vídeo acompanha a rolagem de `#main` quando o hub tem duas colunas;
+  no modo empilhado permanece no fluxo. Correção localizada em `video-ops.css`,
+  com contrato em `.claude/rules/estudio-ui.md`, preservando as alterações anteriores.
+  Validação: `.\provas.ps1`, 2045 verificações nas dez suítes, zero falhas; Chrome
+  em seis tamanhos de janela (390–1440px de largura, 600–900px de altura).
+  Após declaração explícita do usuário, o vídeo `bNkQaTQ4SE0` foi importado
+  (1920×1080, 2235,22s). Interações no navegador confirmaram reprodução, criação
+  de trecho, ajuste de legenda persistido e reabertura do mesmo projeto com fonte
+  e declaração preservadas. Sem novo render de export nesta tarefa: o ajuste é de
+  rolagem. Nenhum bloqueio no escopo; próximo passo é usar a bancada na edição.
+
+### Registro anterior — 2026-09-15
 
 - Objetivo: fazer o Estúdio trabalhar com o **vídeo inteiro importado** como mídia de
   edição — player interno no site, cortes marcados em qualquer ponto da duração, e todo

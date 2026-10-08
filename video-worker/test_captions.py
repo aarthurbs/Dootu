@@ -15,7 +15,10 @@ Uso:
 """
 
 import io
+import json
+import math
 import os
+import subprocess
 import re
 import sys
 
@@ -768,9 +771,12 @@ check("13d3. caixaAlta False sobrevive (booleano, nao truthy)",
 check("13d4. numeros fora da faixa sao GRAMPEADOS, nao recusados",
       captions.estilo_ass(None, {"tamanho": 999, "largura": 1, "posicaoPct": -5})
       == dict(_CLASSICO, tamanho=96, largura=360, posicaoPct=0,
-              max_linha=captions.chars_por_linha(96, 0.55, 360)))
-check("13d5. tipo errado, cor livre e alinhamento desconhecido caem no automatico",
-      captions.estilo_ass("xxx", {"familia": 123, "tamanho": "58", "cor": "#ff00ff",
+              max_linha=captions.chars_por_linha(96, 0.55, 360),
+              topo=40 + int(math.ceil(2 * 96 * 1.18)),
+              contorno_px=captions.estilo_ass(None, {"tamanho": 96})["contorno_px"]))
+check("13d5. tipo errado, cor torta e alinhamento desconhecido caem no automatico",
+      captions.estilo_ass("xxx", {"familia": 123, "tamanho": "58", "cor": "#ff00f",
+                                  "contorno": "preto", "fundo": 7,
                                   "alinhamento": "justify", "caixaAlta": 1,
                                   "posicaoPct": "80"}) == _CLASSICO)
 check("13d6. `manual` que nao e dicionario nao derruba nada",
@@ -783,13 +789,20 @@ check("13e. sem `pct` a ancora e exatamente a de sempre",
       and captions.margem_inferior(1920, 607, None) == 705)
 check("13e2. com `pct` a base vai para a fracao pedida da altura do quadro",
       captions.margem_inferior(1920, 607, 70) == 1920 - int(round(1920 * 0.70)))
-# 99% cairia DENTRO da faixa de botoes do TikTok: o teto ZONA_UI_PCT continua mordendo.
-check("13e3. e o teto da zona de interface continua sendo aplicado",
-      captions.margem_inferior(1920, 607, 99) == 269
-      and captions.margem_inferior(1920, 607, 99) == captions.margem_inferior(1920, 1920))
-check("13e4. pct fora de 0..100 e grampeado aqui tambem (o .ass nunca ve numero torto)",
-      captions.margem_inferior(1920, 607, -40) == 1920
-      and captions.margem_inferior(1920, 607, 400) == captions.margem_inferior(1920, 607, 86))
+# 2026-09-28: o MANUAL e livre. A zona de botoes do TikTok virou aviso (serve), nao trava:
+# 99% vai para 99%, so que nunca abaixo da margem do quadro (40 px). A AUTOMATICA continua
+# fugindo da zona (quadro cheio = `crop`: base no teto ZONA_UI_PCT, 269).
+check("13e3. manual abaixo de 86% e aceito, ate a margem de baixo; a automatica segue fugindo",
+      captions.margem_inferior(1920, 607, 95) == 1920 - int(round(1920 * 0.95))
+      and captions.margem_inferior(1920, 607, 99) == 40
+      and captions.margem_inferior(1920, 607, 100) == 40
+      and captions.margem_inferior(1920, 1920) == 269)
+check("13e4. pct fora de 0..100 e grampeado, e o TOPO guarda uma pagina inteira no quadro",
+      captions.margem_inferior(1920, 607, 400) == 40
+      and captions.margem_inferior(1920, 607, -40) == 1920 - 40
+      and captions.margem_inferior(1920, 607, 0, 177) == 1920 - 177
+      and captions.estilo_ass()["topo"] == 40 + int(math.ceil(2 * 58 * 1.18))
+      and captions.estilo_ass("impacto")["topo"] == 40 + int(math.ceil(2 * 72 * 1.10)))
 
 # O documento. A prova e o TEXTO do .ass gerado, nao o dicionario que o gerou.
 _ASS_IMPACTO = captions.to_ass(_CUES_ESTILO, video_h=607, estilo=_IMPACTO)
@@ -831,6 +844,225 @@ check("13h2. e sem pagina continua devolvendo '' em qualquer estilo",
 check("13i. a lista do que o ASS nao reproduz existe, e nenhuma frase e vazia",
       isinstance(captions.ASS_NAO_REPRODUZ, tuple) and len(captions.ASS_NAO_REPRODUZ) >= 3
       and all(isinstance(f, str) and f.strip() for f in captions.ASS_NAO_REPRODUZ))
+
+# --------------------------------------------- 14. posicao LATERAL (`coluna_x`, 2026-09-25)
+# Dona unica do X nos dois renderizadores. O que se prova CHAMANDO a funcao: ausente e byte
+# a byte o centro de sempre, os dois grampos mordem com o motivo certo, a coluna larga fica
+# sem espaco, e o ASS usa exatamente estas margens.
+_col = captions.coluna_x
+# 2026-09-28: COLUNA ELASTICA. O grampo `borda`/`trilha` saiu; perto da borda a coluna
+# estreita ate o piso (a palavra mais longa), e so ai o X para.
+check("14a. sem intencao, a coluna fica centralizada com as margens de sempre",
+      {k: _col(1080, 820)[k] for k in ("esquerda", "direita", "largura", "grampeado")}
+      == {"esquerda": 130, "direita": 130, "largura": 820, "grampeado": None}
+      and _col(1080, 821)["esquerda"] == _col(1080, 821)["direita"] == 129
+      and _col(1080, 820, None, 300)["largura"] == 820)
+check("14b. perto da borda a coluna ESTREITA para caber, sem parar e sem sair da margem",
+      _col(1080, 820, 20, 300) == {"esquerda": 40, "direita": 688, "largura": 352, "piso": 300,
+                                   "faixa": (18, 82), "grampeado": None, "trilha": False,
+                                   "estreitou": True})
+check("14c. so o PISO para o X (e diz `palavra`); a trilha virou aviso, nao trava",
+      _col(1080, 820, 0, 300)["largura"] == 300 and _col(1080, 820, 0, 300)["esquerda"] == 40
+      and _col(1080, 820, 0, 300)["grampeado"] == "palavra"
+      and _col(1080, 820, 100, 300)["esquerda"] + 300 == 1040
+      and _col(1080, 820, 100, 300)["trilha"] is True
+      and _col(1080, 820, 60, 300)["trilha"] is True
+      and _col(1080, 820, 0)["grampeado"] == "borda")
+check("14d. piso que nao deixa curso: faixa None e o X fica no centro",
+      _col(1080, 1000, None, 1000)["faixa"] is None
+      and _col(1080, 1000, 10, 1000)["esquerda"] == 40
+      and _col(1080, 820, 10, 1200)["largura"] == 1000)
+check("14e. voltando ao centro a coluna alarga ate o maximo do operador, nunca alem",
+      all(r["largura"] <= 820 and r["esquerda"] >= 40 and r["esquerda"] + r["largura"] <= 1040
+          and r["esquerda"] + r["largura"] + r["direita"] == 1080
+          for r in (_col(1080, 820, p, 263) for p in range(0, 101)))
+      and _col(1080, 820, 50, 263)["largura"] == 820
+      and _col(1080, 820, 45, 263)["esquerda"] == 76)
+_estilo_x = captions.estilo_ass(None, {"posicaoXPct": 42})
+_ass_x = captions.to_ass(_CUES_ESTILO, video_h=608, estilo=_estilo_x)
+_x = _col(1080, 820, 42)
+check("14f. o ASS usa as margens do `coluna_x` (MarginL/MarginR), e sem X continua 130/130",
+      (",%d,%d," % (_x["esquerda"], _x["direita"])) in _ass_x.split("Style: Legenda,")[1].split("\n")[0]
+      and ",130,130," in captions.to_ass(_CUES_ESTILO, video_h=608).split("Style: Legenda,")[1].split("\n")[0])
+check("14g. X fora de 0..100 e grampeado na faixa do modelo, e texto nao vira numero",
+      captions.estilo_ass(None, {"posicaoXPct": 250})["posicaoXPct"] == 100
+      and captions.estilo_ass(None, {"posicaoXPct": "40"})["posicaoXPct"] is None)
+check("14h. a Profundidade esta declarada no que o ASS nao reproduz",
+      any("Profundidade" in f for f in captions.ASS_NAO_REPRODUZ))
+
+# --------------------------------------------- 14i+. piso da coluna e paginas (2026-09-28)
+# O piso e a palavra mais LARGA do corte (pontuacao inclusa, caixa alta aplicada), no corpo
+# e na face do estilo, vezes a escala da palavra acesa. Palavras CONSTRUIDAS: "mmmm" e mais
+# larga que "iiiiiiii" com o dobro de letras -- a media por letra erraria isso.
+_E58 = captions.estilo_ass("classico", {})
+check("14i. a palavra mais larga vence a mais comprida, e a caixa alta mede em maiusculas",
+      captions.palavra_mais_longa([{"start": 0, "end": 1, "text": "iiiiiiii mmmm"}], _E58)[0] == "mmmm"
+      and captions.palavra_mais_longa([{"start": 0, "end": 1, "text": "ok empreendedores,"}],
+                                      captions.estilo_ass("impacto"))[0] == "EMPREENDEDORES,"
+      # 10,775 em = a palavra INTEIRA medida no Chrome; a soma por letra fica 0,7 px abaixo
+      # (kerning), muito menos que a escala da palavra acesa que entra no piso.
+      and abs(captions.largura_texto("EMPREENDEDORES,", "montserrat", 800, False, 72)
+              - 10.775 * 72) < 1
+      and captions.palavra_mais_longa([], _E58) == ("", 0.0))
+check("14j. caractere fora da tabela vale o MAIOR da face (piso nunca mente para menos)",
+      captions.largura_texto("中", "inter", 700, False, 100)
+      == max(captions.AVANCO_CHAR[("inter", 700)]) / 10.0
+      and captions.largura_texto("a", "inter", 800, False, 100)
+      > captions.largura_texto("a", "inter", 700, False, 100))
+_lay = captions.layout_legenda(captions.estilo_ass("classico", {"posicaoXPct": 5}),
+                               [{"start": 0, "end": 2, "text": "o dinheiro"}])
+_px_din = captions.largura_texto("dinheiro", "inter", 700, False, 58)
+check("14k. o layout aplica o piso = palavra x escala da palavra acesa, e o teto acompanha",
+      _lay["piso"] == int(math.ceil(_px_din * 1.12)) and _lay["largura"] == _lay["piso"]
+      and _lay["esquerda"] == 40 and _lay["grampeado"] == "palavra"
+      and _lay["palavra"] == "dinheiro"
+      and _lay["max_linha"] == captions.chars_por_linha(58, 0.55, _lay["largura"]))
+# O ASS usa a coluna EFETIVA: perto da borda as margens e o teto de linha acompanham.
+_ass_borda = captions.to_ass(_CUES_ESTILO, video_h=608,
+                             estilo=captions.estilo_ass(None, {"posicaoXPct": 10}))
+_lay_b = captions.layout_legenda(captions.estilo_ass(None, {"posicaoXPct": 10}), _CUES_ESTILO)
+check("14l. o ASS perto da borda usa MarginL/MarginR da coluna estreitada",
+      (",%d,%d," % (_lay_b["esquerda"], _lay_b["direita"]))
+      in _ass_borda.split("Style: Legenda,")[1].split("\n")[0]
+      and _lay_b["largura"] < 820)
+# Paridade de VALOR com o preset.js real (nao regex): o node importa o LEGENDA_PRESETS e o
+# `toCaptionPages`, e o porte `paginas_remotion` tem de devolver as mesmas paginas.
+_STUDIO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "studio")
+
+
+def _node(codigo, entrada):
+    try:
+        r = subprocess.run(["node", "--input-type=module", "-e", codigo], cwd=_STUDIO,
+                           input=json.dumps(entrada), capture_output=True, text=True,
+                           encoding="utf-8", timeout=60)
+        return json.loads(r.stdout) if r.returncode == 0 else {"erro": r.stderr[-400:]}
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return {"erro": str(exc)}
+
+
+_presets = _node("import { LEGENDA_PRESETS as P } from './src/preset.js';"
+                 "process.stdout.write(JSON.stringify(P));", None)
+check("14m. peso, entrelinha e escala da palavra de cada estilo batem com o preset.js",
+      "erro" not in _presets and all(
+          _presets[n]["peso"] == e["peso"] and abs(_presets[n]["entrelinha"] - e["entrelinha"]) < 1e-9
+          and abs(_presets[n]["palavraEscala"] - e["palavra_escala"]) < 1e-9
+          for n, e in captions.LEGENDA_ESTILOS.items()))
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures",
+                       "json3-rolante.json"), encoding="utf-8") as _f:
+    _REAIS = captions.cues_from_words(ytclip.parse_json3_words(json.load(_f)))
+_CONSTRUIDAS = [
+    {"start": 0, "end": 3, "text": "a b c", "words": [
+        {"start": 0, "end": 1, "text": "a"}, {"start": 1, "end": 2, "text": "b"},
+        {"start": 2, "end": 3, "text": "c"}]},
+    {"start": 3, "end": 9, "text": ">> fulano disse que " + "palavra " * 12 + "fim",
+     "words": [{"start": 3, "end": 3.5, "text": ">> fulano"}] + [
+         {"start": 3.5 + i * 0.4, "end": 3.9 + i * 0.4, "text": w}
+         for i, w in enumerate(["disse", "que"] + ["palavra"] * 12 + ["fim"])]},
+    {"start": 9, "end": 12, "text": "frase manual inteira numa palavra so",
+     "words": [{"start": 9, "end": 12, "text": "frase manual inteira numa palavra so"}]},
+    {"start": 12, "end": 14, "text": "  espaços   estranhos\tna fala  "},
+    {"start": 14, "end": 14, "text": "sem duracao"},
+    {"start": "15", "end": 17, "text": "inicio em texto e emoji \U0001F600 aqui"},
+    {"start": 17, "end": 19, "text": "palavras que nao casam", "words": [
+        {"start": 17, "end": 18, "text": "outra"}]},
+    {"start": 19, "end": 21, "text": ""},
+]
+_casos = [(c, t) for c in (_REAIS, _CONSTRUIDAS) for t in (8, 12, 22, 30, 50)]
+_js = _node("import { toCaptionPages } from './src/preset.js';"
+            "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{"
+            "const casos=JSON.parse(d);process.stdout.write(JSON.stringify(casos.map("
+            "([c,t])=>toCaptionPages(c,t).map(p=>({start:p.start,end:p.end,text:p.text})))));});",
+            _casos)
+check("14n. o porte `paginas_remotion` devolve EXATAMENTE as paginas do toCaptionPages",
+      isinstance(_js, list) and len(_js) == len(_casos)
+      and all(captions.paginas_remotion(c, t) == j for (c, t), j in zip(_casos, _js))
+      and sum(len(j) for j in _js) > 100)
+# A pagina do Remotion e cortada por CARACTERES e quebrada pelo navegador: a palavra longa
+# sozinha numa linha faz a pagina de 22 caracteres ocupar 3 linhas (achado no still 21, em
+# que o "OS" saia pelo topo com a guarda de 2 linhas). A guarda usa as linhas de verdade.
+_EI = captions.estilo_ass("impacto")
+check("14o. a guarda do topo conta as linhas REAIS da pagina mais alta do corte",
+      captions.linhas_da_pagina("OS EMPREENDEDORES, QUE", _EI, 820) == 3
+      and captions.linhas_da_pagina("uma frase curta", _EI, 820) == 1
+      and captions.topo_das_paginas(_EI, [{"text": "Os empreendedores, que"}], 820)
+      == 40 + int(math.ceil(3 * 72 * 1.10))
+      and captions.topo_das_paginas(_EI, [], 820) == _EI["topo"])
+
+# --------------------------------------------- 15. REMOVER TRECHOS: o dono do mapa de tempo
+# Corte 415-461 s (46 s), em ms da FONTE. Tudo chamado com valor construido.
+_IN, _OUT = 415000, 461000
+_m = captions.mapa_saida(_IN, _OUT, [{"deMs": 420000, "ateMs": 422500},
+                                     {"deMs": 422400, "ateMs": 423000},
+                                     {"deMs": 440000, "ateMs": 441000}])
+check("15a. remocoes sobrepostas sao JUNTADAS, em ordem; pedacos = o que sobra",
+      _m["remocoes"] == [(420000.0, 423000.0), (440000.0, 441000.0)]
+      and _m["pedacos"] == [(415000.0, 420000.0), (423000.0, 440000.0), (441000.0, 461000.0)])
+check("15b. a duracao da saida e a SOMA EXATA dos pedacos (46 - 3 - 1 = 42 s)",
+      _m["duracao_ms"] == 42000.0 and _m["duracao_ms"] == sum(b - a for a, b in _m["pedacos"]))
+_g = captions.mapa_saida(_IN, _OUT, [{"deMs": 420010, "ateMs": 421020}])
+_q = 1000.0 / captions.FPS_SAIDA
+check("15c. as pontas caem na GRADE dos quadros da saida (1/30 s a partir do comeco do corte)",
+      all(abs(((t - _IN) / _q) - round((t - _IN) / _q)) < 1e-3 for t in _g["remocoes"][0])
+      and abs(_g["remocoes"][0][0] - 420000.0) < _q and abs(_g["remocoes"][0][1] - 421033.333) < 0.01)
+check("15d. remocao que ENCOSTA na borda do corte e ignorada (mover a borda e o gesto certo)",
+      captions.mapa_saida(_IN, _OUT, [{"deMs": 415000, "ateMs": 418000}])["remocoes"] == []
+      and captions.mapa_saida(_IN, _OUT, [{"deMs": 458000, "ateMs": 461000}])["remocoes"] == [])
+check("15e. curta demais (< 200 ms) e a que deixaria pedaco < 300 ms caem; o resto fica",
+      captions.mapa_saida(_IN, _OUT, [{"deMs": 430000, "ateMs": 430150}])["remocoes"] == []
+      and captions.mapa_saida(_IN, _OUT, [{"deMs": 415200, "ateMs": 418000}])["remocoes"] == []
+      and captions.mapa_saida(_IN, _OUT, [{"deMs": 430000, "ateMs": 430300},
+                                          {"deMs": 430500, "ateMs": 431000}])["remocoes"]
+      == [(430000.0, 430300.0)])
+check("15f. no maximo REMOCOES_MAX; entrada torta (sem campo, NaN, invertida) e ignorada",
+      len(captions.mapa_saida(0, 600000, [{"deMs": 1000 + i * 2000, "ateMs": 1500 + i * 2000}
+                                         for i in range(40)])["remocoes"]) == captions.REMOCOES_MAX
+      and captions.mapa_saida(_IN, _OUT, [{"deMs": "x"}, {"ateMs": 1}, {"deMs": float("nan"), "ateMs": 1},
+                                          {"deMs": 430000, "ateMs": 429000}])["remocoes"] == []
+      and captions.mapa_saida(_IN, _OUT, None)["pedacos"] == [(_IN, float(_OUT))])
+check("15g. fonte -> saida e o inverso: removido = None; na fronteira vale o pedaco seguinte",
+      captions.saida_de(_m, 421000) is None and captions.saida_de(_m, 415000) == 0
+      and captions.saida_de(_m, 423000) == 5000 and captions.saida_de(_m, 445000) == 26000
+      and captions.fonte_de(_m, 5000) == 423000 and captions.fonte_de(_m, 4999) == 419999
+      and captions.fonte_de(_m, 42000) == 461000 and captions.saida_de(_m, 470000) is None)
+_falas = [
+    {"start": 1.0, "end": 3.0, "text": "antes fica", "words": [
+        {"start": 1.0, "end": 2.0, "text": "antes"}, {"start": 2.0, "end": 3.0, "text": "fica"}]},
+    {"start": 4.0, "end": 9.0, "text": "a b c", "words": [
+        {"start": 4.0, "end": 4.9, "text": "a"}, {"start": 5.5, "end": 6.0, "text": "b"},
+        {"start": 7.5, "end": 9.0, "text": "c"}]},
+    {"start": 5.2, "end": 7.8, "text": "toda dentro"},
+    {"start": 6.0, "end": 12.0, "text": "atravessa sem palavras"},
+    {"start": 30.0, "end": 31.0, "text": "depois", "words": [{"start": 30.0, "end": 31.0, "text": "depois"}]},
+]
+_r = captions.remapear_cues(_falas, _m)
+check("15h. palavra DENTRO de remocao sai; parcial e aparada; a fala vira a juncao das que ficam",
+      _r[1]["text"] == "a c" and [w["text"] for w in _r[1]["words"]] == ["a", "c"]
+      and (_r[1]["words"][1]["start"], _r[1]["words"][1]["end"]) == (5.0, 6.0))
+check("15i. antes da remocao fica igual; DEPOIS desloca pelo que saiu (30 s -> 26 s)",
+      (_r[0]["start"], _r[0]["end"], _r[0]["text"]) == (1.0, 3.0, "antes fica")
+      and (_r[-1]["start"], _r[-1]["end"]) == (26.0, 27.0))
+check("15j. fala sem palavras INTEIRA dentro some; a que atravessa vira o trecho mantido",
+      all(c["text"] != "toda dentro" for c in _r)
+      and [c for c in _r if c["text"] == "atravessa sem palavras"][0]["start"] == 5.0
+      and [c for c in _r if c["text"] == "atravessa sem palavras"][0]["end"] == 9.0)
+check("15k. sem remocao, as falas voltam IDENTICAS (corte antigo nao muda)",
+      captions.remapear_cues(_falas, captions.mapa_saida(_IN, _OUT, [])) is _falas
+      and captions.remapear_cues(_falas, None) is _falas)
+_pg = captions.paginas_na_fonte([{"start": 5.0, "end": 6.0, "text": "x"}], _m)
+check("15l. cada pagina ganha o instante equivalente na FONTE (relativo ao corte) para a previa",
+      _pg[0]["fonteStart"] == 8.0 and _pg[0]["fonteEnd"] == 9.0
+      and captions.paginas_na_fonte([{"start": 1.0, "end": 2.0}], None) == [{"start": 1.0, "end": 2.0}])
+# Textos fixos e zooms usam o MESMO dono (`intervalos_saida`) sobre o MESMO mapa.
+_iv, _fora = captions.intervalos_saida(
+    [{"id": "a", "deMs": 416000, "ateMs": 418000}, {"id": "b", "deMs": 419000, "ateMs": 425000},
+     {"id": "c", "deMs": 420500, "ateMs": 422000}, {"id": "d", "deMs": 450000, "ateMs": 452000}], _m)
+check("15m. janela antes da remocao fica; a que ATRAVESSA e aparada e continua; a de dentro sai",
+      [(x["id"], x["deSec"], x["ateSec"]) for x in _iv]
+      == [("a", 1.0, 3.0), ("b", 4.0, 7.0), ("d", 31.0, 33.0)] and _fora == ["c"])
+_sem = captions.intervalos_saida([{"id": "a", "deMs": 416000, "ateMs": 418000}],
+                                 captions.mapa_saida(_IN, _OUT, []))
+check("15n. sem remocao, a janela so vira relativa ao corte (1-3 s)",
+      _sem == ([{"id": "a", "deMs": 416000, "ateMs": 418000, "deSec": 1.0, "ateSec": 3.0}], []))
 
 
 def main():

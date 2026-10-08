@@ -1,0 +1,1076 @@
+{
+ "clips": {
+  "cap_edit": {
+   "capEdit": [
+    {
+     "end": 1.2,
+     "start": 0,
+     "text": "eu perdi tudo no 1o ano"
+    },
+    {
+     "end": 3,
+     "start": 1.2,
+     "text": "e recomecei do zero"
+    }
+   ],
+   "clipCues": [
+    {
+     "end": 1.2,
+     "start": 0,
+     "text": "eu perdi tudo no primeiro ano",
+     "words": [
+      {
+       "end": 0.3,
+       "start": 0,
+       "text": "eu"
+      },
+      {
+       "end": 0.6,
+       "start": 0.3,
+       "text": "perdi"
+      },
+      {
+       "end": 0.8,
+       "start": 0.6,
+       "text": "tudo"
+      },
+      {
+       "end": 0.95,
+       "start": 0.8,
+       "text": "no"
+      },
+      {
+       "end": 1.05,
+       "start": 0.95,
+       "text": "primeiro"
+      },
+      {
+       "end": 1.2,
+       "start": 1.05,
+       "text": "ano"
+      }
+     ]
+    },
+    {
+     "end": 3,
+     "start": 1.2,
+     "text": "e recomecei do zero"
+    }
+   ],
+   "id": "c5",
+   "inSec": 0,
+   "outSec": 3,
+   "topic": "Correcao"
+  },
+  "edit_manual": {
+   "clipCues": [
+    {
+     "end": 1.2,
+     "start": 0,
+     "text": "eu perdi tudo no primeiro ano",
+     "words": [
+      {
+       "end": 0.3,
+       "start": 0,
+       "text": "eu"
+      },
+      {
+       "end": 0.6,
+       "start": 0.3,
+       "text": "perdi"
+      },
+      {
+       "end": 0.8,
+       "start": 0.6,
+       "text": "tudo"
+      },
+      {
+       "end": 0.95,
+       "start": 0.8,
+       "text": "no"
+      },
+      {
+       "end": 1.05,
+       "start": 0.95,
+       "text": "primeiro"
+      },
+      {
+       "end": 1.2,
+       "start": 1.05,
+       "text": "ano"
+      }
+     ]
+    },
+    {
+     "end": 3,
+     "start": 1.2,
+     "text": "e recomecei do zero"
+    }
+   ],
+   "edit": {
+    "enquadramento": {
+     "reframe": "crop45"
+    },
+    "legenda": {
+     "alinhamento": "esquerda",
+     "corpo": 70,
+     "posicaoPct": 60,
+     "posicaoXPct": 30
+    },
+    "v": 1
+   },
+   "id": "c3",
+   "inSec": 10,
+   "outSec": 50,
+   "topic": "Como dobrar a margem"
+  },
+  "impacto_crop": {
+   "clipCues": [
+    {
+     "end": 1.2,
+     "start": 0,
+     "text": "eu perdi tudo no primeiro ano",
+     "words": [
+      {
+       "end": 0.3,
+       "start": 0,
+       "text": "eu"
+      },
+      {
+       "end": 0.6,
+       "start": 0.3,
+       "text": "perdi"
+      },
+      {
+       "end": 0.8,
+       "start": 0.6,
+       "text": "tudo"
+      },
+      {
+       "end": 0.95,
+       "start": 0.8,
+       "text": "no"
+      },
+      {
+       "end": 1.05,
+       "start": 0.95,
+       "text": "primeiro"
+      },
+      {
+       "end": 1.2,
+       "start": 1.05,
+       "text": "ano"
+      }
+     ]
+    },
+    {
+     "end": 3,
+     "start": 1.2,
+     "text": "e recomecei do zero"
+    }
+   ],
+   "id": "c2",
+   "inSec": 100,
+   "legendaStyle": "impacto",
+   "outSec": 140,
+   "reframe": "crop",
+   "topic": "O erro que quase quebrou a empresa"
+  },
+  "sem_card": {
+   "clipCues": [
+    {
+     "end": 1.2,
+     "start": 0,
+     "text": "eu perdi tudo no primeiro ano",
+     "words": [
+      {
+       "end": 0.3,
+       "start": 0,
+       "text": "eu"
+      },
+      {
+       "end": 0.6,
+       "start": 0.3,
+       "text": "perdi"
+      },
+      {
+       "end": 0.8,
+       "start": 0.6,
+       "text": "tudo"
+      },
+      {
+       "end": 0.95,
+       "start": 0.8,
+       "text": "no"
+      },
+      {
+       "end": 1.05,
+       "start": 0.95,
+       "text": "primeiro"
+      },
+      {
+       "end": 1.2,
+       "start": 1.05,
+       "text": "ano"
+      }
+     ]
+    },
+    {
+     "end": 3,
+     "start": 1.2,
+     "text": "e recomecei do zero"
+    }
+   ],
+   "id": "c4",
+   "inSec": 5,
+   "outSec": 45,
+   "titleCardStyle": "nenhum",
+   "topic": "Sem card"
+  },
+  "simples": {
+   "clipCues": [
+    {
+     "end": 1.2,
+     "start": 0,
+     "text": "eu perdi tudo no primeiro ano",
+     "words": [
+      {
+       "end": 0.3,
+       "start": 0,
+       "text": "eu"
+      },
+      {
+       "end": 0.6,
+       "start": 0.3,
+       "text": "perdi"
+      },
+      {
+       "end": 0.8,
+       "start": 0.6,
+       "text": "tudo"
+      },
+      {
+       "end": 0.95,
+       "start": 0.8,
+       "text": "no"
+      },
+      {
+       "end": 1.05,
+       "start": 0.95,
+       "text": "primeiro"
+      },
+      {
+       "end": 1.2,
+       "start": 1.05,
+       "text": "ano"
+      }
+     ]
+    },
+    {
+     "end": 3,
+     "start": 1.2,
+     "text": "e recomecei do zero"
+    }
+   ],
+   "id": "c1",
+   "inSec": 415,
+   "outSec": 461,
+   "topic": "Perdi 40 mil no primeiro ano"
+  }
+ },
+ "corpos": {
+  "cap_edit": {
+   "legenda": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0,
+      "text": "eu perdi tudo no 1o ano"
+     },
+     {
+      "end": 3,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "end": 3,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "legenda",
+    "reframe": "blur",
+    "start": 0,
+    "title": "Correcao",
+    "titleCardStyle": "personalizado"
+   },
+   "limpo": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [],
+    "end": 3,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "limpo",
+    "reframe": "blur",
+    "start": 0,
+    "title": "Correcao",
+    "titleCardStyle": "personalizado"
+   }
+  },
+  "edit_manual": {
+   "legenda": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "edit": {
+     "enquadramento": {
+      "reframe": "crop45"
+     },
+     "legenda": {
+      "posicaoPct": 60,
+      "posicaoXPct": 30
+     },
+     "v": 1
+    },
+    "end": 50,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "legenda",
+    "reframe": "crop45",
+    "start": 10,
+    "title": "Como dobrar a margem",
+    "titleCardStyle": "personalizado"
+   },
+   "limpo": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [],
+    "edit": {
+     "enquadramento": {
+      "reframe": "crop45"
+     },
+     "legenda": {
+      "posicaoPct": 60,
+      "posicaoXPct": 30
+     },
+     "v": 1
+    },
+    "end": 50,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "limpo",
+    "reframe": "crop45",
+    "start": 10,
+    "title": "Como dobrar a margem",
+    "titleCardStyle": "personalizado"
+   }
+  },
+  "impacto_crop": {
+   "legenda": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "end": 140,
+    "legendaStyle": "impacto",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "legenda",
+    "reframe": "crop",
+    "start": 100,
+    "title": "O erro que quase quebrou a empresa",
+    "titleCardStyle": "personalizado"
+   },
+   "limpo": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [],
+    "end": 140,
+    "legendaStyle": "impacto",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "limpo",
+    "reframe": "crop",
+    "start": 100,
+    "title": "O erro que quase quebrou a empresa",
+    "titleCardStyle": "personalizado"
+   }
+  },
+  "sem_card": {
+   "legenda": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "end": 45,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "legenda",
+    "reframe": "blur",
+    "start": 5,
+    "title": "Sem card",
+    "titleCardStyle": "nenhum"
+   },
+   "limpo": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [],
+    "end": 45,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "limpo",
+    "reframe": "blur",
+    "start": 5,
+    "title": "Sem card",
+    "titleCardStyle": "nenhum"
+   }
+  },
+  "simples": {
+   "legenda": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "end": 461,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "legenda",
+    "reframe": "blur",
+    "start": 415,
+    "title": "Perdi 40 mil no primeiro ano",
+    "titleCardStyle": "personalizado"
+   },
+   "limpo": {
+    "card": null,
+    "category": "",
+    "clipToken": "bNkQaTQ4SE0",
+    "cues": [],
+    "end": 461,
+    "legendaStyle": "classico",
+    "name": "bNkQaTQ4SE0.mp4",
+    "preset": "limpo",
+    "reframe": "blur",
+    "start": 415,
+    "title": "Perdi 40 mil no primeiro ano",
+    "titleCardStyle": "personalizado"
+   }
+  }
+ },
+ "fonte": {
+  "name": "bNkQaTQ4SE0.mp4",
+  "token": "bNkQaTQ4SE0"
+ },
+ "gerado": "2026-09-30, antes da entrega capa+edicao manual",
+ "media": {
+  "durationSec": 46.0,
+  "hasAudio": true,
+  "height": 1080,
+  "width": 1920
+ },
+ "props": {
+  "cap_edit": {
+   "legenda": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 656,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0.0,
+      "text": "eu perdi tudo no 1o ano"
+     },
+     {
+      "end": 3.0,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 705,
+    "legendaStyle": "classico",
+    "preset": "legenda",
+    "reframe": "blur",
+    "title": "Correcao",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 608
+   },
+   "limpo": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 656,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 705,
+    "legendaStyle": "classico",
+    "preset": "limpo",
+    "reframe": "blur",
+    "title": "Correcao",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 608
+   }
+  },
+  "edit_manual": {
+   "legenda": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 285,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0.0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3.0,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {
+      "reframe": "crop45"
+     },
+     "legenda": {
+      "posicaoPct": 60,
+      "posicaoXPct": 30
+     },
+     "v": 1
+    },
+    "legendaBase": 768,
+    "legendaColuna": 568,
+    "legendaEsquerda": 40,
+    "legendaStyle": "classico",
+    "preset": "legenda",
+    "reframe": "crop45",
+    "title": "Como dobrar a margem",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 1350
+   },
+   "limpo": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 285,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {
+      "reframe": "crop45"
+     },
+     "legenda": {
+      "posicaoPct": 60,
+      "posicaoXPct": 30
+     },
+     "v": 1
+    },
+    "legendaBase": 768,
+    "legendaColuna": 568,
+    "legendaEsquerda": 40,
+    "legendaStyle": "classico",
+    "preset": "limpo",
+    "reframe": "crop45",
+    "title": "Como dobrar a margem",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 1350
+   }
+  },
+  "impacto_crop": {
+   "legenda": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 0,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0.0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3.0,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 269,
+    "legendaStyle": "impacto",
+    "preset": "legenda",
+    "reframe": "crop",
+    "title": "O erro que quase quebrou a empresa",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 1920
+   },
+   "limpo": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 0,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 269,
+    "legendaStyle": "impacto",
+    "preset": "limpo",
+    "reframe": "crop",
+    "title": "O erro que quase quebrou a empresa",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 1920
+   }
+  },
+  "sem_card": {
+   "legenda": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 656,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0.0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3.0,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 705,
+    "legendaStyle": "classico",
+    "preset": "legenda",
+    "reframe": "blur",
+    "title": "Sem card",
+    "titleCardStyle": "nenhum",
+    "videoAltura": 608
+   },
+   "limpo": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 656,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 705,
+    "legendaStyle": "classico",
+    "preset": "limpo",
+    "reframe": "blur",
+    "title": "Sem card",
+    "titleCardStyle": "nenhum",
+    "videoAltura": 608
+   }
+  },
+  "simples": {
+   "legenda": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 656,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [
+     {
+      "end": 1.2,
+      "start": 0.0,
+      "text": "eu perdi tudo no primeiro ano",
+      "words": [
+       {
+        "end": 0.3,
+        "start": 0,
+        "text": "eu"
+       },
+       {
+        "end": 0.6,
+        "start": 0.3,
+        "text": "perdi"
+       },
+       {
+        "end": 0.8,
+        "start": 0.6,
+        "text": "tudo"
+       },
+       {
+        "end": 0.95,
+        "start": 0.8,
+        "text": "no"
+       },
+       {
+        "end": 1.05,
+        "start": 0.95,
+        "text": "primeiro"
+       },
+       {
+        "end": 1.2,
+        "start": 1.05,
+        "text": "ano"
+       }
+      ]
+     },
+     {
+      "end": 3.0,
+      "start": 1.2,
+      "text": "e recomecei do zero"
+     }
+    ],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 705,
+    "legendaStyle": "classico",
+    "preset": "legenda",
+    "reframe": "blur",
+    "title": "Perdi 40 mil no primeiro ano",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 608
+   },
+   "limpo": {
+    "backgroundFile": "",
+    "backgroundState": "BACKGROUND_NONE",
+    "bandaAltura": 656,
+    "card": null,
+    "category": "",
+    "clipFile": "bNkQaTQ4SE0-415-461.mp4",
+    "cues": [],
+    "durationSec": 46.0,
+    "edit": {
+     "enquadramento": {},
+     "legenda": {},
+     "v": 1
+    },
+    "legendaBase": 705,
+    "legendaStyle": "classico",
+    "preset": "limpo",
+    "reframe": "blur",
+    "title": "Perdi 40 mil no primeiro ano",
+    "titleCardStyle": "personalizado",
+    "videoAltura": 608
+   }
+  }
+ }
+}

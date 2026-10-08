@@ -566,10 +566,6 @@
       <span class="logo-icon" role="img" aria-label="Logo do time"></span>
       <span class="logo-name">Dootu</span>
     </button>
-    <div class="world-seg" role="tablist" aria-label="Categorias">
-      <button type="button" class="world-seg-btn active" data-world="central" role="tab" aria-selected="true">Central</button>
-      <button type="button" class="world-seg-btn" data-world="prog" role="tab" aria-selected="false">Empreender</button>
-    </div>
     <div id="match-score" data-state="idle" title="Placar ao vivo · NBA + Copa · dados ESPN"><span class="ms-tm">JOGOS</span></div>
     <button id="nba-fav" type="button" title="Escolher 2 times pra torcer (NBA)"><span aria-hidden="true">🏀</span></button>
     <div class="appearance">
@@ -589,14 +585,18 @@
         <span class="sidebar-brand-text"></span>
       </div>
       <div class="nav-section">
+        <button class="nav-item" data-view="video-ops" data-group="prog">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2z"/><path d="m8 9 4 3-4 3z"/></svg>
+          Clips
+          <span class="nav-count" id="count-video-ops">0</span>
+        </button>
         <button class="nav-item" data-view="empreendedor" data-group="prog">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
           Empreendedor
         </button>
-        <button class="nav-item" data-view="video-ops" data-group="prog">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2z"/><path d="m8 9 4 3-4 3z"/></svg>
-          Estúdio de Vídeos
-          <span class="nav-count" id="count-video-ops">0</span>
+        <button class="nav-item" data-view="central">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>
+          Central
         </button>
       </div>
     </aside>
@@ -692,18 +692,6 @@
         .hub-card-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
         .hub-card-name { font-size: 14px; font-weight: 700; }
         .hub-card-desc { font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
-
-        /* ── Categorias no header (segmentado) ── */
-        .world-seg { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--veil); }
-        .world-seg-btn {
-          appearance: none; border: 0; cursor: pointer; font-family: inherit;
-          padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
-          color: var(--text-dim); background: transparent; white-space: nowrap;
-          transition: background-color var(--ease), color var(--ease), transform var(--dur-1) var(--spring-soft);
-        }
-        @media (hover: hover) and (pointer: fine) { .world-seg-btn:hover { color: var(--text); } }
-        .world-seg-btn:active { transform: scale(.97); }
-        .world-seg-btn.active { background: var(--accent); color: var(--accent-ink); }
 
         /* ── Fluxos (canvas estilo n8n) ── */
 
@@ -902,11 +890,6 @@
 
   // Ajusta o segmento ativo no header, filtra os itens da sidebar e os blocos da Central por mundo
   function setWorld(world) {   // 'central' | 'prog'
-    document.querySelectorAll('.world-seg-btn').forEach(b => {
-      const on = b.dataset.world === world;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
     document.querySelectorAll('.nav-item[data-group]').forEach(el => {
       el.style.display = (world === 'central' || el.dataset.group === world) ? '' : 'none';
     });
@@ -931,14 +914,6 @@
   document.getElementById('sidebar').addEventListener('click', e => {
     const item = e.target.closest('[data-view]');
     if (item) activateView(item.dataset.view);
-  });
-
-  // Header — barra de categorias (mundos): filtra a sidebar e abre a Central daquele mundo
-  document.querySelector('.world-seg').addEventListener('click', e => {
-    const b = e.target.closest('.world-seg-btn');
-    if (!b) return;
-    setWorld(b.dataset.world);
-    activateView('central');
   });
 
   // Central — cards abrem a ferramenta correspondente
@@ -966,8 +941,10 @@
   // ═══════════════════════════════
   //  INIT
   // ═══════════════════════════════
-  activateView('central');   // abre na Central (home)
-  setWorld('central');       // mostra todos os mundos ao entrar
+  // Entrada direta nos Clips (decisão do usuário, 2026-09-23). A Central saiu do fluxo
+  // inicial e ficou na sidebar; a barra "Central / Empreender" do header saiu.
+  activateView('video-ops');
+  setWorld('central');       // 'central' = sidebar sem filtro de mundo
 </script>
 <script src="empreendedor.js"></script>
 <script src="video-results.js"></script>

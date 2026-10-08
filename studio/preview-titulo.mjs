@@ -44,10 +44,31 @@ const CUES = [
   { start: 0.2, end: 3.0, text: 'isso mudou tudo pra mim' },
   { start: 3.0, end: 6.0, text: 'e eu levei três anos pra entender' },
 ];
+/* Uma placa de MENTIRA, montada aqui e agora: o repositório não hospeda mais marca nenhuma,
+   e o card de verdade vem da biblioteca que o operador constrói no site. Ela existe só para
+   os stills provarem o que asserção não prova — que a proporção MEDIDA (240/64 = 3,75) sai
+   no quadro sem achatar a placa, e que a altura é a fixa do `TOKENS.logoAltura`. */
+const LOGO_FALSO = 'data:image/svg+xml;base64,' + Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64">'
+  + '<rect width="240" height="64" rx="10" fill="#FFFFFF"/>'
+  + '<text x="120" y="44" font-family="sans-serif" font-size="30" font-weight="700"'
+  + ' text-anchor="middle" fill="#0A0A0C">DOOTU</text></svg>').toString('base64');
+const CARD_COMPLETO = {
+  id: 'preview-1', nome: 'Casa', identificador: 'DOOTU | CORTES',
+  logo: LOGO_FALSO, logoProporcao: 240 / 64,
+};
+const CARD_SO_LOGO = { id: 'preview-2', nome: 'Só placa', identificador: '',
+  logo: LOGO_FALSO, logoProporcao: 240 / 64 };
+const CARD_SO_TEXTO = { id: 'preview-3', nome: 'Só texto', identificador: 'DOOTU | CORTES' };
+const TITULO_TETO = 'Eu quebrei duas vezes antes de entender que disciplina vale mais que '
+  + 'motivação no primeiro ano de empresa, e isso mudou tudo.';
 const base = {
   clipFile: 'fonte.mp4', backgroundFile: 'thumb.jpg', durationSec: 6,
   cues: CUES, preset: 'legenda', category: 'money',
   highlightText: '', autoHighlight: true,
+  /* O card PADRÃO destes stills. Declarado no `base` pela mesma razão do `title`: sem ele
+     todo caso sairia sem card, e o que se quer conferir é justamente o card. */
+  card: CARD_COMPLETO,
 };
 
 const TITULO_CICLO = 'Saiu de uma pequena cidade, para 100 mil pedidos no Brasil.';
@@ -82,27 +103,31 @@ const CASOS = [
   ['9-ciclo-parado', { title: TITULO_CICLO, frame: 60 }],
   ['10-ciclo-saindo', { title: TITULO_CICLO, frame: 117 }],
   ['11-ciclo-depois', { title: TITULO_CICLO, frame: 150 }],
-  /* As DUAS identidades, lado a lado. Tudo IGUAL de propósito — mesmo título, mesmo trecho
-     destacado, mesma miniatura, mesmo quadro, mesmo instante — para a única diferença entre
-     os dois PNGs ser a marca escolhida. É assim que se vê se uma identidade pegou o asset,
-     o identificador ou a paleta da outra, que é o risco novo de haver duas.
-     Sem `titleCardStyle` o padrão é `primo_rico`, mas os dois casos declaram o valor: o par
-     tem de provar a ESCOLHA chegando, não o padrão. */
-  ['12-marca-primo-rico', { title: TITULO_CICLO, titleCardStyle: 'primo_rico', frame: 60 }],
-  ['13-marca-puro-ecommerce', {
-    title: TITULO_CICLO, titleCardStyle: 'puro_ecommerce', frame: 60,
-  }],
-  /* Valor torto: TEM de sair idêntico ao 12. Um card sem placa, sem filete e sem borda é o
-     desfecho que o validador existe para impedir, e ele só se confere olhando. */
-  ['14-marca-invalida-cai-no-padrao', {
-    title: TITULO_CICLO, titleCardStyle: 'marca_inventada', frame: 60,
+  /* As TRÊS FORMAS de um card do operador. Tudo IGUAL de propósito — mesmo título, mesmo
+     trecho destacado, mesma miniatura, mesmo quadro, mesmo instante — para a única diferença
+     entre os PNGs ser o card. É assim que se vê o que asserção nenhuma pega: se a placa sai
+     na proporção medida (deitada, 3,75:1) em vez de achatada, se o card sem placa fica com
+     o respiro certo, e se o card sem texto não deixa um vão onde havia identificador. */
+  ['12-card-completo', { title: TITULO_CICLO, card: CARD_COMPLETO, frame: 60 }],
+  ['13-card-so-placa', { title: TITULO_CICLO, card: CARD_SO_LOGO, frame: 60 }],
+  ['13b-card-so-texto', { title: TITULO_CICLO, card: CARD_SO_TEXTO, frame: 60 }],
+  /* O TETO de 3 linhas com a placa no quadro: é o pior caso da caixa, e o único jeito de
+     saber se o bloco ainda respira é olhar. */
+  ['13c-card-titulo-3-linhas', { title: TITULO_TETO, card: CARD_COMPLETO, frame: 60 }],
+  /* Card torto: TEM de sair sem card nenhum, e com a legenda intacta. Um card sem placa, sem
+     filete e sem borda é o desfecho que o validador existe para impedir, e ele só se confere
+     olhando. */
+  ['14-card-invalido-nao-monta-card', {
+    title: TITULO_CICLO, card: { nome: 'sem logo e sem texto' }, frame: 60,
   }],
   /* A terceira opção: SEM card. Com o MESMO título dos casos 12 e 13 de propósito — o que
      se confere olhando é que não sobra placa, filete, borda nem manchete no quadro, e que a
      legenda continua no lugar. O par com o 16 prova que "sem card" é igual a não ter título
      nenhum no vídeo, MESMO com o título preenchido (que é o ponto: ele continua nomeando o
      arquivo baixado e o cartão da Central). */
-  ['15-sem-card', { title: TITULO_CICLO, titleCardStyle: 'nenhum', frame: 60 }],
+  ['15-sem-card', {
+    title: TITULO_CICLO, titleCardStyle: 'nenhum', card: CARD_COMPLETO, frame: 60,
+  }],
   ['16-sem-titulo', { title: '', frame: 60 }],
   /* As TRÊS proporções de enquadramento, com os quatro props coerentes como o servidor os
      manda (o `serve.video_box` é o dono único da altura, e dela saem o `bandaAltura` e o

@@ -78,7 +78,10 @@ STORY_CLIP_SEC = 45.0
 # Silêncio que separa uma ideia da seguinte. Abaixo disso o ponto final é só respiração no
 # meio do raciocínio, não o fim dele.
 CLOSE_PAUSE_SEC = 0.6
-MAX_CANDIDATES = 12
+# Teto de sugestões por link (12 → 20 em 2026-10-06, decisão do usuário): as 20 de maior
+# nota do vídeo inteiro, todas pelo mesmo veto. Espelhado em `video-ops.js` (check que LÊ
+# este arquivo). O pedido à MuAPI NÃO segue este número — é `muapi.NUM_HIGHLIGHTS`.
+MAX_CANDIDATES = 20
 # Duas sugestões que começam a menos disto uma da outra são a mesma sugestão.
 MERGE_GAP_SEC = 8.0
 # Fração do trecho MENOR que, sobreposta, já faz das duas a mesma sugestão. Era 0,5 e
@@ -562,6 +565,13 @@ ASSUNTO_FRASES_ABERTURA = 2
 # (pergunta direta, afirmação forte); abaixo disso só sobrou "explicação" (8), que é
 # conectivo de qualquer conversa e não anuncia assunto nenhum.
 ASSUNTO_GANCHO_MIN = 12
+# Fala vira ÂNCORA a partir destes pontos de gancho. 16 é o nível de sempre (duas marcas,
+# ou uma forte + pausa longa). O segundo nível (2026-10-06) aceita UMA marca forte sozinha,
+# pelo mesmo motivo do piso acima, e só é tentado DEPOIS de todas as outras âncoras: ocupa
+# região que ninguém pegou, nunca desloca nem reforma janela já achada. É só onde PROCURAR —
+# a janela continua passando pelo mesmo veto.
+GANCHO_ANCORA_MIN = 16
+GANCHO_ANCORA_SEGUNDA = 12
 
 # Os seis fatores editoriais e o teto do sinal de popularidade. Somam 88 + 12 = 100, e
 # essa divisão é a regra do pedido em número: "Do not allow replay popularity to
@@ -847,7 +857,7 @@ def _fecha_ideia(frase, shifts):
     return bool(SENTENCE_END_RE.search(frase["text"].rstrip()))
 
 
-def _window(cues, anchor, total, stops=(), words=None):
+def _window(cues, anchor, total, stops=(), words=None, frases=None):
     """Trecho que começa numa FRASE inteira e fecha ONDE A IDEIA ACABA.
 
     Devolve dicionário — e não a tripla de antes — porque quem avalia precisa das frases
@@ -857,8 +867,12 @@ def _window(cues, anchor, total, stops=(), words=None):
     `fecho` sai False quando NÃO existe fim de ideia dentro do teto. Antes, esse caso caía
     no `last` — a última cue que ainda cabia — e era daí que vinham os 10 de 12 cortes que
     terminavam mal. Agora o caso é REPROVADO pelo `avaliar`, não remendado.
+
+    `frases` opcional: o `_candidates` já as tem e chama isto centenas de vezes — recalcular
+    a cada chamada era o que levava 97 s num vídeo de 2h20. Ausente = a conta de sempre.
     """
-    frases = sentences_from(cues, words)
+    if frases is None:
+        frases = sentences_from(cues, words)
     if not frases:
         # Sem transcrição não há borda para achar. Quem chama decide o que fazer com isso
         # (o `candidates` usa a REGIÃO MEDIDA do pico e marca a borda como estimada) —
@@ -1267,9 +1281,11 @@ def _candidates(info, limit=MAX_CANDIDATES):
     Ordem do trabalho, que é a ordem do pedido: (1) sinais viram ÂNCORAS, não janelas;
     (2) em volta de cada âncora procura-se um momento COMPLETO (`BUSCA_FRASES` frases para
     cada lado); (3) a janela é REPROVADA ou aprovada pelo `avaliar`, com o veto editorial
-    rodando antes de somar audiência; (4) sobreposição funde; (5) ordena. Preferir poucas
-    sugestões boas a preencher cota é regra explícita, então a lista pode sair menor que o
-    `limit` — inclusive vazia, e aí a tela diz por quê.
+    rodando antes de somar audiência; (4) sobreposição funde; (5) ordena pela nota e
+    guarda as `limit` melhores. TODA âncora é avaliada, então a lista é o topo do vídeo
+    INTEIRO, não as primeiras janelas achadas. O veto nunca afrouxa para encher o teto:
+    preferir poucas sugestões boas a preencher cota é regra explícita, então a lista pode
+    sair menor que o `limit` — inclusive vazia, e aí a tela diz por quê.
     """
     cues = list(info.get("cues") or [])
     words = list(info.get("words") or [])
@@ -1280,7 +1296,7 @@ def _candidates(info, limit=MAX_CANDIDATES):
     stops = tuple(float(c["start_time"]) for c in chapters if c.get("start_time") is not None)
 
     raw = []
-    for peak in peaks[: limit * 2]:
+    for peak in peaks:
         ratio = float(peak.get("ratio", 0) or 0.0)
         share = int(round(ratio * 100))
         raw.append({
@@ -1312,11 +1328,12 @@ def _candidates(info, limit=MAX_CANDIDATES):
         if pause >= 1.2:
             points += 8
             labels = labels + ["pausa longa antes da fala"]
-        if points < 16:
+        if points < GANCHO_ANCORA_SEGUNDA:
             continue
         raw.append({
             "anchor": float(cue["start"]), "regiao": None, "interesse": 0.0,
             "signals": ["transcript"], "reasons": labels, "topic": "", "topicAt": None,
+            "nivel": 0 if points >= GANCHO_ANCORA_MIN else 1,
         })
     # Palpite de um detector de fora (hoje o `ai-clipping` da MuAPI, via `muapi.py`), já
     # como DADO — esta função continua pura. Entra como ÂNCORA, nunca como borda:
@@ -1339,10 +1356,15 @@ def _candidates(info, limit=MAX_CANDIDATES):
         })
 
     # Âncora mais promissora primeiro, só para escolher quem tenta antes; a NOTA quem dá é
-    # o `avaliar`, depois de resolver a janela. O instante desempata — ordem estável.
-    raw.sort(key=lambda item: (-float(item["interesse"]), float(item["anchor"])))
+    # o `avaliar`, depois de resolver a janela. O instante desempata — ordem estável. O
+    # segundo nível de gancho vem por último, para só somar janela em região livre.
+    raw.sort(key=lambda item: (item.get("nivel", 0), -float(item["interesse"]),
+                               float(item["anchor"])))
 
     picked, reprovados = [], {}
+    # A janela depende só da posição da frase (cues, words, stops e total são fixos aqui):
+    # âncoras vizinhas pedem as mesmas posições, e sem memo o vídeo longo refazia tudo.
+    janelas = {}
     for item in raw:
         interesse = _interesse_de(item, total)
         melhor = None
@@ -1360,7 +1382,10 @@ def _candidates(info, limit=MAX_CANDIDATES):
                 # firmar o início e cair na mesma janela de um vizinho já tentado.
                 if not frases[pos].get("hardStart"):
                     continue
-                janela = _window(cues, frases[pos]["start"], total, stops, words)
+                janela = janelas.get(pos)
+                if janela is None:
+                    janela = janelas[pos] = _window(cues, frases[pos]["start"], total, stops,
+                                                    words, frases)
                 if janela["outSec"] - janela["inSec"] < MIN_CLIP_SEC:
                     continue
                 nota = avaliar(janela, interesse)
@@ -1447,14 +1472,13 @@ def _candidates(info, limit=MAX_CANDIDATES):
             "reasons": list(item["reasons"]), "topic": item["topic"],
             "topicAt": item.get("topicAt"), "guess": guess,
         })
-        if len(picked) >= limit:
-            break
 
     # Nota primeiro, começo do vídeo como desempate: ordenação ESTÁVEL e reproduzível, que
-    # é o que permite comparar duas análises do mesmo vídeo.
+    # é o que permite comparar duas análises do mesmo vídeo. O teto corta DEPOIS da nota:
+    # cortar na ordem das âncoras guardava as primeiras achadas, não as melhores.
     picked.sort(key=lambda c: (-c["nota"]["score"], c["inSec"]))
     out = []
-    for clip in picked:
+    for clip in picked[:limit]:
         janela, nota = clip["janela"], clip["nota"]
         duration = clip["outSec"] - clip["inSec"]
         motives = list(clip["reasons"])

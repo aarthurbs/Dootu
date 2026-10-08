@@ -19,12 +19,11 @@ import {
   REFRAMES, REFRAME_PADRAO, REFRAMES_OFERECIDOS, REFRAME_LABELS, reframeOf,
   ancoraVideo, VIDEO_ALTURA_PADRAO, palcoGeometria,
 } from './src/preset.js';
-import { MARCA_BADGE, MARCA_PROPORCAO, MARCA_LARGURA, MARCA_ALTURA, MARCA_NOME } from './src/marca.js';
-import { MARCAS, PURO_BADGE, PURO_PROPORCAO, PURO_NOME } from './src/marca.js';
 import {
-  TITLE_CARD_STYLES, TITLE_CARD_PADRAO, TITLE_CARD_LABELS, TITLE_CARD_PRESETS,
-  titleCardStyleOf, titleCardPreset, TITULO_GEOMETRIA_COMPARTILHADA, TITULO_FILETE_REF,
-  TITLE_CARD_SEM,
+  TITLE_CARD_STYLES, TITLE_CARD_PADRAO, TITLE_CARD_LABELS, TITLE_CARD_SEM,
+  titleCardStyleOf, TITULO_GEOMETRIA_COMPARTILHADA, TITULO_FILETE_REF,
+  cardOf, corDoCard, pesoDoCard, CARD_PESOS, CARD_PADROES, CARD_EXEMPLO,
+  CARD_LOGO_MAX, CARD_NOME_MAX, CARD_IDENTIFICADOR_MAX,
 } from './src/preset.js';
 import {
   LEGENDA_STYLES, LEGENDA_PADRAO, LEGENDA_LABELS, LEGENDA_PRESETS, LEGENDA_FAMILIAS,
@@ -32,6 +31,7 @@ import {
   AVANCO_INTER, AVANCO_INTER_CAIXA_ALTA, AVANCO_MONTSERRAT_CAIXA_ALTA,
   AVANCO_MONTSERRAT_LEGENDA, MAX_CHARS_LINHA,
   LEGENDA_FONTES, LEGENDA_CORES, LEGENDA_ALINHAMENTOS, editOf, resolveLegenda,
+  corLegendaOf, contornoPx, caixaLegenda, LEGENDA_SEM,
 } from './src/preset.js';
 
 let n = 0;
@@ -344,9 +344,9 @@ ok('8q. o leque tem varias cores e nenhuma repetida (cor repetida encurta o lequ
 ok('8q2. a primeira e o amarelo neon pedido (e a cor da 1a palavra de TODA pagina)',
   hsl(TOKENS.palavraCores[0]).h > 40 && hsl(TOKENS.palavraCores[0]).h < 70
   && hsl(TOKENS.palavraCores[0]).s > 0.85 && hsl(TOKENS.palavraCores[0]).l > 0.45);
-ok('8q3. nenhuma cor do leque e a tinta SEMANTICA (ganho/perda/marca) — isso ainda e semaforo',
+ok('8q3. nenhuma cor do leque e a tinta SEMANTICA (ganho/perda) — isso ainda e semaforo',
   TOKENS.palavraCores.every((c) =>
-    c !== TOKENS.destaqueGanho && c !== TOKENS.destaquePerda && c !== TOKENS.marcaLaranja));
+    c !== TOKENS.destaqueGanho && c !== TOKENS.destaquePerda));
 /* Fica ~200 ms no ar e e lido de relance: cor escura sobre a sombra da legenda nao aparece. */
 ok('8q4. toda cor do leque e clara o bastante para ler de relance (l > 0,45)',
   TOKENS.palavraCores.every((c) => hsl(c).l > 0.45));
@@ -637,23 +637,24 @@ ok('9u. o Clip.jsx usa o gate do preset, nao um destaque escrito a mao',
    casar assim que alguem acrescenta um prop e o formatador quebra a linha. */
 const tagCard = (clipJsx.match(/<CardTitulo[\s\S]*?\/>/) || [''])[0];
 /* O JSX sem comentario. Necessario porque a HISTORIA do card esta escrita nos comentarios
-   dele — os nomes antigos (`MARCA_BADGE`, `TOKENS.marcaLaranja`) e os hex das duas paletas
-   aparecem la de proposito, explicando por que sairam. Procurar por eles no arquivo inteiro
-   reprovaria a documentacao, que e a armadilha ja medida neste projeto (o check das flags
-   proibidas do yt-dlp falhou por casar com o comentario que as proibia). */
+   dele — os nomes e os desfechos antigos aparecem la de proposito, explicando por que
+   sairam. Procurar por eles no arquivo inteiro reprovaria a documentacao, que e a armadilha
+   ja medida neste projeto (o check das flags proibidas do yt-dlp falhou por casar com o
+   comentario que as proibia). */
 const jsxSemComentario = clipJsx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 ok('9v. e o span do gate chega ao card (sem isto o destaque nunca aparece)',
   /destaque=\{destaque\.span\}/.test(tagCard));
 /* O título usa Inter Black, que a legenda já carregava. Sem o 900
    no `loadFont` o navegador SINTETIZA o peso a partir do 700 e sai um engrossamento borrado
    que so aparece olhando o frame — mesma armadilha de antes, outra familia. */
-/* O 800 entrou com a segunda identidade (no Ecommerce Puro o destaque e PESO, 800 -> 900,
-   porque a marca e monocromatica). Os DOIS pesos do destaque tem de estar no `loadFont`
-   pelo mesmo motivo do 900: peso sintetizado sai borrado e so aparece olhando o frame. */
+/* O conjunto de pesos que o EDITOR de cards oferece (`CARD_PESOS`) e o `loadFont` tem de ser
+   a MESMA lista. Peso que o operador pode escolher e o render nao carregou o Chrome
+   SINTETIZA: sai um engrossamento borrado, sem erro, sem check reprovando, visivel so
+   olhando o frame — a armadilha que o 900 e o 800 ja tiveram neste projeto. */
 const pesosInter = (clipJsx.match(/carregarInter\([\s\S]*?weights: \[([^\]]*)\]/) || [, ''])[1]
   .split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean);
-ok('9w. os pesos que as duas identidades usam estao TODOS no loadFont',
-  ['600', '700', '800', '900'].every((p) => pesosInter.includes(p)));
+ok('9w. todo peso que o editor de cards oferece esta no loadFont',
+  CARD_PESOS.length > 0 && CARD_PESOS.every((p) => pesosInter.includes(String(p))));
 /* O CARD continua sem familia propria: o 800 dele e peso novo, nao fonte nova. A familia
    Montserrat vem do estilo `impacto` da LEGENDA, e cada familia carregada
    e um arquivo a mais que o render espera antes do primeiro quadro.
@@ -666,23 +667,25 @@ ok('9w2. so entram as FAMILIAS que algum estilo de legenda pede (o card nao traz
   && JSON.stringify([...clipJsx.matchAll(/from "@remotion\/google-fonts\/([^"]+)"/g)]
     .map((m) => m[1].toLowerCase()).sort())
     === JSON.stringify([...new Set(LEGENDA_STYLES.map((e) => LEGENDA_PRESETS[e].familia))].sort()));
-/* A APARENCIA do destaque virou coisa da MARCA (o card ganhou uma segunda identidade), e
-   por isso ela saiu do TOKENS: um valor global nao consegue ser laranja num card e peso no
-   outro. O que sobra aqui e a metade do 9x que continua valendo — nenhum peso e nenhuma cor
-   de destaque pode morar em TOKENS, senao ela vale para as duas marcas calada.
-   A aparencia por identidade e provada por EXECUCAO no bloco 13 (13p/13q), e a fiacao no
-   13y2. */
-ok('9x. nenhuma aparencia de destaque de titulo sobrou em TOKENS (e por marca agora)',
+/* A APARENCIA do destaque e do CARD, e o card e DADO do operador — por isso ela nao mora no
+   TOKENS: um valor global nao consegue ser a identidade de uma biblioteca inteira, e token
+   global que nada le e a armadilha classica (alguem o ajusta e o valor que manda esta noutro
+   lugar). A aparencia e provada por EXECUCAO no bloco 13, e a fiacao no 13y2.
+   Junto com eles saiu a paleta MEDIDA de uma identidade de terceiro (`marcaLaranja` /
+   `marcaPreto`): o projeto nao hospeda mais marca nenhuma. */
+ok('9x. nenhuma aparencia de destaque de titulo, e nenhuma tinta de marca, sobrou em TOKENS',
   !('tituloPesoDestaque' in TOKENS)
   && !('tituloDestaqueCor' in TOKENS)
-  && !('tituloPeso' in TOKENS));
-/* Mesma intencao do 9y de antes, agora por marca: todo peso que alguma identidade usa tem
-   de estar no `loadFont`, senao o navegador SINTETIZA e sai borrado (so aparece no frame).
-   O 9w prova a lista; aqui se prova que os pesos das marcas sao exatamente o que ela cobre,
-   e que ninguem trouxe um peso que o render nao carrega. */
-ok('9y. todo peso que as marcas pedem esta carregado (nenhum peso sintetizado)',
-  Object.values(TITLE_CARD_PRESETS).every((c) =>
-    pesosInter.includes(String(c.tituloPeso)) && pesosInter.includes(String(c.destaque.peso))));
+  && !('tituloPeso' in TOKENS)
+  && !('marcaLaranja' in TOKENS)
+  && !('marcaPreto' in TOKENS));
+/* Mesma intencao do 9y de antes: o peso que SAI do validador tem de estar carregado. O 9w
+   prova a lista oferecida; aqui se prova o desfecho — inclusive o do card padrao, que e o
+   que veste todo corte de quem ainda nao mexeu em peso nenhum. */
+ok('9y. o peso que o validador do card entrega esta sempre carregado (nada sintetizado)',
+  [CARD_PADROES.tituloPeso, CARD_PADROES.destaquePeso]
+    .every((w) => pesosInter.includes(String(w)))
+  && CARD_PESOS.every((w) => pesosInter.includes(String(pesoDoCard(w, 0)))));
 
 /* -------------------------------------- 10. tarja da miniatura (fundo do 9:16)
    A miniatura entra no tamanho de UMA tarja, repetida em cima e embaixo, em vez de UMA
@@ -740,18 +743,18 @@ const neutro = (cor) => {
    cromatico, porque a marca anterior nao tinha cor para extrair. */
 ok('11a. fundo e texto do card seguem neutros (a cor entra so no acento)',
   [TOKENS.cardFundo, TOKENS.texto].every(neutro));
-/* O acento agora e da IDENTIDADE (o card tem duas), entao a pergunta mudou de "o TOKENS
-   global e laranja" para "a identidade colorida e laranja em todo acento dela" — e o
-   monocromatico e checado do lado oposto no 13o/13o2. */
-ok('11a2. o acento e o laranja MEDIDO na referencia, e e o mesmo em todo acento da marca',
-  TOKENS.marcaLaranja === '#FF5F01'
-  && TITLE_CARD_PRESETS.primo_rico.destaque.cor === TOKENS.marcaLaranja
-  && TITLE_CARD_PRESETS.primo_rico.fileteCor === TOKENS.marcaLaranja
-  && !neutro(TITLE_CARD_PRESETS.primo_rico.bordaCor));
-/* Laranja PROFUNDO, nao neon. A regra e a mesma do check 1g das cores da legenda: saturacao
-   alta COM luminancia alta e o que o pedido proibe. Aqui a saturacao e ~1 e a luz ~0,50. */
-ok('11a3. e nao e neon (saturado, mas escuro o bastante para ler como financeiro)',
-  !(hsl(TOKENS.marcaLaranja).s > 0.85 && hsl(TOKENS.marcaLaranja).l > 0.55));
+/* O acento e do CARD, e o card e do operador — nao ha mais tinta de marca fixa no projeto.
+   O que o preset ainda e dono e do PADRAO: sem escolha nenhuma, o destaque sai numa COR de
+   verdade e nao no branco do proprio titulo, senao o trecho escolhido sairia igual ao resto
+   e o algoritmo de destaque viraria calculo jogado fora. */
+ok('11a2. o acento PADRAO do card e cor de verdade, e nao o branco do titulo',
+  CARD_PADROES.destaqueCor === TOKENS.destaque
+  && CARD_PADROES.destaqueCor !== TOKENS.texto
+  && !neutro(CARD_PADROES.destaqueCor));
+/* Nao neon. A regra e a mesma do check 1g das cores da legenda: saturacao alta COM
+   luminancia alta e o que o pedido proibe. */
+ok('11a3. e nao e neon (saturado, mas escuro o bastante para ler como serio)',
+  !(hsl(CARD_PADROES.destaqueCor).s > 0.85 && hsl(CARD_PADROES.destaqueCor).l > 0.55));
 ok('11b. o card usa a MESMA coluna optica da legenda (blocos alinhados, nao duas margens)',
   TOKENS.cardLargura === TOKENS.legendaLargura && TOKENS.cardLargura < TOKENS.largura);
 ok('11c. sombra deslocada e contida, nunca glow colorido',
@@ -858,15 +861,24 @@ eq('11z6. fora do intervalo e grampeado nas duas pontas',
 eq('11z7. progresso ilegivel deixa o card ASSENTADO, nunca invisivel',
   [entradaCard(NaN), entradaCard(undefined)].map((e) => e.opacidade), [1, 1]);
 
-/* --- a marca embutida */
-ok('11z8. a marca viaja no codigo, nao por staticFile (o --public-dir e o cache do YouTube)',
-  /^data:image\/(png;base64|svg\+xml)/.test(MARCA_BADGE) && MARCA_BADGE.length > 1000);
+/* --- a placa do card. Ela nao mora mais no repositorio: vem da biblioteca do operador,
+   embutida como dataURL dentro do proprio card. O motivo de ser dataURL nao mudou — o
+   `--public-dir` do render aponta para o cache do YouTube, e `staticFile()` nao alcanca
+   nada que esteja aqui. */
+ok('11z8. a placa viaja no codigo do card, nao por staticFile nem por endereco remoto',
+  cardOf({ logo: 'data:image/png;base64,AAAA' }).logo === 'data:image/png;base64,AAAA'
+  && cardOf({ logo: 'https://exemplo/x.png', identificador: 'D' }).logo === '');
 /* Emblema CIRCULAR: fixar os dois lados o transformaria em elipse, que e o erro mais visivel
-   que existe num logo. A largura tem de sair da proporcao do arquivo. */
-ok('11z9. e a proporcao vem do proprio arquivo, para fixar a altura nunca distorcer a marca',
-  Math.abs(MARCA_PROPORCAO - MARCA_LARGURA / MARCA_ALTURA) < 1e-9 && MARCA_PROPORCAO === 1);
-ok('11z9b. o identificador existe e NAO se declara oficial (o pedido proibe sem autorizacao)',
-  /\S/.test(MARCA_NOME) && !/oficial/i.test(MARCA_NOME));
+   que existe num logo. A largura tem de sair da proporcao MEDIDA no arquivo, e proporcao
+   ilegivel cai em 1 em vez de virar largura zero. */
+ok('11z9. a proporcao vem do arquivo, e a ilegivel cai em 1 (nunca em largura zero)',
+  cardOf({ logo: 'data:image/svg+xml;base64,AAAA', logoProporcao: 4.5 }).logoProporcao === 4.5
+  && cardOf({ logo: 'data:image/png;base64,AAAA', logoProporcao: 0 }).logoProporcao === 1);
+/* O identificador e do operador, entao o projeto nao pode cravar um texto — o que ele pode
+   e garantir que o campo EXISTE e que um card sem nenhum dos dois nao e salvo. */
+ok('11z9b. um card sempre tem placa ou identificador (nunca uma caixa sem identidade)',
+  cardOf({ identificador: 'DOOTU | CORTES' }).identificador === 'DOOTU | CORTES'
+  && cardOf({ nome: 'so nome' }) === null);
 
 /* --- fiacao no Clip.jsx. Fraca de proposito (regex casa palavra), como a dos blocos 8 e 10:
    as provas de verdade sao os checks acima, que CHAMAM as funcoes. */
@@ -876,19 +888,19 @@ ok('11z11. o portao do card e o texto MEDIDO (titulo aparado a nada nao monta ca
   /comLegenda && medida\.texto/.test(clipJsx));
 ok('11z12. o card antigo (span branco solto) nao existe mais',
   !/<Titulo /.test(clipJsx) && /const CardTitulo =/.test(clipJsx));
-/* Os nomes mudaram quando o card ganhou a segunda identidade (`MARCA_BADGE` solto ->
-   `marca.badge`, vindo do registro), mas a INTENCAO de cada um destes e a mesma de antes. */
-ok('11z13. a placa entra pelo Img do Remotion (com <img> cru o frame 0 sai sem a marca)',
-  /<Img\s+src=\{marca\.badge\}/.test(clipJsx) && !/<img\s/.test(clipJsx));
+/* Os nomes mudaram quando a identidade virou DADO (`marca.badge`, de um registro embutido,
+   -> `card.logo`, do card do operador), mas a INTENCAO de cada um destes e a mesma de antes. */
+ok('11z13. a placa entra pelo Img do Remotion (com <img> cru o frame 0 sai sem a placa)',
+  /<Img\s+src=\{card\.logo\}/.test(clipJsx) && !/<img\s/.test(clipJsx));
 ok('11z14. a largura da placa sai da proporcao, nunca fixada a mao',
-  /width: TOKENS\.logoAltura \* marca\.proporcao/.test(clipJsx));
-ok('11z15. o filete da esquerda e a cor da MARCA, e sai do preset (nao de um hex no JSX)',
+  /width: TOKENS\.logoAltura \* card\.logoProporcao/.test(clipJsx));
+ok('11z15. o filete da esquerda e a cor do CARD, e sai do validador (nao de um hex no JSX)',
   /width: TOKENS\.tituloFilete, backgroundColor: card\.fileteCor/.test(clipJsx)
-  /* Nenhum hex de cor escrito a mao na composicao: e o que impede uma identidade de ser
-     desenhada com a cor da outra por copiar-colar. */
+  /* Nenhum hex de cor escrito a mao na composicao: e o que impede um card de ser desenhado
+     com a cor de outro por copiar-colar. */
   && !/#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/.test(jsxSemComentario));
-ok('11z15b. o emblema e o identificador ficam na MESMA linha, no alto a esquerda',
-  /<Img\s+src=\{marca\.badge\}[\s\S]*?\{marca\.nome\}/.test(clipJsx)
+ok('11z15b. a placa e o identificador ficam na MESMA linha, no alto a esquerda',
+  /\{card\.logo[\s\S]*?\{card\.identificador\}/.test(clipJsx)
   && /display: "flex", alignItems: "center"/.test(clipJsx));
 /* O identificador e SECUNDARIO: se ele encostar no menor degrau do titulo, a assinatura
    passa a competir com a manchete — que e exatamente o que o pedido proibe. */
@@ -970,164 +982,196 @@ ok('12s. centrado pelo proprio tamanho, para a posicao nao depender do numero de
   /translate\(-50%, calc\(-50% \+ " \+ entrada\.subida \+ "px\)\)/.test(clipJsx)
   && /top: TOKENS\.cardCentroPct \* 100 \+ "%"/.test(clipJsx));
 
-/* -------------------------------------- 13. as DUAS identidades do card
-   O card tinha UMA marca fixa e o operador nao podia escolher. Agora sao duas, e o risco
-   novo nao e visual: e uma marca alcancar o asset, o identificador ou a paleta da outra, e
-   um valor torto atravessar ate a composicao e produzir card sem marca nenhuma. */
+/* -------------------------------------- 13. o card do titulo e DADO do operador
+   Aqui moravam DUAS identidades de terceiro fechadas no codigo. Elas sairam inteiras, e no
+   lugar entrou uma BIBLIOTECA que o operador constroi no site. O risco mudou de lugar: nao
+   e mais "uma marca alcancar o asset da outra" — e um objeto VINDO DE FORA (localStorage,
+   corpo do POST, props no disco) chegar torto ate a composicao e produzir um card sem
+   placa, sem filete e sem borda, ou derrubar o render por um campo de `null`.
+   Por isso quase tudo aqui CHAMA o validador com valor construido, nos DOIS ramos: card de
+   verdade e lixo (BP-014). */
 
-/* --- o contrato do valor. Conjunto FECHADO e padrao compativel com o que ja existia. */
-eq('13a. duas identidades mais o "sem card", nesta ordem', TITLE_CARD_STYLES,
-  ['primo_rico', 'puro_ecommerce', 'nenhum']);
+/* --- o contrato do ENUM. Ele diz SE o corte tem card; QUAL card e dado, nao enum. */
+eq('13a. o conjunto e "tem card" mais "sem card", nesta ordem', TITLE_CARD_STYLES,
+  ['personalizado', 'nenhum']);
 /* A lista traz LITERAIS porque e lida como texto pelas outras duas copias do conjunto
    (serve.py e video-ops.js); a constante existe para o codigo nao repetir a string. Este
-   check amarra as duas pontas — divergirem faria o "sem card" virar marca desconhecida num
+   check amarra as duas pontas — divergirem faria o "sem card" virar valor desconhecido num
    dos lados. */
 ok('13a2. o valor do "sem card" e o MESMO na constante e na lista',
   TITLE_CARD_SEM === 'nenhum' && TITLE_CARD_STYLES.indexOf(TITLE_CARD_SEM) >= 0);
-/* --- "Sem card": desfecho legitimo, e NAO o padrao. */
-ok('13a3. "sem card" nao tem identidade no registro (nao ha marca para possuir)',
-  !(TITLE_CARD_SEM in TITLE_CARD_PRESETS)
-  && Object.keys(TITLE_CARD_PRESETS).length === TITLE_CARD_STYLES.length - 1);
-/* `null` significa "o operador escolheu nao ter", e nunca "valor quebrado" — este ja caiu
-   na marca padrao antes. Sabotagem que este par reprova: trocar o ramo explicito por um
-   `|| null`, que mascararia uma entrada do registro faltando por engano. */
-eq('13a4. "sem card" resolve para null; valor TORTO resolve para a marca padrao',
-  [titleCardPreset(TITLE_CARD_SEM), titleCardPreset('marca_inventada').marca,
-    titleCardPreset(undefined).marca],
-  [null, 'primo_rico', 'primo_rico']);
-ok('13a5. o padrao NUNCA e "sem card" (valor torto nao pode apagar o card calado)',
+/* O padrao NUNCA e "sem card": valor torto tem de cair em "este corte tem card", e nao
+   apagar o card calado de quem nunca escolheu nada. */
+ok('13a3. o padrao NUNCA e "sem card"',
   TITLE_CARD_PADRAO !== TITLE_CARD_SEM
-  && titleCardPreset(null) !== null && titleCardPreset(7) !== null);
-/* O portao do card no Clip.jsx tem de consultar a identidade RESOLVIDA. Sem isto, "Sem
-   card" chegaria ao componente como `card={null}` e o `card.marca` derrubaria o render
-   inteiro — nao seria um card faltando, seria tela preta. */
-ok('13a6. o portao do card considera a identidade resolvida, e a tag usa a MESMA const',
-  /const cardMarca = titleCardPreset\(titleCardStyle\);/.test(clipJsx)
-  && /comLegenda && medida\.texto && cardMarca/.test(clipJsx)
-  && /card=\{cardMarca\}/.test(tagCard));
-ok('13b. o padrao e o que TODO corte ja renderiza hoje (clip antigo nao muda de marca)',
-  TITLE_CARD_PADRAO === 'primo_rico'
   && TITLE_CARD_STYLES.indexOf(TITLE_CARD_PADRAO) >= 0);
-/* --- o validador, CHAMADO com valor construido. Sabotagem que isto reprova: trocar o
-   `indexOf(...) >= 0` por um teste de verdade (`valor ? valor : padrao`), que deixaria
-   qualquer string passar — e uma string desconhecida chega ao `TITLE_CARD_PRESETS` como
-   `undefined`, ou seja um card sem placa, sem filete e sem borda, sem erro nenhum. */
-eq('13c. ausente, null, vazio e undefined caem no padrao',
+/* O portao do card no Clip.jsx tem de consultar o card RESOLVIDO. Sem isto, "Sem card" e
+   card apagado chegariam ao componente como `card={null}` e o `card.logo` derrubaria o
+   render inteiro — nao seria um card faltando, seria tela preta. */
+ok('13a4. o portao do card considera o card resolvido, e a tag usa a MESMA const',
+  /const cardResolvido = titleCardStyleOf\(titleCardStyle\) === TITLE_CARD_SEM/.test(clipJsx)
+  && /comLegenda && medida\.texto && cardResolvido/.test(clipJsx)
+  && /card=\{cardResolvido\}/.test(tagCard));
+/* As duas camadas sao ENTRADA, e as duas tem de filtrar: o enum diz se ha card, o `cardOf`
+   diz se o objeto que veio junto e um card. Uma so nao basta — enum valido com objeto torto
+   e exatamente o caso do card apagado da biblioteca. */
+ok('13a5. o "sem card" curto-circuita o objeto, e o objeto torto nao sobrevive ao enum',
+  /\? null : cardOf\(card\)/.test(clipJsx));
+
+/* --- o validador do ENUM, CHAMADO com valor construido. Sabotagem que isto reprova: trocar
+   o `indexOf(...) >= 0` por um teste de verdade (`valor ? valor : padrao`), que deixaria
+   qualquer string passar. */
+eq('13c. ausente, null e vazio caem no padrao',
   [undefined, null, ''].map(titleCardStyleOf),
-  ['primo_rico', 'primo_rico', 'primo_rico']);
+  ['personalizado', 'personalizado', 'personalizado']);
 eq('13d. valor VALIDO passa intacto (senao o seletor nao seleciona nada)',
   TITLE_CARD_STYLES.map(titleCardStyleOf), TITLE_CARD_STYLES);
-/* O ROTULO da tela nao e a chave: e o que impede "Puro Ecommerce" de virar identificador. */
-/* Vale para TODOS os rotulos, inclusive o "Sem card": se o texto da tela fosse aceito como
-   valor, reescrever o rotulo amanha mudaria a logica. Sem tamanho fixo de proposito — a
-   lista pode crescer sem este check virar mentira. */
+/* O ROTULO da tela nao e a chave: se o texto do botao fosse aceito como valor, reescreve-lo
+   amanha mudaria a logica. Sem tamanho fixo de proposito — a lista pode crescer sem este
+   check virar mentira. */
 ok('13e. NENHUM rotulo visivel e aceito como valor',
   Object.values(TITLE_CARD_LABELS).every((r) => titleCardStyleOf(r) === TITLE_CARD_PADRAO));
 eq('13f. tipo errado e valor desconhecido tambem caem no padrao (nao explodem)',
-  [7, {}, [], true, 'PRIMO_RICO', 'primo-rico', 'outra_marca'].map(titleCardStyleOf),
-  new Array(7).fill('primo_rico'));
-ok('13g. e o preset resolvido NUNCA e undefined, aconteca o que acontecer',
-  [undefined, null, 7, 'xxx', 'Primo Rico'].every((v) => {
-    const c = titleCardPreset(v);
-    return !!c && c.marca === 'primo_rico';
-  }));
-ok('13h. cada identidade tem rotulo, e nenhum rotulo sobra',
+  [7, {}, [], true, 'PERSONALIZADO', 'personal-izado', 'outro'].map(titleCardStyleOf),
+  new Array(7).fill('personalizado'));
+/* O caso do corte SALVO ANTES desta entrega: ele carrega o valor de uma das identidades que
+   sairam. Ele esta fora do conjunto, cai no padrao, e o card que veste passa a ser o da
+   biblioteca — nunca um valor de terceiro ressuscitado. */
+ok('13g. valor de entrega anterior cai no padrao (nao sobrou caminho de volta para ele)',
+  ['identidade_antiga', 'outra_identidade', 'marca_de_terceiro']
+    .every((v) => titleCardStyleOf(v) === TITLE_CARD_PADRAO));
+ok('13h. cada valor tem rotulo, e nenhum rotulo sobra',
   TITLE_CARD_STYLES.every((s) => /\S/.test(TITLE_CARD_LABELS[s]))
   && Object.keys(TITLE_CARD_LABELS).length === TITLE_CARD_STYLES.length);
 
-/* --- ISOLAMENTO: uma marca nao pode vestir a outra. E aqui que uma troca de chave, um
-   copiar-colar entre as duas entradas ou um asset trocado aparecem. */
-const cPrimo = titleCardPreset('primo_rico');
-const cPuro = titleCardPreset('puro_ecommerce');
-ok('13i. cada preset aponta para a SUA marca no registro',
-  cPrimo.marca === 'primo_rico' && cPuro.marca === 'puro_ecommerce');
-/* "Sem card" fica FORA daqui: nao ha marca para ele possuir. As identidades sao as chaves
-   do registro de presets, e cada uma tem de ter placa no `MARCAS` — nem sobrando (marca sem
-   preset que a use) nem faltando (preset que aponta para placa inexistente). */
-const IDENTIDADES = Object.keys(TITLE_CARD_PRESETS);
-ok('13j. o registro de marcas cobre exatamente as identidades, e o "sem card" nao entra',
-  IDENTIDADES.every((s) => !!MARCAS[s])
-  && Object.keys(MARCAS).length === IDENTIDADES.length
-  && !(TITLE_CARD_SEM in MARCAS));
-/* Os assets sao DIFERENTES e sao os do repositorio. Sabotagem que isto reprova: apontar as
-   duas entradas para o mesmo badge — o seletor mudaria de posicao e o video sairia igual. */
-ok('13k. as duas placas sao arquivos diferentes',
-  MARCAS.primo_rico.badge !== MARCAS.puro_ecommerce.badge);
-ok('13l. a placa do Primo Rico e a do repositorio (PNG do emblema)',
-  MARCAS.primo_rico.badge === MARCA_BADGE
-  && /^data:image\/png;base64,/.test(MARCAS.primo_rico.badge));
-ok('13m. a placa do Ecommerce Puro e a do repositorio (SVG do badge)',
-  MARCAS.puro_ecommerce.badge === PURO_BADGE
-  && /^data:image\/svg\+xml;base64,/.test(MARCAS.puro_ecommerce.badge));
-/* As DUAS viajam embutidas: o `--public-dir` do render aponta para o cache do YouTube, e
-   `staticFile()` nao alcanca o repositorio. Uma marca por caminho de asset seria a metade
-   que quebra na nuvem. */
-ok('13m2. nenhuma das duas depende de staticFile (as duas viajam no codigo)',
-  Object.values(MARCAS).every((m) => /^data:image\//.test(m.badge) && m.badge.length > 1000));
-/* Proporcao de CADA arquivo. O emblema e circular (1) e a placa e deitada (~4,5): fixar os
-   dois lados viraria elipse num e fecharia o `PURO` no outro. */
-ok('13m3. cada marca traz a proporcao do SEU arquivo',
-  Math.abs(MARCAS.primo_rico.proporcao - MARCA_LARGURA / MARCA_ALTURA) < 1e-9
-  && MARCAS.primo_rico.proporcao === 1
-  && Math.abs(MARCAS.puro_ecommerce.proporcao - PURO_PROPORCAO) < 1e-9
-  && MARCAS.puro_ecommerce.proporcao > 4);
-/* O identificador de TEXTO existe so onde a placa nao traz o wordmark. Sabotagem que isto
-   reprova: copiar `MARCA_NOME` para a entrada do Ecommerce Puro, que escreveria o nome do
-   canal ao lado de uma placa que ja o contem. */
-ok('13n. o Primo Rico tem identificador de texto; o Ecommerce Puro NAO (a placa ja o traz)',
-  /\S/.test(MARCAS.primo_rico.nome) && MARCAS.primo_rico.nome === MARCA_NOME
-  && MARCAS.puro_ecommerce.nome === '' && PURO_NOME === '');
-ok('13n2. e nenhum identificador se declara oficial (o pedido proibe sem autorizacao)',
-  Object.values(MARCAS).every((m) => !/oficial/i.test(m.nome)));
-/* PALETA: o laranja da marca do Primo Rico nao pode aparecer em NENHUM valor do Ecommerce
-   Puro, que e monocromatico por medicao (0 pixels cromaticos no logo de referencia). */
-const valoresPuro = JSON.stringify(cPuro);
-ok('13o. nenhum vestigio do laranja da outra marca no preset monocromatico',
-  !/FF5F01/i.test(valoresPuro) && !/255,\s*95,\s*1/.test(valoresPuro));
-/* E o contrario: o card monocromatico nao pode ter cor cromatica nenhuma. Todo valor de cor
-   dele tem de ser cinza puro (R=G=B) ou branco. */
-ok('13o2. o card monocromatico e realmente monocromatico (R=G=B em toda cor dele)',
-  [cPuro.fileteCor, cPuro.bordaCor, cPuro.identificadorCor, cPuro.destaque.cor]
-    .every((cor) => {
-      const hex = /^#([0-9a-f]{6})$/i.exec(cor);
-      if (hex) {
-        const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
-        return r === g && g === b;
-      }
-      const rgb = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(cor);
-      return !!rgb && rgb[1] === rgb[2] && rgb[2] === rgb[3];
-    }));
-/* O Primo Rico, ao contrario, TEM de usar o laranja medido — senao a identidade dele se
-   perdeu e o seletor passou a oferecer duas variacoes do mesmo card. */
-ok('13o3. o card colorido usa o laranja MEDIDO na referencia',
-  cPrimo.fileteCor === TOKENS.marcaLaranja
-  && cPrimo.destaque.cor === TOKENS.marcaLaranja
-  && /255,\s*95,\s*1/.test(cPrimo.bordaCor));
-/* As duas bordas sao distinguiveis: mesma borda nas duas apagaria metade da diferenca. */
-ok('13o4. as duas identidades tem borda e filete distintos',
-  cPrimo.bordaCor !== cPuro.bordaCor && cPrimo.fileteCor !== cPuro.fileteCor);
+/* --- o validador do CARD, chamado com valor construido. Este e o elo novo: antes a
+   identidade era escolhida de um registro fechado aqui dentro, agora ela ATRAVESSA o
+   navegador, o POST e um JSON no disco antes de virar quadro. */
+const LOGO_PNG = 'data:image/png;base64,' + 'A'.repeat(64);
+const LOGO_SVG = 'data:image/svg+xml;base64,' + 'B'.repeat(64);
+const CARD_CHEIO = {
+  id: 'card-1758500000000-ab12', nome: 'Casa', identificador: 'DOOTU | CORTES',
+  logo: LOGO_PNG, logoProporcao: 2.5,
+  fileteCor: '#FF0000', bordaCor: 'rgba(255, 0, 0, .3)',
+  identificadorCor: '#ccc', destaqueCor: 'rgb(0, 128, 255)',
+  tituloPeso: 800, destaquePeso: 900, destaqueSublinhado: true,
+};
+const resolvido = cardOf(CARD_CHEIO);
+eq('13i. card completo sobrevive INTEIRO ao validador (nenhum campo perdido no caminho)',
+  resolvido,
+  {
+    id: 'card-1758500000000-ab12', nome: 'Casa', identificador: 'DOOTU | CORTES',
+    logo: LOGO_PNG, logoProporcao: 2.5,
+    fileteCor: '#FF0000', bordaCor: 'rgba(255, 0, 0, .3)',
+    identificadorCor: '#ccc', destaqueCor: 'rgb(0, 128, 255)',
+    tituloPeso: 800, destaquePeso: 900, destaqueSublinhado: true,
+  });
+/* O outro ramo, e o que o BP-014 diz que quebra calado. `null` NUNCA levanta: e o desfecho
+   que a composicao le como "este corte nao tem card". */
+ok('13j. lixo de qualquer forma vira null, e nada levanta',
+  [null, undefined, 0, 7, '', 'card', [], [{}], true, NaN]
+    .every((v) => cardOf(v) === null));
+/* Card sem logo E sem identificador nao tem identidade para vestir o titulo: a placa viraria
+   um retangulo com uma manchete dentro. A tela recusa salva-lo e o validador concorda —
+   um dono so para a pergunta "o que e um card". */
+ok('13k. card sem logo E sem identificador e invalido (nao ha identidade para vestir)',
+  cardOf({}) === null
+  && cardOf({ nome: 'so o nome' }) === null
+  && cardOf({ logo: '', identificador: '   ' }) === null);
+/* E os dois meios-cards sao VALIDOS: so placa (o wordmark ja esta nela) e so texto (quem
+   ainda nao tem logo em arquivo). */
+ok('13k2. so logo vale, e so identificador tambem vale',
+  cardOf({ logo: LOGO_SVG }) !== null
+  && cardOf({ logo: LOGO_SVG }).identificador === ''
+  && cardOf({ identificador: 'DOOTU' }) !== null
+  && cardOf({ identificador: 'DOOTU' }).logo === '');
+/* ESQUEMA do logo: so `data:image/...;base64,`. `staticFile()` nao alcanca o repositorio (o
+   `--public-dir` e o cache do YouTube), e um endereco remoto ou falharia em carregar ou
+   transformaria o render numa busca de rede no meio da captura do quadro. */
+ok('13l. endereco que nao e dataURL de imagem e descartado (http, file, javascript, texto)',
+  ['http://x/a.png', 'https://x/a.png', 'file:///a.png', 'javascript:alert(1)',
+    'data:text/html;base64,AAAA', 'data:image/png,AAAA', '/logo.png', 'logo.png']
+    .every((u) => cardOf({ logo: u, identificador: 'DOOTU' }).logo === ''));
+ok('13l2. e os quatro tipos aceitos passam',
+  ['png', 'svg+xml', 'jpeg', 'webp']
+    .every((t) => cardOf({ logo: 'data:image/' + t + ';base64,AAAA' }).logo !== ''));
+ok('13l3. tipo de imagem fora da lista nao passa (gif, bmp, avif)',
+  ['gif', 'bmp', 'avif']
+    .every((t) => cardOf({ logo: 'data:image/' + t + ';base64,AAAA', identificador: 'D' })
+      .logo === ''));
+/* TETO de tamanho, e ele e do validador e nao so da tela: o corpo do POST e entrada, e um
+   dataURL gigante atravessando ate o props-<token>.json e um render que engasga carregando
+   a imagem. Contado em CARACTERES do dataURL, o mesmo numero contado do mesmo jeito nas tres
+   camadas. */
+ok('13l4. logo acima do teto e descartado, e um caractere abaixo passa',
+  cardOf({ logo: 'data:image/png;base64,' + 'A'.repeat(CARD_LOGO_MAX),
+    identificador: 'D' }).logo === ''
+  && cardOf({ logo: 'data:image/png;base64,'
+    + 'A'.repeat(CARD_LOGO_MAX - 'data:image/png;base64,'.length) }).logo !== '');
+/* PROPORCAO: e MEDIDA no arquivo, nunca chutada. Fora da faixa ela produziria largura zero
+   (placa invisivel) ou uma faixa de milhares de pixels — as duas caladas. */
+eq('13n. proporcao ausente, zero, negativa, NaN e absurda caem em 1 (nunca em largura zero)',
+  [undefined, 0, -3, NaN, Infinity, 1e6, 'larga']
+    .map((v) => cardOf({ logo: LOGO_PNG, logoProporcao: v }).logoProporcao),
+  [1, 1, 1, 1, 1, 1, 1]);
+ok('13n2. e proporcao medida de verdade passa intacta (placa deitada e emblema circular)',
+  cardOf({ logo: LOGO_PNG, logoProporcao: 4.4957 }).logoProporcao === 4.4957
+  && cardOf({ logo: LOGO_PNG, logoProporcao: 1 }).logoProporcao === 1);
+/* PESO: conjunto fechado, e o motivo e tipografico. Peso que o `loadFont` nao carregou o
+   Chrome SINTETIZA — engrossamento borrado, sem erro e sem check reprovando (9w amarra a
+   lista ao `loadFont`). */
+eq('13o. peso fora do conjunto carregado cai no padrao (peso sintetizado sai borrado)',
+  [100, 450, 1000, 0, null, 'bold', {}]
+    .map((v) => cardOf({ identificador: 'D', tituloPeso: v }).tituloPeso),
+  new Array(7).fill(CARD_PADROES.tituloPeso));
+/* O `value` de um `<option>` e SEMPRE string: sem a conversao, TODA escolha de peso do
+   editor cairia no padrao calada, e o operador veria o controle mexer sem nada mudar. */
+ok('13o2. o peso vem como STRING do <select> e mesmo assim vale',
+  cardOf({ identificador: 'D', tituloPeso: '700' }).tituloPeso === 700
+  && cardOf({ identificador: 'D', destaquePeso: '600' }).destaquePeso === 600
+  && pesoDoCard('900', 0) === 900);
+/* COR: o valor vai direto para um `style` inline do JSX. String arbitraria ali e texto
+   entrando num atributo de estilo, e o desfecho calado (propriedade descartada pelo React)
+   seria um card sem filete e sem borda. */
+ok('13p. cor invalida cai no padrao, nunca chega ao style inline',
+  ['vermelho', 'red; background:url(x)', '#12', 'rgb(1,2)', '', 7, null, {},
+    'var(--x)', 'url(javascript:1)']
+    .every((c) => cardOf({ identificador: 'D', fileteCor: c }).fileteCor
+      === CARD_PADROES.fileteCor));
+ok('13p2. e as quatro formas que o editor produz passam (hex 3, hex 6, rgb, rgba)',
+  ['#fff', '#A1B2C3', 'rgb(10, 20, 30)', 'rgba(10, 20, 30, .5)']
+    .every((c) => corDoCard(c, 'X') === c));
+/* Sublinhado e BOOLEANO, e so o `true` de verdade liga: `'false'` (string de radio) e
+   `1` ligariam o sublinhado por descuido em toda a biblioteca. */
+eq('13q. sublinhado so e verdadeiro quando e o booleano true',
+  [true, false, 'true', 'false', 1, 0, undefined]
+    .map((v) => cardOf({ identificador: 'D', destaqueSublinhado: v }).destaqueSublinhado),
+  [true, false, false, false, false, false, false]);
+/* Teto de texto. O `nome` so existe na LISTA da biblioteca; o `identificador` e desenhado
+   no quadro, e sem teto uma linha longa empurraria a placa para fora do card. */
+ok('13q2. nome e identificador sao aparados nos tetos, e o entorno em branco some',
+  cardOf({ identificador: 'x'.repeat(200) }).identificador.length === CARD_IDENTIFICADOR_MAX
+  && cardOf({ identificador: 'D', nome: 'y'.repeat(200) }).nome.length === CARD_NOME_MAX
+  && cardOf({ identificador: '  DOOTU  ' }).identificador === 'DOOTU');
+/* O card PADRAO (nenhum campo de aparencia declarado) tem de ter ALGUM sinal de destaque.
+   Sabotagem que isto reprova: padrao com cor igual a do texto e peso igual ao do titulo — o
+   trecho escolhido sairia igual ao resto e o algoritmo de destaque viraria calculo jogado
+   fora, com a suite verde. */
+ok('13q3. o card padrao NUNCA fica sem sinal de destaque',
+  (() => {
+    const c = cardOf({ identificador: 'DOOTU' });
+    return c.destaqueCor !== TOKENS.texto || c.destaquePeso > c.tituloPeso
+      || c.destaqueSublinhado;
+  })());
+/* O exemplo do Remotion Studio e um card VALIDO (senao o Studio abre sem card, que foi
+   exatamente o ponto cego que o `title` do defaultProps existe para resolver) e nao traz
+   asset de marca nenhum — a entrega inteira e sobre o repositorio parar de hospedar marca. */
+ok('13q4. o card de exemplo do Studio e valido e nao carrega asset embutido',
+  cardOf(CARD_EXEMPLO) !== null && CARD_EXEMPLO.logo === ''
+  && /\S/.test(CARD_EXEMPLO.identificador));
 
-/* --- o DESTAQUE: aparencia por marca, algoritmo compartilhado. */
-/* No Primo Rico o sinal e cor, e o peso e o MESMO do titulo: somar peso diria a mesma coisa
-   duas vezes. No Ecommerce Puro nao ha cor, e o sinal e o peso — base e destaque no mesmo
-   peso nao deixariam NADA destacado, que e a sabotagem que este par reprova. */
-ok('13p. o card colorido destaca por COR, no mesmo peso do titulo',
-  cPrimo.destaque.cor !== TOKENS.texto
-  && cPrimo.destaque.peso === cPrimo.tituloPeso
-  && cPrimo.destaque.sublinhado === false);
-ok('13q. o card monocromatico destaca por PESO, e o peso do destaque e MAIOR que o do titulo',
-  cPuro.destaque.cor === TOKENS.texto
-  && cPuro.destaque.peso > cPuro.tituloPeso
-  && cPuro.destaque.sublinhado === true);
-/* Cada identidade tem de ter ALGUM sinal de destaque. Sabotagem que isto reprova: uma
-   entrada sem cor propria E sem peso extra — o trecho escolhido sairia igual ao resto, e o
-   destaque inteiro viraria calculo jogado fora. */
-ok('13q2. nenhuma identidade fica SEM sinal de destaque',
-  Object.values(TITLE_CARD_PRESETS).every((c) =>
-    c.destaque.cor !== TOKENS.texto || c.destaque.peso > c.tituloPeso || c.destaque.sublinhado));
-/* O ALGORITMO e um so. As duas identidades tem de escolher o MESMO trecho da MESMA
-   manchete — o pedido proibe duplicar o algoritmo, e duas escolhas diferentes seriam o
-   sintoma. Provado por EXECUCAO nos dois sentidos, e nao por "nao ha segundo pickTitle". */
+/* --- o ALGORITMO de destaque e um so, e NAO e funcao do card. O pedido proibe duplica-lo,
+   e dois cards destacando trechos diferentes da MESMA manchete seria o sintoma. */
 const TITULOS_13 = [
   'Saiu de uma pequena cidade, para 100 mil pedidos no Brasil.',
   'Faturei R$ 1,2 milhao em 2019? Nao — foi em 2021.',
@@ -1136,126 +1180,124 @@ const TITULOS_13 = [
     + 'primeiro ano de empresa.',
   'Cortei 40% do custo mensal',
 ];
-ok('13r. as duas identidades destacam o MESMO trecho de toda manchete',
+ok('13r. o destaque nao e funcao do card (as funcoes compartilhadas nao recebem card nenhum)',
   TITULOS_13.every((t) => {
     const a = resolveTitleHighlight(t, { highlightText: '', autoHighlight: true });
     const b = resolveTitleHighlight(t, { highlightText: '', autoHighlight: true });
     return JSON.stringify(a) === JSON.stringify(b);
   })
-  /* E o destaque nao e funcao da marca: as funcoes compartilhadas nao recebem preset
-     nenhum, entao nao ha por onde uma marca influenciar a escolha. */
   && resolveTitleHighlight.length <= 2 && splitTitleHighlight.length <= 2);
-/* O destaque MANUAL continua vencendo nas duas, e o interruptor continua desligando. */
-ok('13r2. highlightText manual e autoHighlight:false valem igual nas duas identidades',
+ok('13r2. highlightText manual vence e autoHighlight:false continua desligando',
   resolveTitleHighlight(TITULOS_13[0], { highlightText: 'pequena cidade', autoHighlight: true })
     .origem === 'manual'
   && resolveTitleHighlight(TITULOS_13[0], { highlightText: '', autoHighlight: false })
     .span === null);
 
-/* --- RESPONSIVIDADE nas duas: curto, longo e acentuado. A escada de corpo e compartilhada,
-   entao o contrato e o mesmo — NUNCA passa de 3 linhas e nunca sai do corpo declarado. */
-ok('13s. curto, longo e acentuado cabem em 3 linhas nas DUAS identidades',
-  IDENTIDADES.every((estilo) => {
-    const card = titleCardPreset(estilo);
+/* --- RESPONSIVIDADE: a escada de corpo e compartilhada, entao o contrato e o mesmo para
+   QUALQUER card — nunca passa de 3 linhas e nunca sai do corpo declarado. */
+ok('13s. curto, longo e acentuado cabem em 3 linhas com qualquer peso de card',
+  CARD_PESOS.every((peso) => {
+    const card = cardOf({ identificador: 'DOOTU', tituloPeso: peso });
     return TITULOS_13.every((t) => {
       const span = resolveTitleHighlight(t, { highlightText: '', autoHighlight: true }).span;
       const m = tituloEscalonado(t, span);
       return m.linhas <= MAX_LINHAS_TITULO && TITULO_FONTES.includes(m.fonte)
-        /* O peso da marca nao pode fazer o titulo sumir nem estourar a caixa. */
-        && card.tituloPeso >= 700 && m.texto.length > 0;
+        && card.tituloPeso === peso && m.texto.length > 0;
     });
   }));
-/* Acento e virgula decimal sobrevivem inteiros nas duas (nada de normalizacao por marca). */
-ok('13s2. acento e virgula decimal chegam intactos ao card nas duas identidades',
+ok('13s2. acento e virgula decimal chegam intactos ao card',
   tituloEscalonado(TITULOS_13[1], null).texto.includes('R$ 1,2 milhao')
   && tituloEscalonado(TITULOS_13[1], null).texto.includes('Nao'));
 
-/* --- a GEOMETRIA e compartilhada, e isto e o que torna isso seguro.
-   O `larguraTitulo()` le `TOKENS`, ou seja UM valor para as duas marcas — nenhum preset o
-   recebe. Se uma identidade ganhar padding ou filete proprio, a estimativa de linhas passa
-   a mentir PARA MAIS para ela: o estouro horizontal classico, que so aparece no frame.
-   Este check e o aviso: quem acrescentar geometria a um preset reprova aqui, com o recado
-   de passar o preset ao `larguraTitulo`/`tituloEscalonado`. */
-ok('13t. nenhum preset de marca traz geometria propria (senao o larguraTitulo mente)',
-  Object.values(TITLE_CARD_PRESETS).every((c) =>
-    TITULO_GEOMETRIA_COMPARTILHADA.every((chave) => !(chave in c))));
+/* --- a GEOMETRIA e compartilhada, e isto e o que torna isso seguro. Com a identidade virando
+   DADO DO OPERADOR, este contrato ficou MAIS importante, nao menos: o `larguraTitulo()` le
+   `TOKENS`, ou seja UM valor para a biblioteca inteira, e e por isso que o titulo pode ser
+   medido sem saber qual card vai vestir. Se um card ganhar padding, largura ou filete
+   proprio, a estimativa de linhas passa a mentir PARA MAIS para ele — o estouro horizontal
+   classico, que so aparece no frame. */
+ok('13t. o card resolvido nao traz geometria propria (senao o larguraTitulo mente)',
+  TITULO_GEOMETRIA_COMPARTILHADA.every((chave) => !(chave in resolvido))
+  && TITULO_GEOMETRIA_COMPARTILHADA.every((chave) =>
+    !(chave in cardOf({ identificador: 'D' })))
+  /* E nem um card ADULTERADO consegue injetar geometria: o validador monta o objeto de
+     saida campo a campo, entao chave desconhecida nao atravessa. */
+  && TITULO_GEOMETRIA_COMPARTILHADA.every((chave) =>
+    !(chave in cardOf({ identificador: 'D', [chave]: 9999 }))));
 ok('13t2. e a geometria compartilhada existe TODA em TOKENS (lista sem chave morta)',
   TITULO_GEOMETRIA_COMPARTILHADA.every((chave) => chave in TOKENS));
-ok('13t3. a largura de texto e a MESMA nas duas identidades (uma caixa, dois vestidos)',
+ok('13t3. a largura de texto sai SO de TOKENS (uma caixa para a biblioteca inteira)',
   larguraTitulo() > 0
   && larguraTitulo() === TOKENS.cardLargura - 2 * TOKENS.cardBordaPeso
-    - 2 * TOKENS.cardPadding - TOKENS.tituloFilete);
+    - 2 * TOKENS.cardPadding - TOKENS.tituloFilete
+  && larguraTitulo.length === 0);
 /* O sublinhado do destaque em `em`, e derivado do filete: px fixo nao desce com o corpo, e
    a 32px ele encostava nos acentos da linha de baixo (medido, 0,7px de folga). */
 ok('13u. o sublinhado sai do filete e do degrau de referencia (em, nunca px)',
   TITULO_FILETE_REF === TITULO_FONTES[0]
   && TOKENS.tituloFilete / TITULO_FILETE_REF < 0.1);
-/* E a espessura tem de CHEGAR ao JSX derivada, nao como literal. Sabotagem que isto reprova
-   (medida — passava com a suite verde): trocar a conta por `"4px"`. Em px o sublinhado nao
-   desce com o corpo, e no degrau de 32px ele encosta nos acentos da linha de baixo (folga
-   medida de 0,7px) — defeito que so aparece OLHANDO o frame de um titulo de tres linhas. */
 ok('13u2. a espessura do sublinhado e DERIVADA no JSX, nunca um px escrito a mao',
   /textDecorationThickness:\s*\n?\s*\(TOKENS\.tituloFilete \/ TITULO_FILETE_REF\)/.test(clipJsx)
   && !/textDecorationThickness:\s*"?\d+px/.test(clipJsx));
-/* O deslocamento do sublinhado tambem em `em`, pela mesma razao: em px ele fica colado no
-   glifo nos corpos grandes e longe dele nos pequenos. */
 ok('13u3. e o deslocamento do sublinhado tambem e relativo ao corpo',
   /textUnderlineOffset: "[0-9.]+em"/.test(clipJsx));
 
-/* --- FIACAO no Clip.jsx. Aqui as assercoes sao de texto, e por isso os checks acima
-   CHAMAM as funcoes: a licao de 2026-08-26 ("`in arquivo` so prova que alguem escreveu a
-   palavra") reincidiu em 2026-08-27 e criou o `ancoraLegenda`. O que estas linhas provam e
-   so que o valor CHEGA — o comportamento e provado por execucao. */
-/* O check le o prop DENTRO do destructuring do Clip, e nao a linha inteira copiada: com a
-   linha literal, qualquer prop novo vizinho (foi o `legendaStyle` da legenda) reprovava um
-   check que nada tem a ver com ele. Mesma forma do 14q. */
-ok('13v. o Clip.jsx recebe titleCardStyle como prop (sem isto a escolha nunca chega)',
-  /export const Clip = \(\{[\s\S]{0,400}?\btitleCardStyle\b/.test(clipJsx));
-/* Sabotagem que isto reprova: `card={TITLE_CARD_PRESETS.primo_rico}` ou qualquer preset
-   escrito a mao na tag — o seletor mudaria de posicao na tela e o video sairia sempre com a
-   MESMA marca, calado, que e exatamente o defeito que esta entrega conserta. */
-/* A chamada saiu de dentro da tag e virou a const `cardMarca` quando o "Sem card" entrou —
-   o portao precisa do MESMO valor que o componente recebe. A intencao deste check nao mudou:
-   a identidade tem de chegar ao card RESOLVIDA a partir do prop, e nunca escrita a mao.
-   Sabotagem que ele reprova: `card={titleCardPreset('primo_rico')}` ou qualquer literal. */
-ok('13w. e a identidade chega ao card pelo GATE, resolvida do prop',
-  /card=\{cardMarca\}/.test(tagCard)
-  && /const cardMarca = titleCardPreset\(titleCardStyle\);/.test(clipJsx));
-ok('13w2. nenhuma marca escrita a mao na tag do card',
-  !/card=\{TITLE_CARD_PRESETS\./.test(clipJsx)
-  && !/card=\{\s*\{/.test(clipJsx));
+/* --- FIACAO no Clip.jsx. Aqui as assercoes sao de texto, e por isso os checks acima CHAMAM
+   as funcoes: a licao de 2026-08-26 ("`in arquivo` so prova que alguem escreveu a palavra")
+   reincidiu em 2026-08-27 e criou o `ancoraLegenda`. O que estas linhas provam e so que o
+   valor CHEGA — o comportamento e provado por execucao. */
+/* O check le os props DENTRO do destructuring do Clip, e nao a linha inteira copiada: com a
+   linha literal, qualquer prop novo vizinho reprovava um check que nada tem a ver com ele. */
+ok('13v. o Clip.jsx recebe titleCardStyle E card como props (sem os dois nada chega)',
+  /export const Clip = \(\{[\s\S]{0,400}?\btitleCardStyle\b/.test(clipJsx)
+  && /export const Clip = \(\{[\s\S]{0,400}?[,{]\s*card,/.test(clipJsx));
+/* Sabotagem que isto reprova: um card escrito a mao na tag — o seletor mudaria de posicao na
+   tela e o video sairia sempre com o MESMO card, calado, que e exatamente o defeito que esta
+   entrega conserta. */
+ok('13w2. nenhum card escrito a mao na tag (nem literal, nem objeto inline)',
+  !/card=\{\s*\{/.test(clipJsx)
+  && !/card=\{CARD_EXEMPLO\}/.test(clipJsx));
 /* O defaultProps existe para o Remotion Studio abrir MOSTRANDO um card — e tem de abrir no
-   PADRAO, senao o Studio mostra uma marca e o render sai com outra. */
-ok('13x. o defaultProps traz a identidade, e e o padrao do preset (nao um literal)',
-  /titleCardStyle: TITLE_CARD_PADRAO,/.test(clipJsx));
-/* Nenhum valor de marca hardcoded sobrou na composicao: enquanto o `CardTitulo` importava
-   `MARCA_BADGE` direto, um segundo card so poderia escolher o asset com um `if` aqui. */
-ok('13y. o CardTitulo le a marca do REGISTRO, nao de um import solto',
-  /const marca = MARCAS\[card\.marca\];/.test(clipJsx)
-  && /<Img\s+src=\{marca\.badge\}/.test(clipJsx)
-  && /width: TOKENS\.logoAltura \* marca\.proporcao/.test(clipJsx));
-ok('13y2. e todo valor de identidade sai do preset resolvido, nunca de TOKENS/hex',
+   PADRAO do preset, nao num literal que amanha diverge do resto do projeto. */
+ok('13x. o defaultProps traz o padrao do preset e o card de exemplo (nao literais)',
+  /titleCardStyle: TITLE_CARD_PADRAO,/.test(clipJsx)
+  && /card: CARD_EXEMPLO,/.test(clipJsx));
+/* O `Img` do Remotion (nao `<img>`) segura a captura ate a imagem carregar; sem isso os
+   primeiros quadros saem SEM a placa e isso so aparece olhando o frame 0. E ele so e montado
+   quando HA logo: um `src` vazio viraria pedido de rede e imagem quebrada no quadro. */
+ok('13y. a placa sai do CARD, pelo Img, e so quando ha logo',
+  /\{card\.logo\s*\n?\s*\?/.test(clipJsx)
+  && /<Img\s+src=\{card\.logo\}/.test(clipJsx)
+  && /width: TOKENS\.logoAltura \* card\.logoProporcao/.test(clipJsx)
+  && !/<img\s/.test(jsxSemComentario));
+ok('13y2. e todo valor de identidade sai do card resolvido, nunca de TOKENS/hex',
   /backgroundColor: card\.fileteCor/.test(clipJsx)
   && /card\.bordaCor/.test(clipJsx)
   && /fontWeight: card\.tituloPeso/.test(clipJsx)
-  && /color: card\.destaque\.cor/.test(clipJsx)
-  && /fontWeight: card\.destaque\.peso/.test(clipJsx)
-  && /card\.destaque\.sublinhado/.test(clipJsx));
-/* O card antigo lia estes tres nomes direto do modulo da marca. Nenhum pode sobrar em
-   codigo (em comentario pode — e onde a historia esta escrita, e por isso o
-   `jsxSemComentario`). */
-ok('13z. nenhum import solto de marca sobrou no CODIGO do Clip.jsx',
-  !/\bMARCA_BADGE\b/.test(jsxSemComentario)
+  && /color: card\.destaqueCor/.test(clipJsx)
+  && /fontWeight: card\.destaquePeso/.test(clipJsx)
+  && /card\.destaqueSublinhado/.test(clipJsx));
+/* O card antigo lia a placa de um registro de marcas embutido no repositorio. Nenhum nome
+   daquele registro pode sobrar em CODIGO (em comentario pode — e onde a historia esta
+   escrita, e por isso o `jsxSemComentario`). */
+ok('13z. nenhum vestigio do registro de marcas sobrou no CODIGO do Clip.jsx',
+  !/\bMARCAS\b/.test(jsxSemComentario)
+  && !/\bMARCA_BADGE\b/.test(jsxSemComentario)
   && !/\bMARCA_NOME\b/.test(jsxSemComentario)
   && !/\bMARCA_PROPORCAO\b/.test(jsxSemComentario)
   && !/TOKENS\.marcaLaranja/.test(jsxSemComentario)
-  && !/TOKENS\.tituloDestaqueCor/.test(jsxSemComentario));
-/* O identificador some quando a placa ja traz o wordmark — e o teste e sobre o NOME ter
-   conteudo, nao um `if` de marca: trocar a marca nao pode acender texto que a placa contem. */
-ok('13z2. o identificador de texto e condicionado ao nome, nao a um if de marca',
-  /\{marca\.nome\s*\n?\s*\?/.test(clipJsx)
-  && !/card\.marca === ["']/.test(jsxSemComentario)
-  && !/marca\.marca === ["']/.test(jsxSemComentario));
+  && !/TOKENS\.tituloDestaqueCor/.test(jsxSemComentario)
+  && !/marca\.js/.test(jsxSemComentario));
+/* E nenhum asset voltou embutido: a composicao nao pode hospedar dataURL de imagem nenhum —
+   a placa vem do card do operador, que atravessa o POST. */
+ok('13z1. nenhum asset de imagem embutido sobrou na composicao',
+  !/data:image\//.test(jsxSemComentario));
+/* O identificador some quando a placa ja traz o wordmark — e o teste e sobre o CAMPO ter
+   conteudo, nao um `if` de identidade: trocar de card nao pode acender texto que a placa
+   dele contem. */
+ok('13z2. o identificador de texto e condicionado ao CAMPO, nao a um if de identidade',
+  /\{card\.identificador\s*\n?\s*\?/.test(clipJsx)
+  && !/card\.id === ["']/.test(jsxSemComentario)
+  && !/card\.nome === ["']/.test(jsxSemComentario));
 
 
 /* ============================================================ 14. enquadramento do palco
@@ -1353,7 +1395,7 @@ ok('14o. perfil desconhecido cai no padrao e NAO recorta',
    escrito a mao no componente. */
 ok('14p. o Palco usa o gate do preset, e recebe os DOIS props',
   /palcoGeometria\(reframe, altura\)/.test(clipJsx)
-  && /<Palco src=\{src\} reframe=\{reframe\} altura=\{videoAltura\} \/>/.test(clipJsx));
+  && /<Palco src=\{src\} reframe=\{reframe\} altura=\{videoAltura\}( zooms=\{zooms\})? \/>/.test(clipJsx));
 ok('14q. e os dois props existem no destructuring do Clip (senao chegam undefined)',
   /export const Clip = \(\{[\s\S]{0,400}?\breframe\b/.test(clipJsx)
   && /export const Clip = \(\{[\s\S]{0,400}?\bvideoAltura\b/.test(clipJsx));
@@ -1362,7 +1404,8 @@ ok('14q. e os dois props existem no destructuring do Clip (senao chegam undefine
 /* A legenda tinha UMA aparencia cravada nos TOKENS e lida pelo Clip.jsx. Agora ela e um
    registro, como o card do titulo — e estes checks sao os que cobram que o estilo de HOJE
    continue identico e que o estilo novo caiba na coluna. */
-eq('15a. dois estilos declarados, nesta ordem', LEGENDA_STYLES, ['classico', 'impacto']);
+eq('15a. seis estilos declarados, nesta ordem (os dois de sempre primeiro)', LEGENDA_STYLES,
+  ['classico', 'impacto', 'faixa', 'podcast', 'papel', 'discreta']);
 ok('15a2. o padrao e o `classico` (corte antigo nao muda de aparencia)',
   LEGENDA_PADRAO === 'classico' && LEGENDA_STYLES.indexOf(LEGENDA_PADRAO) >= 0);
 ok('15a3. todo estilo tem entrada no registro, e o registro nao tem estilo a mais',
@@ -1482,11 +1525,11 @@ ok('15i. toda familia declarada tem entrada no mapa de fontes do Clip.jsx',
 ok('15i2. Montserrat carrega exatamente o 800 que corpo e destaque pedem',
   /carregarMontserrat\("normal", \{\s*weights: \["800"\]/.test(clipJsx));
 ok('15i3. o Clip resolve a aparencia UMA vez e corta as paginas com o teto DELA',
-  /const aparencia = resolveLegenda\(legendaStyle, edit\);/.test(clipJsx)
+  /const aparencia = resolveLegenda\(legendaStyle, edit, legendaColuna\);/.test(clipJsx)
   && /toCaptionPages\(cues, tetoDaPagina\(aparencia\)\)/.test(clipJsx));
 ok('15i4. e a Legenda recebe a aparencia (sem isso ela lê `undefined` e o render cai)',
   /aparencia=\{aparencia\}/.test(clipJsx)
-  && /const Legenda = \(\{ pagina, cor, base, de, aparencia \}\)/.test(clipJsx));
+  && /const Legenda = \(\{ pagina, cor, base, esquerda, de, aparencia \}\)/.test(clipJsx));
 ok('15i5. o prop legendaStyle existe no destructuring do Clip (senao chega undefined)',
   /export const Clip = \(\{[\s\S]{0,400}?\blegendaStyle\b/.test(clipJsx));
 /* A caixa alta e do CSS: o texto que atravessa o pipeline continua sendo a fala como foi
@@ -1522,8 +1565,9 @@ const editCompleto = { v: 1, legenda: {
 }, enquadramento: { reframe: 'crop45' } };
 eq('16b. todos os overrides validos sobrevivem sem mutar a origem',
   editOf({ edit: structuredClone(editCompleto) }), editCompleto);
-eq('16c. arrays, tipos errados, cor livre e valores fora dos conjuntos caem no automatico',
-  editOf({ edit: { v: 1, legenda: { tamanho: '80', caixaAlta: 1, cor: '#ff00ff',
+eq('16c. arrays, tipos errados, cor torta e valores fora dos conjuntos caem no automatico',
+  editOf({ edit: { v: 1, legenda: { tamanho: '80', caixaAlta: 1, cor: '#ff00f', destaqueCor: 'red',
+    contorno: 7, fundo: 'Nenhum',
     familia: 'Montserrat', alinhamento: 'justify', largura: NaN }, enquadramento: [] } }), automatico);
 eq('16d. limites numericos sao clampados, inclusive zero de posicao',
   editOf({ edit: { v: 1, legenda: { tamanho: 1000, largura: 1, posicaoPct: -5 } } }).legenda,
@@ -1568,4 +1612,410 @@ ok('16m. composicao consome edit e a largura/alinhamento resolvidos, sem re-reso
   && /width: aparencia\.largura \|\| TOKENS\.legendaLargura/.test(clipJsx)
   && /textAlign: aparencia\.alinhamento \|\| "center"/.test(clipJsx)
   && !/editOf/.test(clipJsx));
-console.log(`\nok - ${n} verificacoes passaram (tipografia, quebra de linha, enfase, fundo, destaque de titulo e as duas identidades do card do BUSINESS_SERIOUS).`);
+
+/* ------------------------------------------------- 17. estilos prontos, contorno e caixa
+   (2026-09-23). O que se cobra: o operador escolhe a cor que quiser, e ela chega NA
+   PALAVRA SENDO DITA (era o defeito: o karaokê lia o leque e ignorava a escolha); contorno e
+   caixa existem, desligam com `nenhum`, e todo estilo pronto se LÊ sobre o que ele pinta. */
+eq('17a. hex e token antigo valem, hex sai em maiusculas, nenhum so onde e permitido',
+  [corLegendaOf('#ffd23f'), corLegendaOf('destaque'), corLegendaOf('nenhum'),
+    corLegendaOf('nenhum', true), corLegendaOf('#FFF'), corLegendaOf(12)],
+  ['#FFD23F', 'destaque', undefined, 'nenhum', undefined, undefined]);
+eq('17a2. contorno e caixa sobrevivem ao validador, com o `nenhum` inclusive',
+  editOf({ edit: { v: 1, legenda: { cor: '#abcdef', contorno: 'nenhum', fundo: '#0e0e10' } } }).legenda,
+  { cor: '#ABCDEF', contorno: 'nenhum', fundo: '#0E0E10' });
+const comDestaque = resolveLegenda('classico', { v: 1, legenda: { destaqueCor: '#4CC9F0' } });
+eq('17b. a cor de destaque escolhida vale para a PALAVRA SENDO DITA (o leque cede)',
+  [comDestaque.palavraCores, corDaPalavra(comDestaque, 3)], [['#4CC9F0'], '#4CC9F0']);
+eq('17b2. e o nome de token antigo (corte salvo) resolve para o hex dele',
+  resolveLegenda('classico', { v: 1, legenda: { destaqueCor: 'destaque' } }).palavraCores,
+  [TOKENS.destaque]);
+eq('17b3. sem destaque escolhido, o classico continua no leque de sempre',
+  resolveLegenda('classico', { v: 1, legenda: { tamanho: 60 } }).palavraCores, TOKENS.palavraCores);
+const FAIXA = legendaPreset('faixa');
+const semCaixa = resolveLegenda('faixa', { v: 1, legenda: { fundo: 'nenhum' } });
+ok('17c. `nenhum` desliga a caixa do estilo e devolve a sombra de leitura',
+  FAIXA.fundo && FAIXA.sombra === 'none' && semCaixa.fundo === null
+  && semCaixa.sombra === TOKENS.sombraTexto && caixaLegenda(semCaixa) === null);
+const comCaixa = resolveLegenda('classico', { v: 1, legenda: { fundo: '#FFFFFF' } });
+ok('17c2. caixa posta a mao apaga a sombra (sombra sobre caixa e borrao)',
+  comCaixa.fundo === '#FFFFFF' && comCaixa.sombra === 'none');
+eq('17c3. a caixa leva a opacidade do token e repete o respiro em cada linha',
+  [caixaLegenda(FAIXA).backgroundColor, caixaLegenda(FAIXA).boxDecorationBreak, caixaLegenda(CLASSICO)],
+  ['#0E0E10E0', 'clone', null]);
+eq('17d. o traco do contorno e o dobro do visivel e acompanha o corpo',
+  [contornoPx({ fonte: 66 }), contornoPx({ fonte: 96 }), contornoPx({ fonte: 'x' })], [8, 12, 2]);
+ok('17d2. so o `podcast` nasce com contorno, e os de sempre nascem sem contorno e sem caixa',
+  LEGENDA_STYLES.filter((e) => LEGENDA_PRESETS[e].contorno).join() === 'podcast'
+  && !CLASSICO.contorno && !CLASSICO.fundo && !IMPACTO.contorno && !IMPACTO.fundo);
+/* Contraste WCAG entre o texto e a caixa que fica atrás dele. */
+const lum = (hex) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const contraste = (a, b) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+for (const estilo of LEGENDA_STYLES.filter((e) => LEGENDA_PRESETS[e].fundo)) {
+  const p = LEGENDA_PRESETS[estilo];
+  ok(`17e. [${estilo}] texto e destaque se leem sobre a caixa (>= 4.5:1)`,
+    contraste(p.cor, p.fundo) >= 4.5 && contraste(p.destaqueCor, p.fundo) >= 4.5);
+}
+ok('17e2. todo estilo novo tem UMA cor de destaque, e ela e a da palavra sendo dita',
+  ['faixa', 'podcast', 'papel', 'discreta'].every((e) => {
+    const p = LEGENDA_PRESETS[e];
+    return p.palavraCores.length === 1 && p.palavraCores[0] === p.destaqueCor
+      && LEGENDA_FAMILIAS.includes(p.familia) && (p.familia !== 'montserrat' || p.peso === 800);
+  }));
+ok('17f. o Clip.jsx veste contorno e caixa pelas funcoes do preset (nao por fiacao a mao)',
+  /WebkitTextStroke: contornoPx\(aparencia\)/.test(clipJsx)
+  && /paintOrder: "stroke fill"/.test(clipJsx)
+  && /<CaixaLegenda estilo=\{caixaLegenda\(aparencia\)\}>/.test(clipJsx));
+eq('17g. o `nenhum` do preset e o mesmo valor que o validador aceita', LEGENDA_SEM, 'nenhum');
+
+/* 18. PROFUNDIDADE e posicao LATERAL (2026-09-25). Funcoes puras, chamadas com valores
+   construidos: Nenhuma nao acrescenta NADA, Suave/Funda nao recebem tempo e giram pela
+   BASE, e a borda esquerda ausente e a formula centralizada de sempre. */
+{
+  const P = await import('./src/preset.js');
+  const classico = P.resolveLegenda('classico', undefined);
+  eq('18a. sem Profundidade o estilo do bloco nao ganha nada (mesma arvore, mesmas propriedades)',
+    [P.profundidadeLegenda(classico), P.profundidadeLegenda(undefined),
+      P.profundidadeLegenda({ ...classico, profundidade: 'nenhuma' }),
+      P.profundidadeLegenda({ ...classico, profundidade: '3d' })], [{}, {}, {}, {}]);
+  ok('18a2. e o `resolveLegenda` sem ajuste continua devolvendo o preset puro (sem chave nova)',
+    !('profundidade' in classico) && !('profundidade' in P.resolveLegenda('impacto', { v: 1, legenda: {} })));
+  ok('18b. a funcao nao tem entrada de tempo: um argumento so (a aparencia)',
+    P.profundidadeLegenda.length === 1);
+  for (const nome of ['suave', 'funda']) {
+    const t = P.LEGENDA_PROFUNDIDADES[nome];
+    const ap = P.resolveLegenda('classico', { v: 1, legenda: { profundidade: nome } });
+    const bloco = P.profundidadeLegenda(ap);
+    const camadas = bloco.textShadow.split(/,\s*(?![^()]*\))/);
+    ok(`18c. [${nome}] inclina pela BASE: perspective/rotateX com origem 50% 100%`,
+      bloco.transform === `perspective(${t.perspectiva}px) rotateX(${t.inclinacao}deg)`
+      && bloco.transformOrigin === '50% 100%');
+    ok(`18d. [${nome}] volume = ${t.camadas} sombras DURAS (sem desfoque) e a de leitura por ultimo`,
+      camadas.length === t.camadas + TOKENS.sombraTexto.split(/,\s*(?![^()]*\))/).length
+      && camadas.slice(0, t.camadas).every((c, i) => c.startsWith('0 ' + Math.round((i + 1) * t.passo * 100) / 100 + 'px 0 color-mix('))
+      && bloco.textShadow.endsWith(TOKENS.sombraTexto));
+    // Projecao: um ponto a h px acima da base vai a h*cos(t)*d/(d + h*sin(t)) -- nunca acima
+    // de h. Com a base no lugar (origem na base), o texto projetado nunca sobe alem do
+    // bloco reto: se o reto cabe no quadro, o inclinado tambem.
+    const th = t.inclinacao * Math.PI / 180;
+    const alturas = [60, 150, 250];
+    ok(`18e. [${nome}] a projecao fica DENTRO do bloco reto (a base nao sai da ancora)`,
+      alturas.every(h => { const y = h * Math.cos(th) * t.perspectiva / (t.perspectiva + h * Math.sin(th)); return y > 0 && y <= h; }));
+    const comCaixa = P.profundidadeLegenda(P.resolveLegenda('faixa', { v: 1, legenda: { profundidade: nome } }));
+    ok(`18f. [${nome}] com caixa de fundo: so a inclinacao, sem volume`,
+      comCaixa.transform === bloco.transform && !('textShadow' in comCaixa));
+  }
+  const semLeitura = P.profundidadeLegenda(P.resolveLegenda('podcast', { v: 1, legenda: { profundidade: 'suave' } }));
+  const podcast = P.resolveLegenda('podcast', { v: 1, legenda: { profundidade: 'suave' } });
+  ok('18g. em outro estilo (Contorno) a sombra de leitura DELE vem depois das camadas, na cor do texto',
+    semLeitura.textShadow === Array.from({ length: P.LEGENDA_PROFUNDIDADES.suave.camadas }, (_, i) =>
+      '0 ' + Math.round((i + 1) * P.LEGENDA_PROFUNDIDADES.suave.passo * 100) / 100 + 'px 0 '
+      + 'color-mix(in srgb, #FFFFFF 35%, #000)').join(', ') + ', ' + podcast.sombra);
+  eq('18h. borda esquerda: ausente/ilegivel = centralizada de sempre; zero e valor',
+    [P.esquerdaLegenda(undefined, 820), P.esquerdaLegenda(null, 600), P.esquerdaLegenda('x', 820),
+      P.esquerdaLegenda(0, 820), P.esquerdaLegenda(76, 820), P.esquerdaLegenda(undefined, undefined)],
+    [130, 240, 130, 0, 76, 130]);
+  eq('18i. o validador guarda Profundidade e posicao lateral (grampo e arredonda) e recusa o resto',
+    [P.editOf({ edit: { v: 1, legenda: { profundidade: 'funda', posicaoXPct: 44.6 } } }).legenda,
+      P.editOf({ edit: { v: 1, legenda: { profundidade: 'x', posicaoXPct: 250 } } }).legenda],
+    [{ profundidade: 'funda', posicaoXPct: 45 }, { posicaoXPct: 100 }]);
+  ok('18j. o Clip.jsx so ESPALHA o estilo da Profundidade e pega a borda pela guarda',
+    /\.\.\.profundidadeLegenda\(aparencia\)/.test(clipJsx)
+    && /esquerda=\{esquerdaLegenda\(legendaEsquerda, aparencia\.largura\)\}/.test(clipJsx)
+    && /left: esquerda,/.test(clipJsx));
+  /* A coluna EFETIVA do servidor (2026-09-28): guarda pura, e o resolveLegenda a aplica UMA
+     vez — a mesma largura desenha e pagina. Sem a prop, a aparência é a de sempre. */
+  eq('18k. guarda da coluna: ausente/ilegivel/fora do quadro = a de sempre; numero valido vence',
+    [P.colunaLegenda(undefined, 820), P.colunaLegenda(null, 600), P.colunaLegenda('x', 820),
+      P.colunaLegenda(0, 820), P.colunaLegenda(5000, 820), P.colunaLegenda(352, 820),
+      P.colunaLegenda('400', undefined)],
+    [820, 600, 820, 820, 820, 352, 400]);
+  const semCol = P.resolveLegenda('impacto', { v: 1, legenda: { posicaoXPct: 8 } });
+  const comCol = P.resolveLegenda('impacto', { v: 1, legenda: { posicaoXPct: 8 } }, 352);
+  ok('18l. com a coluna efetiva, a aparencia desenha E pagina com ela (teto menor)',
+    comCol.largura === 352 && P.tetoDaPagina(comCol) < P.tetoDaPagina(semCol)
+    && P.tetoDaPagina(comCol) === P.charsPorLinhaLegenda(72, comCol.avanco, 352) * 2
+    && JSON.stringify(P.resolveLegenda('impacto', {})) === JSON.stringify(P.resolveLegenda('impacto', {}, undefined)));
+}
+
+/* 19. ÂNGULO da Profundidade (2026-09-29): oito direções nomeadas. A tabela ESPERADA abaixo é
+   escrita aqui, à mão, a partir do contrato (lado que se afasta → pivô = lado mais perto da
+   câmera, sinais dos giros, lado do volume) — não é lida do preset. E a prova de que nada sai do
+   bloco reto é uma projeção 3D PRÓPRIA dos quatro cantos, independente da conta do preset. */
+{
+  const P = await import('./src/preset.js');
+  //                  pivô            rotateY rotateX volume(x, y)
+  const ESPERADO = {
+    tras: ['50% 100%', 0, 1, 0, 1], frente: ['50% 0%', 0, -1, 0, -1],
+    direita: ['0% 100%', 1, 0, -1, 0], esquerda: ['100% 100%', -1, 0, 1, 0],
+    'tras-direita': ['0% 100%', 1, 1, -1, 1], 'tras-esquerda': ['100% 100%', -1, 1, 1, 1],
+    'frente-direita': ['0% 0%', 1, -1, -1, -1], 'frente-esquerda': ['100% 0%', -1, -1, 1, -1],
+  };
+  const DIRECOES = Object.keys(ESPERADO);
+  const sinal = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
+  const giros = (t) => ({
+    y: sinal(parseFloat((t.match(/rotateY\(([^)]+)\)/) || [0, 0])[1])),
+    x: sinal(parseFloat((t.match(/rotateX\(([^)]+)\)/) || [0, 0])[1])),
+  });
+  eq('19a. o conjunto de direcoes e exatamente o do contrato (oito, com tras)',
+    Object.keys(P.LEGENDA_PROFUNDIDADE_DIRECOES).sort(), [...DIRECOES].sort());
+  ok('19b. direcao ausente, torta ou `tras` = o bloco de 2026-09-25, nos seis estilos e nas duas intensidades',
+    LEGENDA_STYLES.every((estilo) => ['suave', 'funda'].every((nome) => {
+      const base = P.profundidadeLegenda(P.resolveLegenda(estilo, { v: 1, legenda: { profundidade: nome } }));
+      return ['tras', 'x', undefined].every((d) => JSON.stringify(P.profundidadeLegenda(
+        P.resolveLegenda(estilo, { v: 1, legenda: { profundidade: nome, profundidadeDirecao: d } }))) === JSON.stringify(base));
+    })));
+  ok('19c. cada direcao gira pelo pivo do contrato e com os sinais do contrato',
+    DIRECOES.every((d) => ['suave', 'funda'].every((nome) => {
+      const b = P.profundidadeLegenda({ profundidade: nome, profundidadeDirecao: d, fonte: 72, entrelinha: 1.2 });
+      const g = giros(b.transform);
+      return b.transformOrigin === ESPERADO[d][0] && g.y === ESPERADO[d][1] && g.x === ESPERADO[d][2];
+    })));
+  ok('19d. so perspective/rotateX/rotateY (+ translateX PRIMEIRO nas diagonais); eixo unico sem giro zero',
+    DIRECOES.every((d) => ['suave', 'funda'].every((nome) => {
+      const t = P.profundidadeLegenda({ profundidade: nome, profundidadeDirecao: d, fonte: 72, entrelinha: 1.2 }).transform;
+      const fns = [...t.matchAll(/(\w+)\(/g)].map((m) => m[1]);
+      const diagonal = ESPERADO[d][1] !== 0 && ESPERADO[d][2] !== 0;
+      return fns.every((f) => ['perspective', 'rotateX', 'rotateY', 'translateX'].includes(f))
+        && (diagonal ? fns[0] === 'translateX' && fns.length === 4 : fns.length === 2 && !fns.includes('translateX'));
+    })));
+  ok('19e. com caixa de fundo, em toda direcao: so o transform, sem volume',
+    DIRECOES.every((d) => {
+      const ap = P.resolveLegenda('faixa', { v: 1, legenda: { profundidade: 'funda', profundidadeDirecao: d } });
+      const b = P.profundidadeLegenda(ap);
+      return !('textShadow' in b) && b.transform === P.profundidadeLegenda({ ...ap, fundo: null }).transform;
+    }));
+  ok('19f. o volume sai para o lado MAIS PERTO da camera (sinais do contrato)',
+    DIRECOES.every((d) => {
+      const s = P.profundidadeLegenda({ profundidade: 'funda', profundidadeDirecao: d, fonte: 72, entrelinha: 1.2 })
+        .textShadow.split(/,\s*(?![^()]*\))/)[0].split(' ');
+      return sinal(parseFloat(s[0])) === ESPERADO[d][3] && sinal(parseFloat(s[1])) === ESPERADO[d][4]
+        && [s[0], s[1]].every((t) => t !== '-0' && t !== '-0px');
+    }));
+
+  /* Projeção 3D própria: matriz 4x4 da lista do transform (esquerda → direita), relativa ao
+     pivô, com a divisão por w no fim. Convenção CSS: y para baixo, z para quem olha. */
+  const RAD = Math.PI / 180;
+  const mul = (a, b) => a.map((l) => [0, 1, 2, 3].map((j) => l.reduce((s, v, k) => s + v * b[k][j], 0)));
+  const ident = () => [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+  const matriz = (nome, v) => {
+    const m = ident(), c = Math.cos(v * RAD), s = Math.sin(v * RAD);
+    if (nome === 'perspective') m[3][2] = -1 / v;
+    else if (nome === 'translateX') m[0][3] = v;
+    else if (nome === 'rotateX') { m[1][1] = c; m[1][2] = -s; m[2][1] = s; m[2][2] = c; }
+    else if (nome === 'rotateY') { m[0][0] = c; m[0][2] = s; m[2][0] = -s; m[2][2] = c; }
+    else throw new Error('funcao inesperada no transform: ' + nome);
+    return m;
+  };
+  const cantos = (bloco, w, h) => {
+    const m = [...bloco.transform.matchAll(/(\w+)\(([^)]+)\)/g)]
+      .reduce((acc, [, nome, arg]) => mul(acc, matriz(nome, parseFloat(arg))), ident());
+    const [ox, oy] = bloco.transformOrigin.split(' ').map((t, i) => parseFloat(t) / 100 * (i ? h : w));
+    return [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => {
+      const q = m.map((l) => l[0] * (x - ox) + l[1] * (y - oy) + l[3]);
+      return { x: q[0] / q[3] + ox, y: q[1] / q[3] + oy, escala: 1 / q[3] };
+    });
+  };
+  let pior = Infinity, falha = null, baseFora = null, legivel = Infinity;
+  for (const d of DIRECOES) for (const nome of ['suave', 'funda'])
+    for (const coluna of [240, 360, 820, 1000]) for (const linhas of [1, MAX_LINHAS])
+      for (const fonte of [32, 96]) for (const entrelinha of [1.1, 1.3]) {
+        const b = P.profundidadeLegenda({ profundidade: nome, profundidadeDirecao: d, fonte, entrelinha });
+        const h = linhas * fonte * entrelinha;
+        const c = cantos(b, coluna, h);
+        const margem = Math.min(...c.flatMap((p) => [p.x, coluna - p.x, p.y, h - p.y]));
+        if (margem < pior) pior = margem;
+        if (margem < -0.5 && !falha) falha = [d, nome, coluna, linhas, fonte, entrelinha, margem];
+        if (ESPERADO[d][0].endsWith(' 100%') && Math.max(Math.abs(c[2].y - h), Math.abs(c[3].y - h)) > 0.5)
+          baseFora = baseFora || [d, nome, coluna, linhas, fonte, entrelinha];
+        if (coluna === 1000 && linhas === MAX_LINHAS && fonte === 96 && entrelinha === 1.3)
+          legivel = Math.min(legivel, ...c.map((p) => p.escala));
+      }
+  console.log(`  19g: pior margem dos cantos = ${pior.toFixed(3)} px · menor escala de perspectiva = ${legivel.toFixed(3)}`);
+  ok('19g. 8 direcoes x 2 intensidades x coluna x pagina x corpo x entrelinha: todo canto DENTRO do bloco reto (+-0,5 px)'
+    + (falha ? ' -- saiu: ' + JSON.stringify(falha) : ''), falha === null);
+  ok('19h. pivo na base (tras, laterais, tras-*): os cantos de baixo ficam na ancora'
+    + (baseFora ? ' -- saiu: ' + JSON.stringify(baseFora) : ''), baseFora === null);
+  ok('19i. legivel: na coluna de 1000 e na pagina mais alta, o canto mais longe fica em >= 70% do tamanho',
+    legivel >= 0.70);
+  eq('19j. o validador guarda direcao valida, descarta a torta e nunca cria a chave',
+    [P.editOf({ edit: { v: 1, legenda: { profundidade: 'funda', profundidadeDirecao: 'tras-direita' } } }).legenda,
+      P.editOf({ edit: { v: 1, legenda: { profundidade: 'funda', profundidadeDirecao: 'cima' } } }).legenda,
+      P.editOf({ edit: { v: 1, legenda: { profundidade: 'funda' } } }).legenda],
+    [{ profundidade: 'funda', profundidadeDirecao: 'tras-direita' }, { profundidade: 'funda' }, { profundidade: 'funda' }]);
+  ok('19k. o resolveLegenda so CARREGA a chave (ausente = nenhuma chave nova)',
+    P.resolveLegenda('impacto', { v: 1, legenda: { profundidade: 'suave', profundidadeDirecao: 'direita' } })
+      .profundidadeDirecao === 'direita'
+    && !('profundidadeDirecao' in P.resolveLegenda('impacto', { v: 1, legenda: { profundidade: 'suave' } })));
+}
+
+/* 20. CAPA DO TIKTOK (2026-09-30): o dono dos números (validador, escada de corpo, bloco) e a
+   composição, chamados com valor construído. */
+{
+  const P = await import('./src/preset.js');
+  eq('20a. validador: ausente/torto/outra versao = null; padroes; quadro arredondado; torto some',
+    [P.capaTikTokOf(undefined), P.capaTikTokOf({ v: 2 }), P.capaTikTokOf({ v: 1 }),
+      P.capaTikTokOf({ v: 1, quadroMs: 1234.6, estilo: 'x', posicao: 'baixo', titulo: ' A ', destaque: '' }),
+      P.capaTikTokOf({ v: 1, quadroMs: '9' })],
+    [null, null, { v: 1, estilo: 'negocio', posicao: 'meio' },
+      { v: 1, estilo: 'negocio', posicao: 'baixo', quadroMs: 1235, titulo: 'A' },
+      { v: 1, estilo: 'negocio', posicao: 'meio' }]);
+  ok('20b. escada: o maior corpo que cabe em 3 linhas; titulo curto no topo da escada',
+    P.capaTitulo('Curto', 'negocio').fonte === P.CAPA_FONTES[0]
+    && P.capaTitulo('Perdi 40 mil no primeiro ano', 'negocio').linhas <= P.CAPA_MAX_LINHAS
+    && P.capaTitulo('Perdi 40 mil no primeiro ano', 'negocio').cabe === true);
+  const longo = P.capaTitulo('Como sair de uma cidade pequena e chegar a cem mil pedidos por mes sem investidor', 'negocio');
+  ok('20c. manchete que nem o menor corpo cabe: o menor, com `cabe: false` (a tela avisa)',
+    longo.fonte === P.CAPA_FONTES[P.CAPA_FONTES.length - 1] && longo.cabe === false && longo.linhas > P.CAPA_MAX_LINHAS);
+  ok('20d. a estimativa usa o avanco MEDIDO do estilo (Inter 700 e mais estreita que a Montserrat 800)',
+    P.CAPA_ESTILO_DEF.limpo.avanco === P.AVANCO_INTER_CAIXA_ALTA
+    && P.CAPA_ESTILO_DEF.negocio.avanco === P.AVANCO_MONTSERRAT_CAIXA_ALTA
+    && P.capaLinhas('Perdi 40 mil no primeiro ano', 104, P.AVANCO_INTER_CAIXA_ALTA)
+      <= P.capaLinhas('Perdi 40 mil no primeiro ano', 104, P.AVANCO_MONTSERRAT_CAIXA_ALTA));
+  ok('20e. o texto fica no miolo seguro (y 440-1480) nas tres posicoes, com e sem a folga do degrade',
+    P.capaBloco('alto').top === 440 && P.capaBloco('alto', 90).top === 350
+    && P.TOKENS.altura - P.capaBloco('baixo').bottom === 1480
+    && P.TOKENS.altura - P.capaBloco('baixo', 90).bottom === 1570
+    && P.capaBloco('meio').top === 960 && P.capaBloco('qualquer').top === 960
+    && P.CAPA_ZONAS.seguro.y === 420 && P.CAPA_ZONAS.seguro.y + P.CAPA_ZONAS.seguro.altura === 1500);
+  ok('20f. a capa so usa faces JA carregadas pelo Clip.jsx, no peso carregado (nada sintetizado)',
+    Object.values(P.CAPA_ESTILO_DEF).every((d) => (d.familia === 'montserrat' && d.peso === 800)
+      || (d.familia === 'inter' && /weights: \["600", "700", "800", "900"\]/.test(clipJsx) && d.peso === 700)));
+  const capaJsx = clipJsx.slice(clipJsx.indexOf('export const CapaTikTok'));
+  ok('20g. a composicao da capa usa `Img` do Remotion e nenhum <Video>/<img> cru',
+    capaJsx.length > 100 && /<Img src=\{imagem\}/.test(capaJsx) && !/<Video|<img /.test(capaJsx));
+  const rootJsx = readFileSync(new URL('./src/Root.jsx', import.meta.url), 'utf8');
+  ok('20h. a composicao CapaTikTok esta registrada, 1080x1920, um quadro so; a Clip continua la',
+    /id="CapaTikTok"[\s\S]*component=\{CapaTikTok\}[\s\S]*durationInFrames=\{1\}/.test(rootJsx)
+    && /id="Clip"/.test(rootJsx));
+}
+
+/* 21. MUSICA DE FUNDO (2026-09-30): validador e volume por quadro, chamados com valor
+   construido; e a composicao com UMA faixa so. */
+{
+  const P = await import('./src/preset.js');
+  const ID = '0123456789abcdef';
+  eq('21a. musicaOf: id torto = sem musica; inicio torto = 0; nivel torto = baixo; so baixo/medio',
+    [P.musicaOf(undefined), P.musicaOf({ id: 'abc' }), P.musicaOf({ id: ID }),
+      P.musicaOf({ id: ID, inicioMs: 1500.6, nivel: 'medio' }), P.musicaOf({ id: ID, inicioMs: -1, nivel: 'alto' }),
+      P.MUSICA_NIVEIS],
+    [null, null, { id: ID, inicioMs: 0, nivel: 'baixo' }, { id: ID, inicioMs: 1501, nivel: 'medio' },
+      { id: ID, inicioMs: 0, nivel: 'baixo' }, ['baixo', 'medio']]);
+  ok('21a2. editOf so cria a chave `musica` com faixa valida (sem musica = edit de sempre)',
+    !('musica' in P.editOf({ edit: { v: 1, legenda: {} } }))
+    && !('musica' in P.editOf({ edit: { v: 1, musica: { id: 'x' } } }))
+    && P.editOf({ edit: { v: 1, musica: { id: ID } } }).musica.id === ID);
+  const m = { ganho: 0.1, inicioSec: 0, faixaSec: 60 };
+  const fps = 30, total = 30 * fps;
+  ok('21b. volume: fade-in de 1 s a partir do zero, depois o ganho do servidor',
+    P.volumeMusica(0, m, fps, total) === 0
+    && Math.abs(P.volumeMusica(15, m, fps, total) - 0.05) < 1e-9
+    && P.volumeMusica(30, m, fps, total) === 0.1 && P.volumeMusica(400, m, fps, total) === 0.1);
+  ok('21c. fade-out de 1,5 s TERMINANDO no fim da saida (ultimo quadro quase mudo; depois, zero)',
+    P.volumeMusica(total - 45, m, fps, total) === 0.1
+    && P.volumeMusica(total - 1, m, fps, total) < 0.003 && P.volumeMusica(total, m, fps, total) === 0);
+  const curta = { ganho: 0.2, inicioSec: 5, faixaSec: 15 };
+  ok('21d. faixa mais curta que o corte: termina com o PROPRIO fade no fim dela, sem repetir',
+    P.volumeMusica(8 * fps, curta, fps, total) === 0.2
+    && P.volumeMusica(10 * fps - 1, curta, fps, total) < 0.01
+    && P.volumeMusica(10 * fps, curta, fps, total) === 0 && P.volumeMusica(20 * fps, curta, fps, total) === 0);
+  ok('21e. o volume nunca passa do ganho, e ganho torto/negativo/acima de 1 e grampeado',
+    Array.from({ length: total }, (_, f) => P.volumeMusica(f, m, fps, total)).every((v) => v >= 0 && v <= 0.1)
+    && P.volumeMusica(100, { ganho: 5 }, fps, total) === 1 && P.volumeMusica(100, { ganho: -1 }, fps, total) === 0
+    && P.volumeMusica(100, null, fps, total) === 0 && P.volumeMusica(100, { ganho: NaN }, fps, total) === 0);
+  ok('21f. uma assinatura sem tempo proprio: so o quadro da SAIDA (relogio do corte, nada "porque o tempo passou")',
+    P.volumeMusica.length === 4);
+  ok('21g. UMA faixa de musica, do @remotion/media, so no Clip.jsx, com o volume do preset',
+    (clipJsx.match(/<Audio\b/g) || []).length === 1
+    && /import \{ Audio, Video \} from "@remotion\/media"/.test(clipJsx)
+    && /volume=\{\(f\) => volumeMusica\(f, musica, fps, durationInFrames\)\}/.test(clipJsx)
+    && /musica && musica\.file \?/.test(clipJsx));
+}
+
+/* 22. REMOVER TRECHOS (2026-09-30): aqui so a FORMA (o dono do mapa e o captions.py). */
+{
+  const P = await import('./src/preset.js');
+  eq('22a. remocoesOf: inteiros, de < ate, em ordem, no maximo REMOCOES_MAX; torto some',
+    [P.remocoesOf(undefined), P.remocoesOf([{ deMs: 5000.4, ateMs: 6000.6 }, { deMs: 1000, ateMs: 2000 },
+      { deMs: 3, ateMs: 1 }, 'x', { deMs: -1, ateMs: 4 }]),
+      P.remocoesOf(Array.from({ length: 50 }, (_, i) => ({ deMs: i, ateMs: i + 1 }))).length],
+    [[], [{ deMs: 1000, ateMs: 2000 }, { deMs: 5000, ateMs: 6001 }], P.REMOCOES_MAX]);
+  ok('22b. editOf so cria a chave `remocoes` com remocao valida (sem ela = edit de sempre)',
+    !('remocoes' in P.editOf({ edit: { v: 1, remocoes: [] } }))
+    && P.editOf({ edit: { v: 1, remocoes: [{ deMs: 1, ateMs: 2 }] } }).remocoes.length === 1
+    && P.REMOCOES_MAX === 30);
+  ok('22c. nenhuma formula de remapear tempo no preset nem na composicao (o dono e o Python)',
+    !/remapear|mapaSaida|mapa_saida\(/.test(clipJsx));
+}
+
+/* 23. TEXTO FIXO NA TELA (2026-09-30): validador, opacidade e estilo puros; a composicao so
+   desenha o que o servidor manda, uma Sequence por texto. */
+{
+  const P = await import('./src/preset.js');
+  const T = { id: 't1', texto: '  Faturamento   de 2024 ', deMs: 416000, ateMs: 418000, posicao: 'meio', estilo: 'nota' };
+  eq('23a. textosOf: limpa, padroes, sem sobreposicao, teto; torto some',
+    [P.textosOf([T])[0], P.textosOf([{ ...T, posicao: 'x', estilo: 'y' }])[0].posicao,
+      P.textosOf([T, { ...T, id: 't2', deMs: 417000, ateMs: 419000 }]).length,
+      P.textosOf([{ ...T, texto: ' ' }, { ...T, ateMs: 416500 }, { ...T, id: 'T X' }, 'x']).length,
+      P.textosOf(Array.from({ length: 6 }, (_, i) => ({ ...T, id: 't' + i, deMs: 416000 + i * 2000, ateMs: 417500 + i * 2000 }))).length],
+    [{ id: 't1', texto: 'Faturamento de 2024', deMs: 416000, ateMs: 418000, posicao: 'meio', estilo: 'nota' },
+      'alto', 1, 0, P.TEXTOS_MAX]);
+  const fps = 30, quadros = 60;
+  ok('23b. opacidade: entra e sai em ate 150 ms, 1 no meio, 0 fora; so depende do quadro da Sequence',
+    P.opacidadeTexto(0, quadros, fps) < 1 && P.opacidadeTexto(4, quadros, fps) === 1
+    && P.opacidadeTexto(30, quadros, fps) === 1 && P.opacidadeTexto(quadros - 1, quadros, fps) < 1
+    && P.opacidadeTexto(quadros, quadros, fps) === 0 && P.opacidadeTexto(-1, quadros, fps) === 0
+    && Math.round(P.TEXTO_FADE_MS / 1000 * fps) <= 5 && P.TEXTO_FADE_MS <= 150);
+  const est = P.textoFixoEstilo({ posicao: 'alto', estilo: 'rotulo' });
+  ok('23c. estilo estatico: sem transform nem animacao; a coluna fica a esquerda da trilha do TikTok',
+    !('transform' in est.bloco) && !('transform' in est.texto)
+    && est.bloco.left + est.bloco.width <= 930 && est.bloco.left >= 40
+    && est.bloco.top === P.TEXTO_GEOMETRIA.topo.alto
+    && 'backgroundColor' in est.texto && !('textShadow' in est.texto)
+    && 'textShadow' in P.textoFixoEstilo({ posicao: 'meio', estilo: 'nota' }).texto);
+  ok('23d. a composicao desenha UMA Sequence por texto vindo do servidor, com o estilo e a opacidade do preset',
+    /<Sequence key=\{"texto-" \+ t\.id\} from=\{de\} durationInFrames=\{quadros\}/.test(clipJsx)
+    && /opacity: opacidadeTexto\(quadro, quadros, fps\)/.test(clipJsx)
+    && /const estilo = textoFixoEstilo\(texto\)/.test(clipJsx));
+}
+
+/* 24. ZOOM PONTUAL LEVE (2026-09-30): escala pura por quadro; so a camada do video. */
+{
+  const P = await import('./src/preset.js');
+  const Z = { id: 'z1', deMs: 416000, ateMs: 419000, nivel: 'medio' };
+  eq('24a. zoomsOf: padroes, sem sobreposicao, teto 5, janela >= 1 s; torto some',
+    [P.zoomsOf([Z])[0], P.zoomsOf([{ ...Z, nivel: 'forte' }])[0].nivel,
+      P.zoomsOf([Z, { ...Z, id: 'z2', deMs: 418000, ateMs: 420000 }]).length,
+      P.zoomsOf([{ ...Z, ateMs: 416500 }, { ...Z, id: 'Z!' }, 'x']).length,
+      P.zoomsOf(Array.from({ length: 8 }, (_, i) => ({ ...Z, id: 'z' + i, deMs: i * 3000, ateMs: i * 3000 + 1500 }))).length],
+    [{ id: 'z1', deMs: 416000, ateMs: 419000, nivel: 'medio' }, 'leve', 1, 0, P.ZOOMS_MAX]);
+  const fps = 30;
+  const zs = [{ deSec: 2, ateSec: 5, nivel: 'medio' }, { deSec: 8, ateSec: 8.6, nivel: 'leve' }];
+  const escalas = Array.from({ length: 12 * fps }, (_, f) => P.escalaZoom(f, zs, fps));
+  ok('24b. fora de toda janela a escala e EXATAMENTE 1 (nada dispara so porque o tempo passou)',
+    P.escalaZoom(0, zs, fps) === 1 && P.escalaZoom(5 * fps, zs, fps) === 1 && P.escalaZoom(7 * fps, zs, fps) === 1
+    && P.escalaZoom(10, [], fps) === 1 && P.escalaZoom(10, undefined, fps) === 1);
+  ok('24c. no meio da janela chega ao nivel (medio 1,12); nunca passa do teto 1,15 nem do nivel (sem sobressalto)',
+    Math.abs(P.escalaZoom(3.5 * fps, zs, fps) - 1.12) < 1e-12
+    && escalas.every((s) => s >= 1 && s <= 1.12 + 1e-12 && s <= P.ZOOM_TETO)
+    && P.ZOOM_ESCALAS.medio <= P.ZOOM_TETO && P.ZOOM_ESCALAS.leve < P.ZOOM_ESCALAS.medio);
+  const subida = escalas.slice(2 * fps, 2 * fps + 13);
+  ok('24d. a entrada e MONOTONA e leva 400 ms (12 quadros) — curva suave, sem degrau nem tremor',
+    subida.every((s, i) => i === 0 || s >= subida[i - 1]) && subida[0] === 1
+    && Math.abs(subida[12] - 1.12) < 1e-12 && subida[6] > 1 && subida[6] < 1.12);
+  ok('24e. janela curta (0,6 s): a rampa e no maximo metade dela, e o pico nao passa do nivel',
+    Math.max(...escalas.slice(8 * fps, Math.round(8.6 * fps))) <= 1.06 + 1e-12
+    && Math.abs(P.escalaZoom(Math.round(8.3 * fps), zs, fps) - 1.06) < 1e-9);
+  ok('24f. SO a camada do video escala: o scale mora dentro do Palco, envolvendo a <Video>, num contêiner que corta',
+    /const Palco = \(\{ src, reframe, altura, zooms \}\)/.test(clipJsx)
+    && /<div style=\{\{ overflow: "hidden", lineHeight: 0 \}\}>\s*<div style=\{\{ transform: "scale\(" \+ escalaZoom\(quadro, zooms, fps\) \+ "\)", transformOrigin: "50% 50%" \}\}>\s*\{video\}/.test(clipJsx)
+    && (clipJsx.match(/escalaZoom\(/g) || []).length === 1);
+}
+console.log(`\nok - ${n} verificacoes passaram (tipografia, quebra de linha, enfase, fundo, destaque de titulo e a biblioteca de cards do BUSINESS_SERIOUS).`);
