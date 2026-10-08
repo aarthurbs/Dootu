@@ -1,225 +1,81 @@
-# Publicar para VOCÊ ver — Vercel + motor local
+# Publicar o site para VOCÊ acessar — Vercel
 
-**Sua meta (2026-08-27):** ter o site no ar para você abrir do computador de casa e
-do trabalho, ver como está ficando e mexer. **Não é lançamento**, não é venda, e
-não tem cliente. Nada de conta, banco, cobrança ou limite por usuário.
-
-O que isso significa em desenho:
+**Meta (2026-10-08):** ter o site no ar para abrir de qualquer computador ou celular.
+**Não é lançamento**: nada de conta, banco, cobrança ou cliente.
 
 | | |
 |---|---|
-| **Vercel** | serve a página. Publica a cada `git push`. |
-| **Motor da análise** | roda na **sua máquina** (`127.0.0.1:8080`). Nunca vai à nuvem nesta fase. |
-| **Banco de dados** | nenhum. Nada persiste ainda. |
-| **Docker / Fly.io** | prontos no repositório, **sem obrigação de usar**. |
-| **Auth, planos, cobrança, Turnstile** | fora. |
-| **yt-dlp / Remotion** | continuam validados só localmente. |
+| **O que vai ao ar** | Só a pasta `dist/`, montada por `node publicar.mjs` a partir do `index.html`: os scripts e CSS que ele carrega + `assets/`. Nada de docs, vídeos, testes, motor ou `.env`. |
+| **Funciona no site publicado** | Central, Painel do Empreendedor, placar, aparência. |
+| **Estúdio de Vídeos** | Continua no **seu PC**. No site publicado, a tela Clips vira um link para `http://127.0.0.1:8765` — abre o Estúdio do computador em que você estiver, com o `estudio.ps1` ligado. |
+| **Quem publica** | A Vercel, a cada `git push`. O `vercel.json` já diz o que rodar e o que publicar. |
+
+> **Por que o Estúdio não vai junto:** ele precisa do motor (`serve.py` com FFmpeg, yt-dlp e
+> Remotion). Numa hospedagem comum a página abriria, mas todo botão falharia. Colocar o motor
+> na internet exige login e proteção antes — é outro projeto (`docs/03-Decisions/LANCAMENTO-decisoes.md`).
 
 ---
 
-## O detalhe que decide tudo: conteúdo misto
-
-A página no Vercel é servida por **HTTPS**. Chamar `http://127.0.0.1:8080` dela é
-uma requisição de **rede privada**, e cada navegador decide diferente:
-
-| Navegador | Chamada HTTPS → `127.0.0.1` |
-|---|---|
-| **Chrome / Edge** | **liberada** — `127.0.0.1` é "origem confiável". Pode exigir um cabeçalho no preflight. |
-| **Firefox** | liberada. |
-| **Safari** | **bloqueada.** Não tem contorno. |
-
-Você está no Windows, então Chrome ou Edge. O lado do servidor **já está pronto e
-medido** — o preflight de rede privada é respondido:
-
-```
-Access-Control-Allow-Private-Network: true
-```
-
-E o mais importante: **quando não funciona, a página diz por quê.** Um `fetch`
-bloqueado por conteúdo misto e um motor desligado chegam ao JavaScript como o
-*mesmo* erro genérico — não há como distinguir. Então a página nomeia as duas
-causas em vez de escolher uma e mentir.
-
----
-
-## Passo 1 — Rodar tudo na sua máquina (1 comando)
+## Passo 1 — Conferir na sua máquina
 
 ```powershell
-.\analise-local.ps1
+node publicar.mjs
 ```
 
-Sobe duas coisas: o motor em `127.0.0.1:8080` e a página em `127.0.0.1:8090`.
-Abra **http://127.0.0.1:8090** e cole a URL de um podcast. `Ctrl+C` encerra os dois.
+Monta `dist/` (≈8 MB) e lista o que entrou. Um `AVISO` quer dizer que o `index.html` pede um
+arquivo que não existe — ele já falta no site local também.
 
-Se a porta estiver ocupada, o script diz qual e o PID — rodar duas vezes é a
-confusão número 1.
+`dist/` está no `.gitignore`: não se versiona, a Vercel gera a dela.
 
----
+## Passo 2 — Subir o código
 
-## Passo 2 — Publicar a página no Vercel
-
-1. [vercel.com](https://vercel.com) → entre com o GitHub.
-2. **Add New… → Project** → escolha este repositório.
-3. Configure **exatamente** assim:
-
-| Campo | Valor |
-|---|---|
-| Framework Preset | **Other** |
-| **Root Directory** | **`web`** |
-| Build Command | **vazio** |
-| Output Directory | **vazio** |
-| Install Command | **vazio** |
-
-4. **Deploy.**
-
-> ### O erro que você não pode cometer
-> Se o **Root Directory** ficar vazio, o Vercel publica a **raiz do repositório** —
-> e o seu site pessoal inteiro (Faturador, Radar, Fluxos, Painel do Empreendedor)
-> fica público na internet.
-> **O valor é `web`.** Depois do deploy, abra a URL e confirme que aparece a página
-> "Cortes", e não o menu do seu site.
-
-Anote a URL (algo como `https://cortes-abc123.vercel.app`).
-
-### A branch que o Vercel publica
-
-Você está na branch `agent/supabase-video-studio-sync-2026-08-04`. O Vercel publica
-`main` como produção por padrão e dá URLs **novas a cada commit** para outras
-branches — ruim para "sempre o mesmo link".
-
-**Settings → Git → Production Branch** → ponha a branch em que você realmente
-trabalha. Uma configuração, zero risco de git. (A alternativa é trabalhar na `main`,
-mas isso exige um merge e não vale o risco agora.)
-
-> O `.env` **não sobe**: está no `.gitignore`, conferido — nunca entrou no histórico.
-> E a URL de produção é pública para quem tiver o link. Não há nada privado na
-> página, mas não trate esse endereço como secreto.
-
----
-
-## Passo 3 — Deixar o motor aceitar o site publicado
-
-O motor só responde a origens que ele conhece. Passe a URL do Vercel:
-
-```powershell
-.\analise-local.ps1 -Site "https://cortes-abc123.vercel.app"
-```
-
-Para não digitar sempre, guarde na sua conta do Windows (uma vez por computador):
-
-```powershell
-setx CLIPS_SITE "https://cortes-abc123.vercel.app"
-```
-
-Feche e reabra o PowerShell. Daí em diante `.\analise-local.ps1` já vai com a URL.
-
-Abra o site do Vercel **com o motor ligado**: a análise funciona, chamando o seu
-próprio computador. Desligue o motor e recarregue: a página abre igual e explica
-que o motor está desligado.
-
----
-
-## Passo 4 — O processo dos dois computadores
-
-O que você quer é que o site no ar seja sempre o seu trabalho mais recente. Isso é
-git, e o Vercel publica sozinho.
-
-**Ao começar a mexer, em qualquer máquina:**
-
-```powershell
-git pull
-```
-
-**Ao terminar:**
+Os arquivos `publicar.mjs` e `vercel.json` precisam estar no GitHub:
 
 ```powershell
 git add -A
-git commit -m "o que mudou"
+git commit -m "publicacao do site"
 git push
 ```
 
-O Vercel vê o push e republica em ~30 s. Recarregue o site e está lá.
+## Passo 3 — Criar o projeto na Vercel (uma vez)
 
-### A regra que evita dor de cabeça
+1. [vercel.com](https://vercel.com) → entre com o GitHub.
+2. **Add New… → Project** → escolha `aarthurbs/Dootu`.
+3. **Root Directory: deixe vazio** (a raiz). **Não mexa** em Build Command nem Output
+   Directory — o `vercel.json` já os fixa em `node publicar.mjs` e `dist`.
+4. **Deploy.** Abra a URL e confira: o site abre na tela Clips com o card
+   "Abrir o Estúdio de Vídeos".
 
-**`git pull` antes de começar. Sempre.** Se você mexer em casa sem puxar o que fez
-no trabalho, as duas versões divergem e você vai resolver conflito em vez de
-trabalhar. Não existe truque: é lembrar de puxar.
+**Branch publicada:** a Vercel publica a `main` por padrão. Se você trabalha em outra branch,
+**Settings → Git → Production Branch** → ponha a sua.
 
-Se esquecer e o `push` for recusado:
-
-```powershell
-git pull --rebase
-```
-
-E se der conflito, pare e me chame — desfazer conflito no braço é como se perde
-trabalho.
+> Netlify ou Cloudflare Pages: os mesmos dois valores — comando de build `node publicar.mjs`,
+> pasta publicada `dist`.
 
 ---
 
-## O que a página faz quando o motor está desligado
+## O que muda entre o site publicado e o local
 
-Isto é o comportamento normal e esperado (você vai ver muito):
-
-- A página abre, com o visual completo.
-- Um aviso explica que o motor não respondeu, com **as duas causas possíveis** e o
-  comando que resolve (`analise-local.ps1`).
-- O botão **Detectar cortes** fica desabilitado — e o motivo está à vista, não
-  escondido.
-- Um botão **Verificar de novo** reconsulta sem recarregar a página.
-
-É de propósito: um site que promete análise e devolve erro de rede é pior do que um
-site que diz onde o motor está.
-
----
+- **Os dados ficam no navegador e no endereço.** O Painel do Empreendedor do site publicado
+  começa vazio e é separado do Painel em `127.0.0.1:8765`. Seus projetos do Estúdio continuam
+  onde estão (no endereço local).
+- O link é público para quem o tiver. Os arquivos não têm nada privado, mas não trate o
+  endereço como secreto.
 
 ## O que NÃO fazer
 
-- **Não publique a raiz do repositório.** Root Directory é `web`. (Passo 2)
-- **Não coloque o motor na nuvem ainda.** Falta a Prova A: ninguém testou se o
-  YouTube atende o yt-dlp de um IP de datacenter. Está em `docs/03-Decisions/LANCAMENTO-decisoes.md`.
-- **Não comite o `.env`.** Já está protegido; mantenha assim.
-- **Não abra o motor para a internet** (túnel, ngrok, porta no roteador). Ele não
-  tem autenticação e viraria um proxy de download público.
-- **Não use Safari** para testar o site publicado — ele bloqueia a chamada ao seu
-  computador, sempre. Use Chrome ou Edge.
-- **Não adicione banco, login ou cobrança** antes de existir dado que precise
-  sobreviver ao fechar a aba.
+- **Não troque o Output Directory para a raiz.** Publicaria o repositório inteiro (docs,
+  `CLAUDE.md`, código do motor, centenas de MB de vídeo).
+- **Não abra o motor para a internet** (túnel, ngrok, porta no roteador). Ele não tem login e
+  viraria um proxy de download público.
+- **Não comite o `.env`.** Já está no `.gitignore`; mantenha assim.
 
----
-
-## Rotina de todo dia, resumida
+## Rotina
 
 ```powershell
-git pull                      # 1. puxa o que você fez na outra máquina
-.\analise-local.ps1           # 2. liga o motor + página local
-#    ... mexer, testar em http://127.0.0.1:8090 ...
-git add -A; git commit -m "..."; git push    # 3. publica
+git pull                                      # 1. puxa o que você fez na outra máquina
+.\estudio.ps1                                 # 2. liga o Estúdio local
+git add -A; git commit -m "..."; git push    # 3. publica (a Vercel republica em ~30 s)
 ```
 
----
-
-## Quando um dia for lançar de verdade
-
-Nada disso é para agora. O que muda está escrito em
-**`docs/03-Decisions/LANCAMENTO-decisoes.md`**: as duas provas que precisam de resposta (o
-yt-dlp funciona de IP de datacenter? qual a postura de direitos autorais?) e, no
-fim, a receita de publicar o motor com Fly.io + Turnstile — que já está pronta no
-repositório (`cloud/Dockerfile`, `.dockerignore`) e não precisa ser reescrita.
-
----
-
-## Testes (rode antes e depois de qualquer mudança)
-
-```powershell
-py -3.12 cloud\test_probe_server.py            # 71
-node web\test-app.js                           # 34
-py -3.12 video-worker\test_ytclip.py           # 149
-py -3.12 video-worker\test_serve.py            # 175
-py -3.12 video-worker\test_captions.py         # 76
-py -3.12 video-worker\test_worker.py           # 89
-py -3.12 baixador\local-helper\test_helper.py  # 127
-node test-video-ops.js                         # 38
-node test-video-ops-dom.js                     # 70
-node studio\test-preset.mjs                    # 56
-```
+Antes de publicar mudanças no Estúdio: `.\provas.ps1`.

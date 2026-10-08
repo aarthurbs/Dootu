@@ -35,6 +35,15 @@ Histórico, medições e armadilhas completas: `docs/01-Wiki/archive/HISTORICO-e
 - **Até 20 cortes por link (2026-10-06):** toda âncora avaliada, corte no teto DEPOIS da nota,
   segundo nível de gancho (12–15) só soma, pedido à MuAPI fica 12. Ver
   `docs/03-Decisions/2026-10-06-mais-cortes-por-link.md`.
+- **Pausa pelo ÁUDIO, comentários e apelo (2026-10-07):** legenda automática sem pontuação
+  não tem pausa na grade por palavra (podcast de 73 min dava 2 cortes). `serve.silencios_da_fonte`
+  mede o silêncio da fonte (`silencedetect` -32 dB/0,25 s, cache `<id>.silencios.json` pelo
+  tamanho), a importação mede ao terminar, e a análise usa quando a fonte está no disco
+  (`audioPausas`). Com silêncio: `AUDIO_FRASE_PAUSA_SEC` 0,3 / `AUDIO_FECHO_PAUSA_SEC` 0,5; sem
+  ele, tudo como antes. Comentários (`probe(comentarios=True)`, 300 mais relevantes) viram
+  âncora por minutagem com peso de curtidas; frase CITADA vira início firme e âncora fixa.
+  `APELO_PESO` 8 (título + `ENGAJAMENTO`) só ordena. `CHAMADA` (like/inscreva/patrocínio)
+  reprova. Veto intacto. Ver `docs/03-Decisions/2026-10-07-cortes-por-audio-e-comentarios.md`.
 - **`worker.REFRAMES` é a fonte; `serve.PROFILES` DERIVA dele.** Duas listas à mão
   divergem. `crop` mantém ramo dedicado — o segmento genérico o quebra (medido:
   1080x1918, e encode falhando em fonte 720p).

@@ -25,6 +25,17 @@ A Central vazia aponta para o YouTube. A edição e a revisão de legendas dos t
 do YouTube permanecem. Dados salvos não são apagados nem migrados nesta mudança.
 Os helpers do fluxo local descritos abaixo permanecem internos, sem tela acessível.
 
+## Excluir projeto e remover vários clips (decisão do usuário, 2026-10-07)
+- **Meus projetos:** botão `Excluir` sobre a miniatura (`proj-del`), IRMÃO do cartão
+  (`.vop-project-item`) — o cartão já é `role="button"`. Confirmação no lugar (`PROJ_DEL`),
+  nunca `confirm()`: SÓ `Excluir | Cancelar` no centro, sem frase, com o cartão embaçado
+  por baixo (pedido do usuário). `projectRemove` tira só o REGISTRO; vídeo importado, cortes e clips da
+  Central ficam. Projeto aberto em Clips perde as sugestões (como o "Limpar").
+- **Central:** caixa nativa por cartão (`lib-sel`) + barra `[data-lib-selbar]` (Selecionar
+  todos · N selecionado(s) · Remover selecionados → confirmação no lugar). Marcar NÃO chama
+  `render()` (`libSelPaint` repinta no lugar; re-render recarregaria todos os `<video>`).
+  `libRemoveMany` remove o registro; o arquivo no disco fica. Seleção = sessão (`LIB_SEL`).
+
 ## A FONTE é o vídeo INTEIRO (decisão do usuário, 2026-09-15)
 A tela `youtube` deixou de baixar trecho por trecho. O fluxo é: colar a URL → declarar o
 direito → **`Importar vídeo`** → o original completo desce uma vez e passa a ser a mídia de
@@ -54,9 +65,21 @@ vídeo original (`srcPanelHTML`, com "Baixar original" = `<a download>` do `/sou
   aos renders pelo `cutAdopt` (mesma ideia do `srcAdopt`).
 - **Card:** posição `#N recomendado` pela **nota do detector** (`ytRank`, `score` desc, desempate
   pelo começo — o mesmo critério do `ytSorted`); `score` 0 (trecho à mão / antigo) = "Sem
-  classificação do detector", nunca posição inventada. Justificativa = `evidence` → `reason` →
-  frase dizendo que não há. Com `clipSaved`, a miniatura vira o player do corte e o item
-  "Baixar trecho original" do menu vira `<a download>` do próprio arquivo (não recorta de novo).
+  classificação do detector", nunca posição inventada. Com `clipSaved`, a miniatura vira o player
+  do corte e o item "Baixar trecho original" do menu vira `<a download>` do próprio arquivo (não
+  recorta de novo).
+- **Card compacto (decisão do usuário, 2026-10-08):** a prévia manda; embaixo SÓ a recomendação
+  e o título (`topic`). Faixa de qualidade, horários, chip de status, justificativa, "Gerando o
+  corte…", falha + "Tentar novamente" e `contextWarning` saíram do card (a falha segue nas etapas;
+  o aviso fica guardado no projeto). O corte salvo **não tem barra nativa** (`controls` saiu):
+  o próprio `<video>` toca/pausa por clique, Espaço ou Enter (`yt-card-play`, `tabindex=0`).
+  Editar e Baixar são **dois botões de vidro circulares** (`.yt-glass`, 40 px, desenhados a partir
+  de uma referência do usuário: miolo cinza-prata fosco, aro em `conic-gradient` — branco no alto,
+  quente à esquerda, frio à direita —, ícone branco com volume: claquete aberta listrada e o
+  download clássico do Material, `YT_CARD_ICO`) no canto inferior direito da prévia (`.yt-card-media > .yt-card-acts`), com
+  `aria-label` e dica (`data-dica`) no hover e no foco. Baixar abre o MESMO menu
+  (`yt-dl-menu`). O card não tem mais `overflow:hidden` (o menu passa da borda); a duração da
+  miniatura foi para o canto inferior esquerdo.
 - **Recarregar** reabre o último projeto pronto (`lastProject`, por `updatedAt`) via `openProject`.
 - **A declaração é gravada no projeto** (`project.authorized`, `projectAuthWrite`): marcar/desmarcar
   a caixa e o `Iniciar` gravam. `openProject` de outro vídeo usa a declaração DAQUELE projeto;
@@ -80,8 +103,7 @@ seguida e qual é o próximo passo". A funcionalidade não mudou; mudou QUANDO c
 - **A nota da FONTE não se repete por card** (`status.nota` saiu do `ytCandidateCardHTML`; o
   editor continua com ela). A faixa da importação diz uma vez só (`IMPORT_MSG.idle`).
 - Declarada, o texto legal da declaração some (`:has(:checked) small`) — a frase fica.
-- `Editar` dos cards continua `vop-btn-primary` na marcação, mas o CSS o pinta em superfície:
-  o branco é só do `Iniciar`. Animação de entrada só na TROCA de fase (`data-enter`,
+- O branco é só do `Iniciar` (o `Editar` dos cards virou ícone de vidro em 2026-10-08). Animação de entrada só na TROCA de fase (`data-enter`,
   `YT_FASE_ANTES`) — `render()` recria os nós e animaria a cada clique.
 
 ## Fluxo em etapas no editor (decisão do usuário, 2026-10-05)
@@ -99,6 +121,16 @@ trecho, capa numa etapa própria no fim, aberta só depois do clique em "Baixar 
   `capaTikTok` salvo (edição antiga não some). Render falhando não trava de novo.
 - Lado de etapa única: `.yt-detail-side[data-etapa-lado]` com uma coluna de **528 px** (= 96 + 12 +
   420): o vídeo não muda de tamanho entre etapas. Os testes leem `class="yt-detail-side"` exato.
+
+## Barra com identidade âmbar e carregador do palco (decisão do usuário, 2026-10-07)
+- **Âmbar dourado é a cor da marca do editor** (`--vop-marca` #E8B04B; claro #9A6408). Cor de
+  ESTADO: só a ferramenta ativa, a bolinha de ajuste e a subaba ativa. Ícone SVG de traço por
+  ferramenta (`YT_TOOL_ICO`, `currentColor`); na coluna de 96 px ícone sobre o nome, faixa
+  lateral âmbar que cresce (180 ms) — a troca não re-renderiza, então a transição roda.
+- **Palco carregando = véu com brilho + anel, sem texto.** Moldura `aria-busy` (trecho sendo
+  preparado) e `.yt-src-stage` sem `data-pronto`. `SRC_PRONTO` (módulo) guarda a URL que já
+  pintou o 1º quadro (`loadeddata`/`canplay`/`play`/`error`; rede de 1,5 s após
+  `loadedmetadata`) e a marcação a repõe — no nó, o véu piscaria a cada `render()`.
 
 ## Editor em ferramentas (decisão do usuário, 2026-10-01)
 Pedido: um espaço de trabalho como um editor de vídeo — escolho a ferramenta numa barra fixa,

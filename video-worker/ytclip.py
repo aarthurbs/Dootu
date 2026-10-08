@@ -37,6 +37,7 @@ Lógica pura (`parse_json3`, `candidates` e auxiliares) exportada para test_ytcl
 """
 
 import json
+import bisect
 import collections
 import math
 import os
@@ -523,6 +524,15 @@ FRASE_MAX_SEC = 22.0
 # saída honesta para faixa sem pontuação — sem ele, track sem ponto nunca fecharia e a
 # análise devolveria lista vazia num vídeo que tem, sim, momentos bons.
 FECHO_PAUSA_SEC = 1.1
+# Os mesmos dois limiares quando a pausa vem do ÁUDIO (`silencios`, medido na fonte pelo
+# `serve.silencios_da_fonte`) e não da grade de legenda. MEDIDO no podcast de 73 min do
+# pedido (legenda automática sem pontuação, fala corrida): a grade por palavra não tem pausa
+# nenhuma e só 18 silêncios passam de 1,1 s — o vídeo inteiro tinha DOIS inícios firmes e
+# saíam 2 cortes. Silêncio de áudio é evidência mais forte que lacuna de cue: 0,5 s medido
+# no sinal é fronteira de oração nessa fala. Varredura no mesmo vídeo (veto intacto):
+# 1,1 → 2 cortes · 0,7 → 6 · 0,5 → 14 · 0,4 → 20 com abertura picada. Ficou 0,5.
+AUDIO_FRASE_PAUSA_SEC = 0.3
+AUDIO_FECHO_PAUSA_SEC = 0.5
 # Respiro nas pontas: o corte não começa no ataque exato da consoante nem termina no
 # último milissegundo da sílaba. Teto curto — abertura morta é defeito, não elegância.
 # O respiro só ocupa silêncio que JÁ existe (metade da folga), então nunca invade a fala
@@ -587,6 +597,10 @@ FATORES = (
     ("confiabilidade", 8, "Confiabilidade"),
 )
 INTERESSE_PESO = 12
+# APELO: o trecho fala do que o título promete e usa palavra que qualquer pessoa conhece e
+# que prende? Só ORDENA — fica fora do veto e do rótulo, e corte sem apelo pontua como
+# sempre pontuou (o teto de 100 corta o que passar).
+APELO_PESO = 8
 # `assunto` entra no VETO pelo mesmo motivo dos outros três: é falta que nenhuma nota
 # resgata. Os 16 pontos saíram de quem sobrava — `confiabilidade` (12 -> 8) mede a
 # qualidade da BORDA, não a do conteúdo, e era o maior peso do conjunto que não responde
@@ -669,7 +683,7 @@ def _juntar(pedacos):
             "pauseAfter": 0.0, "wordLevel": False}
 
 
-def _fechar_pausas(frases):
+def _fechar_pausas(frases, fecho=FECHO_PAUSA_SEC):
     """Preenche `pauseAfter` e `hardStart` e devolve a grade ordenada.
 
     `hardStart` é a diferença entre "aqui começa uma oração" e "aqui a pessoa respirou".
@@ -686,17 +700,50 @@ def _fechar_pausas(frases):
         seguinte = frases[pos + 1] if pos + 1 < len(frases) else None
         frase["pauseAfter"] = (round(max(0.0, seguinte["start"] - frase["end"]), 3)
                                if seguinte else 99.0)
+    _firmar(frases, fecho)
+    return frases
+
+
+def _firmar(frases, fecho):
+    """`hardStart` de cada frase. O limiar viaja NA frase (`fechoSec`) porque o
+    `_fecha_ideia` faz a mesma pergunta depois, sem saber de que grade ela veio."""
     for pos, frase in enumerate(frases):
+        frase["fechoSec"] = fecho
         if pos == 0 or FALANTE_RE.match(frase["text"]):
             frase["hardStart"] = True
             continue
         anterior = frases[pos - 1]
         frase["hardStart"] = bool(SENTENCE_END_RE.search(anterior["text"].rstrip())
-                                  or anterior["pauseAfter"] >= FECHO_PAUSA_SEC)
-    return frases
+                                  or anterior["pauseAfter"] >= fecho)
 
 
-def _sentences_from_words(words):
+def _palavras_com_silencio(words, silencios):
+    """Devolve CÓPIA das palavras com o fim puxado para onde o áudio silenciou. Pura.
+
+    A grade por palavra encadeia o fim de cada palavra no início da seguinte (o json3 só dá
+    início), então não tem pausa nenhuma. O silêncio medido na fonte devolve a pausa que a
+    legenda apagou: o maior silêncio que começa depois da palavra e acaba até a seguinte
+    (folga de 0,3 s — as duas medições não coincidem no milissegundo) vira o fim dela.
+    """
+    marcas = sorted((float(a), float(a) + float(d)) for a, d in silencios or ()
+                    if float(d) > 0)
+    inicios = [a for a, _ in marcas]
+    saida = [dict(p) for p in sorted(words or [], key=lambda p: float(p["start"]))]
+    for pos, palavra in enumerate(saida[:-1]):
+        comeco, proxima = float(palavra["start"]), float(saida[pos + 1]["start"])
+        melhor = None
+        i = bisect.bisect_left(inicios, comeco)
+        while i < len(marcas) and marcas[i][0] < proxima:
+            a, b = marcas[i]
+            if b <= proxima + 0.3 and (melhor is None or b - a > melhor[1] - melhor[0]):
+                melhor = (a, b)
+            i += 1
+        if melhor and melhor[0] > comeco + 0.05:
+            palavra["end"] = round(melhor[0], 3)
+    return saida
+
+
+def _sentences_from_words(words, frase_pausa=FRASE_PAUSA_SEC, fecho=FECHO_PAUSA_SEC):
     """Palavras com instante absoluto -> frases. A borda cai no instante da PALAVRA."""
     frases, buffer_, limpos = [], [], []
     for p in words or []:
@@ -723,14 +770,14 @@ def _sentences_from_words(words):
         pausa = (seguinte["start"] - palavra["end"]) if seguinte else 99.0
         pontuou = bool(SENTENCE_END_RE.search(palavra["text"].rstrip()))
         estourou = (palavra["end"] - buffer_[0]["start"]) >= FRASE_MAX_SEC
-        if pontuou or pausa >= FRASE_PAUSA_SEC or estourou or seguinte is None:
+        if pontuou or pausa >= frase_pausa or estourou or seguinte is None:
             frases.append(_juntar(buffer_))
             buffer_ = []
     if buffer_:
         frases.append(_juntar(buffer_))
     for frase in frases:
         frase["wordLevel"] = True
-    return _fechar_pausas(frases)
+    return _fechar_pausas(frases, fecho)
 
 
 def _sentences_from_cues(cues):
@@ -784,7 +831,7 @@ def _silencios_das_cues(cues):
 PAUSA_TOLERANCIA_SEC = 0.4
 
 
-def sentences_from(cues, words=None):
+def sentences_from(cues, words=None, silencios=None):
     """Legenda -> FRASES com instante ABSOLUTO. Grade ÚNICA das bordas do corte.
 
     Com `words` (o `parse_json3_words`) a borda cai no instante da PALAVRA, que é a
@@ -799,6 +846,13 @@ def sentences_from(cues, words=None):
     análise, exatamente como o `parse_json3_words` já era do lado da exibição. A grade
     grossa continua intacta e continua sendo a que a legenda queimada usa.
     """
+    if words and silencios:
+        # Pausa MEDIDA no áudio da fonte: as palavras ganham o silêncio de volta e os
+        # limiares passam a ser os do áudio (ver AUDIO_FECHO_PAUSA_SEC).
+        grade = _sentences_from_words(_palavras_com_silencio(words, silencios),
+                                      AUDIO_FRASE_PAUSA_SEC, AUDIO_FECHO_PAUSA_SEC)
+        if grade:
+            return _anotar_pausas(grade, _silencios_das_cues(cues), AUDIO_FECHO_PAUSA_SEC)
     if words:
         grade = _sentences_from_words(words)
         if grade:
@@ -806,7 +860,7 @@ def sentences_from(cues, words=None):
     return _sentences_from_cues(cues)
 
 
-def _anotar_pausas(frases, lacunas):
+def _anotar_pausas(frases, lacunas, fecho=FECHO_PAUSA_SEC):
     """Empresta à grade fina a duração das pausas medidas na grossa — e devolve o fim da
     frase para onde a FALA parou.
 
@@ -830,13 +884,7 @@ def _anotar_pausas(frases, lacunas):
             break
     # `hardStart` lê `pauseAfter`, então tem de ser recalculado depois de anotar: uma frase
     # que agora sabe que veio depois de 12 s de silêncio é início firme, e antes não era.
-    for pos, frase in enumerate(frases):
-        if pos == 0 or FALANTE_RE.match(frase["text"]):
-            frase["hardStart"] = True
-            continue
-        anterior = frases[pos - 1]
-        frase["hardStart"] = bool(SENTENCE_END_RE.search(anterior["text"].rstrip())
-                                  or anterior["pauseAfter"] >= FECHO_PAUSA_SEC)
+    _firmar(frases, fecho)
     return frases
 
 
@@ -850,7 +898,7 @@ def _indice_em(frases, instante):
 
 def _fecha_ideia(frase, shifts):
     """A ideia acaba NESTA frase? Ponto final, ou silêncio longo, ou troca de capítulo."""
-    if frase["pauseAfter"] >= FECHO_PAUSA_SEC:
+    if frase["pauseAfter"] >= frase.get("fechoSec", FECHO_PAUSA_SEC):
         return True
     if any(frase["start"] < ponto <= frase["end"] + frase["pauseAfter"] for ponto in shifts):
         return True
@@ -948,7 +996,7 @@ def _window(cues, anchor, total, stops=(), words=None, frases=None):
             "abriuNaFrase": True}
 
 
-def avaliar(janela, interesse=0.0):
+def avaliar(janela, interesse=0.0, apelo=None):
     """Janela -> {'score','quality','factors','reject'}. Pura, interpretável, sem rede.
 
     Os seis fatores são os do pedido, na ordem dele: abertura, independência, assunto,
@@ -1060,6 +1108,8 @@ def avaliar(janela, interesse=0.0):
     reprovas = [nome for nome in VETO if valores.get(nome, 0.0) <= 0.0]
     bruto = sum(valores[nome] * peso for nome, peso, _ in FATORES)
     bruto += min(1.0, max(0.0, float(interesse))) * INTERESSE_PESO
+    if apelo:
+        bruto += min(1.0, max(0.0, float(apelo["value"]))) * APELO_PESO
     score = int(round(max(0.0, min(100.0, bruto))))
     # Rótulo pelo PERFIL dos seis fatores editoriais — `interesse` fica fora, então
     # audiência não promove ninguém de faixa. Reprovado já saiu antes daqui.
@@ -1083,6 +1133,10 @@ def avaliar(janela, interesse=0.0):
                     "value": round(min(1.0, max(0.0, float(interesse))), 2),
                     "note": "Audiência e capítulos somam no máximo %d pontos "
                             "— nunca resgatam um trecho reprovado." % INTERESSE_PESO})
+    if apelo:
+        fatores.append({"id": "apelo", "label": "Apelo", "weight": APELO_PESO,
+                        "value": round(min(1.0, max(0.0, float(apelo["value"]))), 2),
+                        "note": apelo.get("note", "")})
     return {"score": score, "quality": slug, "qualityLabel": rotulo, "factors": fatores,
             "reject": explica.get(reprovas[0], "") if reprovas else "",
             "rejectId": reprovas[0] if reprovas else ""}
@@ -1246,7 +1300,183 @@ def _interesse_de(item, total):
     return bruto
 
 
+# Marcas de comentário a menos que isto uma da outra são o MESMO momento (quem marca escreve
+# o minuto de cabeça, e o momento começa um pouco antes ou depois).
+COMENTARIO_JUNTA_SEC = 25.0
+COMENTARIO_ANCORAS_MAX = 15
+# Onde procurar a frase que o comentário CITA, em volta da minutagem escrita. MEDIDO no
+# podcast de 73 min: "51:04" citava uma frase dita em 51:46 — quem marca escreve o minuto em
+# que começou a prestar atenção, não o da frase.
+CITACAO_ANTES_SEC = 30.0
+CITACAO_DEPOIS_SEC = 90.0
+CITACAO_MIN_PALAVRAS = 4
+
+
+def _conteudo(texto):
+    """RADICAIS das palavras de conteúdo (4+ letras, sem acento): a palavra sem as duas últimas
+    letras, nunca menos de 5. Junta "contraintuitivo" e "contraintuitiva" sem juntar tudo que
+    começa com "contra" (o corte fixo em 6 letras fazia isso)."""
+    return {w[:max(5, len(w) - 2)] for w in _norm(MINUTAGEM_RE.sub(" ", texto)).split()
+            if len(w) >= 4}
+
+
+def _raridade(frases):
+    """Peso de cada radical no vídeo (IDF): "muito" aparece em toda frase e quase não
+    identifica nada; "contraintuitiva" aparece em duas e identifica a frase."""
+    df = collections.Counter()
+    for frase in frases:
+        df.update(_conteudo(frase["text"]))
+    total = float(len(frases)) or 1.0
+    return {w: math.log(total / n) for w, n in df.items()}
+
+
+def _citacao(frases, texto, sec, raridade):
+    """Índice da frase que o comentário cita perto de `sec`, ou -1. Pontua os radicais em
+    comum com a frase e a seguinte (citação atravessa a borda da frase) pelo peso de
+    raridade; exige `CITACAO_MIN_PALAVRAS` radicais em comum."""
+    alvo = _conteudo(texto)
+    if len(alvo) < CITACAO_MIN_PALAVRAS:
+        return -1
+    melhor, pos_melhor = 0.0, -1
+    for pos, frase in enumerate(frases):
+        if frase["start"] < sec - CITACAO_ANTES_SEC:
+            continue
+        if frase["start"] > sec + CITACAO_DEPOIS_SEC:
+            break
+        junto = frase["text"] + " " + (frases[pos + 1]["text"] if pos + 1 < len(frases) else "")
+        comum = alvo & _conteudo(junto)
+        # A citação começa na frase que contém o PRIMEIRO pedaço dela: a frase sozinha vale
+        # o dobro do que só aparece na seguinte.
+        proprio = alvo & _conteudo(frase["text"])
+        nota = sum(raridade.get(w, 0.0) for w in comum) + sum(raridade.get(w, 0.0) for w in proprio)
+        if len(comum) >= CITACAO_MIN_PALAVRAS and nota > melhor:
+            melhor, pos_melhor = nota, pos
+    return pos_melhor
+
+
+def _ancoras_de_comentarios(marcas, frases=()):
+    """Minutagens dos comentários -> âncoras. Peso = curtidas somadas, em escala log (um
+    comentário com 228 curtidas não pode apagar os outros), de 0,3 a 1. É popularidade
+    MEDIDA, como o heatmap, e passa pelo mesmo teto do `_interesse_de`. `regiao=None`: só
+    vira corte se a fala em volta formar um momento completo e passar pelo veto."""
+    grupos = []
+    for m in sorted(marcas or [], key=lambda m: m["sec"]):
+        if grupos and m["sec"] - grupos[-1]["fim"] <= COMENTARIO_JUNTA_SEC:
+            g = grupos[-1]
+            g["fim"], g["likes"], g["n"] = m["sec"], g["likes"] + m["likes"], g["n"] + 1
+        else:
+            grupos.append({"sec": m["sec"], "fim": m["sec"], "likes": m["likes"], "n": 1,
+                           "textos": []})
+        grupos[-1]["textos"].append(m.get("text") or "")
+    if not grupos:
+        return []
+    teto = math.log1p(max(g["likes"] for g in grupos)) or 1.0
+    raridade = _raridade(frases) if frases else {}
+    grupos.sort(key=lambda g: (-g["likes"], -g["n"], g["sec"]))
+    out = []
+    for g in grupos[:COMENTARIO_ANCORAS_MAX]:
+        minuto = "%d:%02d" % (int(g["sec"]) // 60, int(g["sec"]) % 60)
+        ancora, extra = g["sec"], []
+        citada = _citacao(frases, " ".join(g["textos"]), g["sec"], raridade) if frases else -1
+        if citada >= 0:
+            # Quem assistiu citou ESTA frase sozinha: é evidência de que ela abre uma ideia,
+            # mesmo sem pausa longa antes — vira início firme. O veto continua julgando.
+            frases[citada]["hardStart"] = True
+            ancora = frases[citada]["start"]
+            extra = ["frase citada no comentário"]
+        out.append({
+            "anchor": ancora, "regiao": None,
+            "interesse": round(0.3 + 0.7 * math.log1p(g["likes"]) / teto, 3),
+            "signals": ["comments"],
+            "reasons": ["%d comentário(s) marcam %s (%d curtida(s))"
+                        % (g["n"], minuto, int(round(g["likes"])))] + extra,
+            "topic": "", "topicAt": None, "fixa": citada >= 0,
+        })
+    return out
+
+
+# Palavras que QUALQUER pessoa conhece e que prendem — não é jargão do tema, é o que faz
+# alguém parar de rolar o feed. Pedido do usuário (2026-10-07): "pegar palavras que a
+# maioria das pessoas conheça e que sejam engajantes". Curta de propósito: termo fraco
+# numa lista gigante vira ruído que casa com qualquer trecho.
+ENGAJAMENTO = _terms(
+    "dinheiro", "milhão", "milhões", "bilhão", "milionário", "rico", "ricos", "pobre",
+    "salário", "dívida", "golpe", "segredo", "verdade", "mentira", "ninguém fala",
+    "ninguém sabe", "ninguém te conta", "o maior erro", "erro", "errado", "medo", "morte",
+    "morreu", "morrer", "sucesso", "fracasso", "faliu", "falência", "quebrei", "proibido",
+    "polêmica", "absurdo", "impossível", "inacreditável", "perigo", "perigoso", "crise",
+    "guerra", "deus", "família", "filho", "filhos", "escola", "faculdade", "governo",
+    "imposto", "universo", "futuro", "inteligência artificial", "cérebro", "felicidade",
+    "ansiedade", "depressão", "saúde", "crime", "prisão", "famoso", "demitido",
+)
+# Termos do título que não dizem nada do assunto.
+TITULO_VAZIAS = frozenset(_norm(
+    "podcast episodio episódio entrevista parte completo completa video vídeo canal "
+    "ao vivo live cortes corte chave para sobre como entender porque").split())
+APELO_TITULO_CHEIO = 3
+APELO_ENGAJA_CHEIO = 2
+
+
+def termos_do_titulo(info):
+    """Radicais do título, da descrição (começo) e das tags — o que o vídeo PROMETE."""
+    texto = " ".join([str(info.get("title") or ""), str(info.get("description") or "")[:600],
+                      " ".join(str(t) for t in (info.get("tags") or [])[:30])])
+    dono = _conteudo(str(info.get("uploader") or ""))
+    return {w for w in _conteudo(texto)
+            if w not in dono and w not in {v[:max(5, len(v) - 2)] for v in TITULO_VAZIAS}}
+
+
+def _apelo(texto, titulo, raridade):
+    """{'value','note'} do trecho. Metade: radicais do título que a fala usa (só os que não
+    aparecem no vídeo inteiro — "física" num vídeo de física não distingue trecho nenhum;
+    ele conta pelo peso da raridade). Metade: palavras de engajamento. Não é ao pé da letra:
+    casa pelo radical, e o título só ajuda, nunca exige."""
+    falado = _conteudo(texto)
+    achados = sorted((w for w in titulo & falado if raridade.get(w, 0.0) >= math.log(2)),
+                     key=lambda w: -raridade.get(w, 0.0))
+    norm = _norm(texto)
+    engaja = []
+    for exibe, termo in ENGAJAMENTO:
+        if " %s " % termo in norm and exibe not in engaja:
+            engaja.append(exibe)
+    valor = (0.5 * min(1.0, len(achados) / float(APELO_TITULO_CHEIO))
+             + 0.5 * min(1.0, len(engaja) / float(APELO_ENGAJA_CHEIO)))
+    partes = []
+    if achados:
+        partes.append("Toca no tema do título (%d termo(s))." % len(achados))
+    if engaja:
+        partes.append("Palavras que prendem: %s." % ", ".join(engaja[:4]))
+    return {"value": round(valor, 2),
+            "note": " ".join(partes) or "Nem o tema do título nem palavra que prende."}
+
+
+# Chamada do canal e propaganda: não é conteúdo, é o vídeo pedindo coisa. MEDIDO no
+# podcast de 73 min: "Deixe o seu like e se inscreva no canal" saía como corte nº 2.
+CHAMADA = _terms(
+    "deixe o seu like", "deixe seu like", "deixa o seu like", "deixa o like", "deixa seu like",
+    "deixe o like", "se inscreve", "se inscreva", "inscreva-se", "inscreve no canal",
+    "inscreva no canal", "ativa o sininho", "ative o sininho", "sininho", "link na descrição",
+    "link aqui embaixo", "cupom", "patrocinador", "patrocínio", "oferecimento",
+    "use o código", "use o cupom", "compartilha com", "compartilhe com", "like no vídeo",
+    "like no video", "membro do canal", "seja membro",
+    "subscribe", "like and subscribe", "sponsor", "link in the description",
+)
+
+
+def _chamada(janela):
+    """True se o trecho é chamada do canal ou propaganda: duas marcas, ou uma já na
+    abertura (as duas primeiras frases). Uma marca solta no meio é dita de passagem."""
+    frases = janela.get("frases") or []
+    def marcas(texto):
+        norm = _norm(texto)
+        return sum(1 for _, termo in CHAMADA if " %s " % termo in norm)
+    total = marcas(janela.get("clean") or janela.get("text") or "")
+    abertura = marcas(" ".join(f.get("text", "") for f in frases[:2]))
+    return total >= 2 or abertura >= 1
+
+
 REPROVA_LABEL = {
+    "chamada": "eram chamada do canal ou propaganda",
     "abertura": "começavam no meio da ideia",
     "independencia": "não se entendiam sozinhos",
     "assunto": "não diziam a que vinham no começo",
@@ -1292,7 +1522,7 @@ def _candidates(info, limit=MAX_CANDIDATES):
     chapters = list(info.get("chapters") or [])
     total = float(info.get("durationSec") or 0.0)
     peaks = heatmap_peaks(info.get("heatmap"))
-    frases = sentences_from(cues, words)
+    frases = sentences_from(cues, words, info.get("silencios"))
     stops = tuple(float(c["start_time"]) for c in chapters if c.get("start_time") is not None)
 
     raw = []
@@ -1320,6 +1550,17 @@ def _candidates(info, limit=MAX_CANDIDATES):
             # entrou por fusão a oito segundos de distância nomearia outro trecho.
             "topic": title[:140], "topicAt": float(start),
         })
+    raw.extend(_ancoras_de_comentarios(info.get("comments"), frases))
+    titulo = termos_do_titulo(info)
+    raridade = _raridade(frases) if frases else {}
+    apelos = {}
+
+    def apelo_de(janela):
+        chave = (janela["inSec"], janela["outSec"])
+        if chave not in apelos:
+            apelos[chave] = _apelo(janela.get("clean") or janela.get("text") or "",
+                                   titulo, raridade)
+        return apelos[chave]
     for position, cue in enumerate(cues):
         points, labels = hook_hits(cue["text"])
         if not points:
@@ -1373,7 +1614,10 @@ def _candidates(info, limit=MAX_CANDIDATES):
             # perto; não autoriza janela de tamanho fixo centrada nele.
             base = max(0, _indice_em(frases, item["anchor"]))
             vistos = set()
-            for salto in range(-BUSCA_FRASES, BUSCA_FRASES + 1):
+            # Frase CITADA num comentário é evidência do ponto exato: a busca não troca por
+            # uma vizinha de nota maior (que é outro momento, não o que a pessoa marcou).
+            saltos = (0,) if item.get("fixa") else range(-BUSCA_FRASES, BUSCA_FRASES + 1)
+            for salto in saltos:
                 pos = base + salto
                 if pos < 0 or pos >= len(frases) or pos in vistos:
                     continue
@@ -1388,7 +1632,10 @@ def _candidates(info, limit=MAX_CANDIDATES):
                                                     words, frases)
                 if janela["outSec"] - janela["inSec"] < MIN_CLIP_SEC:
                     continue
-                nota = avaliar(janela, interesse)
+                if _chamada(janela):
+                    reprovados["chamada"] = reprovados.get("chamada", 0) + 1
+                    continue
+                nota = avaliar(janela, interesse, apelo_de(janela))
                 if nota["reject"]:
                     chave = nota["rejectId"]
                     reprovados[chave] = reprovados.get(chave, 0) + 1
@@ -1414,7 +1661,7 @@ def _candidates(info, limit=MAX_CANDIDATES):
                       "outSec": round(min(fim, inicio + MAX_CLIP_SEC), 3),
                       "text": "", "clean": "", "frases": [], "fecho": True,
                       "wordLevel": False, "abriuNaFrase": False}
-            melhor = (janela, avaliar(janela, interesse))
+            melhor = (janela, avaliar(janela, interesse, apelo_de(janela)))
 
         janela, nota = melhor
         # O intervalo resolvido sai em SEGUNDO INTEIRO, e e o unico numero que o sistema
@@ -1462,7 +1709,8 @@ def _candidates(info, limit=MAX_CANDIDATES):
                 merged["topicAt"] = item.get("topicAt")
             if novo or interesse > merged["interesse"]:
                 merged["interesse"] = max(merged["interesse"], interesse)
-                merged["nota"] = avaliar(merged["janela"], merged["interesse"])
+                merged["nota"] = avaliar(merged["janela"], merged["interesse"],
+                                         apelo_de(merged["janela"]))
             continue
 
         guess = classify_segment(janela["clean"] or janela["text"])
@@ -1746,15 +1994,29 @@ def _storyboard(info):
     return melhor
 
 
-def probe(url, timeout=PROBE_TIMEOUT):
+def probe(url, timeout=PROBE_TIMEOUT, comentarios=False):
     """Metadados + legenda. NENHUM byte de vídeo é baixado aqui.
 
     Uma chamada ao yt-dlp e, quando existe legenda, um GET no endereço que o próprio dump
     devolveu. Somados, dezenas de KB para um podcast de horas.
+
+    `comentarios=True` (só a análise pede; a importação não) traz os comentários MAIS
+    RELEVANTES na mesma chamada — medido: +11 s no podcast de 73 min, 300 comentários. Falhar
+    nos comentários nunca derruba a análise: refaz sem eles.
     """
     vid = video_id(url)
     canonical = "https://www.youtube.com/watch?v=" + vid
-    out = _run(["--skip-download", "--dump-single-json", "--", canonical], timeout)
+    base = ["--skip-download", "--dump-single-json"]
+    out = None
+    if comentarios:
+        try:
+            out = _run(base + ["--write-comments", "--extractor-args",
+                               "youtube:max_comments=%d,all,0,0;comment_sort=top"
+                               % COMENTARIOS_MAX, "--", canonical], timeout)
+        except worker.WorkerError:
+            out = None
+    if out is None:
+        out = _run(base + ["--", canonical], timeout)
     try:
         info = json.loads(out.decode("utf-8", "replace"))
     except ValueError:
@@ -1776,12 +2038,15 @@ def probe(url, timeout=PROBE_TIMEOUT):
         "videoId": vid, "url": canonical,
         "title": str(info.get("title") or "")[:300],
         "uploader": str(info.get("uploader") or "")[:140],
+        "description": str(info.get("description") or "")[:2000],
+        "tags": [str(t)[:60] for t in (info.get("tags") or [])[:30]],
         "durationSec": float(info.get("duration") or 0.0),
         "chapters": [{"start_time": c.get("start_time"), "title": c.get("title")}
                      for c in (info.get("chapters") or []) if c.get("start_time") is not None],
         "heatmap": [{"start_time": b.get("start_time"), "end_time": b.get("end_time"),
                      "value": b.get("value")} for b in heatmap],
         "cues": cues, "words": legenda["words"],
+        "comments": comentarios_marcados(info.get("comments"), float(info.get("duration") or 0.0)),
         "captionLang": lang, "captionKind": kind,
         "note": caption_note,
         # Capa do vídeo (a maior publicada) e a folha de storyboard. A capa nomeia o
@@ -1789,6 +2054,40 @@ def probe(url, timeout=PROBE_TIMEOUT):
         "thumbnail": _melhor_capa(info),
         "storyboard": _storyboard(info),
     }
+
+
+COMENTARIOS_MAX = 300
+# Minutagem escrita por quem assistiu: "51:04", "1:10:10". Não pega número colado em outro.
+MINUTAGEM_RE = re.compile(r"(?<![\d:])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)(?![\d:])")
+# Comentário com mais minutagens que isto é índice do vídeo, não "olha esse momento":
+# as curtidas dele se dividem entre as marcas.
+MINUTAGEM_INDICE = 3
+
+
+def comentarios_marcados(comentarios, total):
+    """Comentários -> [{'sec','likes','text'}] de cada minutagem citada. Pura.
+
+    É a audiência apontando o momento com o dedo — mais direto que o gráfico de "Mais
+    reproduzidos", que mede replay e não diz por quê. Minutagem fora do vídeo é descartada."""
+    marcas = []
+    for c in comentarios or []:
+        if not isinstance(c, dict):
+            continue
+        texto = " ".join(str(c.get("text") or "").split())
+        achadas = MINUTAGEM_RE.findall(texto)
+        if not achadas:
+            continue
+        try:
+            likes = max(0, int(c.get("like_count") or 0))
+        except (TypeError, ValueError):
+            likes = 0
+        peso = likes if len(achadas) <= MINUTAGEM_INDICE else likes / float(len(achadas))
+        for h, m, sec in achadas:
+            seg = int(h or 0) * 3600 + int(m) * 60 + int(sec)
+            if total and seg >= total:
+                continue
+            marcas.append({"sec": float(seg), "likes": round(peso, 2), "text": texto[:200]})
+    return marcas[:200]
 
 
 def _melhor_capa(info):

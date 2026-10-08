@@ -2893,6 +2893,38 @@ def main():
     check("31m. a rota de callback é a MESMA nos dois arquivos",
           serve.ROUTE_TT_CALLBACK == tiktok.CAMINHO_CALLBACK)
 
+    # ------------------------------------- 42: silêncio do áudio da fonte (2026-10-07)
+    # A pausa que a legenda automática apaga sai do ÁUDIO. Tom 1 s + silêncio 0,6 s + tom 1 s.
+    _sil_dir = tempfile.mkdtemp()
+    _sil_wav = os.path.join(_sil_dir, "fonte.wav")
+    subprocess.run([worker.FFMPEG, "-y", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.6",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-filter_complex", "[0][1][2]concat=n=3:v=0:a=1", _sil_wav],
+                   check=True, capture_output=True)
+    _sil = serve.silencios_da_fonte(_sil_wav)
+    check("42a. o silêncio de 0,6 s é achado onde está (início ~1 s, duração ~0,6 s)",
+          isinstance(_sil, list) and len(_sil) == 1
+          and abs(_sil[0][0] - 1.0) < 0.05 and abs(_sil[0][1] - 0.6) < 0.05)
+    _sil_cache = os.path.join(_sil_dir, "fonte.silencios.json")
+    with open(_sil_cache, "w", encoding="utf-8") as _f:
+        json.dump({"bytes": os.path.getsize(_sil_wav), "silencios": [[9.0, 9.0]]}, _f)
+    check("42b. a medida é guardada: com o cache do MESMO arquivo, não mede de novo",
+          serve.silencios_da_fonte(_sil_wav) == [[9.0, 9.0]])
+    with open(_sil_cache, "w", encoding="utf-8") as _f:
+        json.dump({"bytes": 1, "silencios": [[9.0, 9.0]]}, _f)
+    check("42c. arquivo trocado (outro tamanho) invalida o cache e mede de novo",
+          serve.silencios_da_fonte(_sil_wav) == _sil)
+    _sem_audio = os.path.join(_sil_dir, "mudo.mp4")
+    subprocess.run([worker.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "color=c=black:s=64x64:d=1", "-an", _sem_audio],
+                   check=True, capture_output=True)
+    check("42d. sem áudio (ou arquivo sumido) devolve None e não levanta",
+          serve.silencios_da_fonte(_sem_audio) is None
+          and serve.silencios_da_fonte(os.path.join(_sil_dir, "nao-existe.mp4")) is None)
+    shutil.rmtree(_sil_dir, ignore_errors=True)
+
     # ------------------------------------------------------------ 14: limpeza
     check("14. o temporário é removido no encerramento", not os.path.isdir(temporario))
 

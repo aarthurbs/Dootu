@@ -671,6 +671,31 @@ ok('lastProject devolve o projeto pronto mais recente com trechos', () => {
   ops.__setProjects(null);
 });
 
+ok('projectRemove tira só o projeto pedido e grava; id desconhecido não mexe em nada', () => {
+  ops.__setProjects([projetoSalvo('abcdefghijk'), projetoSalvo('zxywvutsrq1')]);
+  const gravado = {};
+  global.localStorage = { setItem(k, v) { gravado[k] = v; } };
+  try {
+    assert.strictEqual(ops.projectRemove('naoexiste'), null);
+    assert.strictEqual(ops.projectRemove('proj-abcdefghijk').videoId, 'abcdefghijk');
+  } finally { delete global.localStorage; }
+  const salvo = JSON.parse(gravado.pp_video_projects_v1).projects.map(p => p.id);
+  assert.deepStrictEqual(salvo, ['proj-zxywvutsrq1'], 'o outro projeto fica, e isso vai para o disco');
+  ops.__setProjects(null);
+  assert.strictEqual(ops.projectRemove('proj-zxywvutsrq1'), null, 'antes do init não lança');
+});
+
+ok('libRemoveMany remove vários clips de uma vez e conta só os que existiam', () => {
+  const lib = ops.__setLib([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+  global.localStorage = { setItem() {} };
+  try {
+    assert.strictEqual(ops.libRemoveMany(['a', 'c', 'zzz']), 2);
+    assert.strictEqual(ops.libRemoveMany([]), 0);
+  } finally { delete global.localStorage; }
+  ops.__setLib(null);
+  assert.deepStrictEqual(lib.clips.map(c => c.id), ['b']);
+});
+
 ok('a posição vem da nota do detector; trecho sem nota não ganha posição', () => {
   const a = { id: 'a', score: 60, inSec: 50, outSec: 80 };
   const b = { id: 'b', score: 90, inSec: 10, outSec: 40 };
@@ -693,7 +718,14 @@ ok('card com corte salvo toca o arquivo e baixa o MESMO arquivo, sem gerar de no
   assert.ok(/<video[^>]*data-cut-video[^>]*src="\/clips\/tema-00-10\.mp4"/.test(html));
   assert.ok(/href="\/clips\/tema-00-10\.mp4" download="tema-00-10\.mp4"/.test(html));
   assert.ok(!/data-act="yt-fetch"/.test(html), 'baixar não recorta de novo');
-  assert.ok(/Pico de audiência\./.test(html), 'a justificativa aparece');
+  // Card compacto (2026-10-08): sem barra nativa, sem justificativa, só recomendação + título.
+  assert.ok(!/<video[^>]*\scontrols/.test(html), 'o corte do card não mostra a barra nativa');
+  assert.ok(/<video[^>]*data-act="yt-card-play"[^>]*tabindex="0"/.test(html), 'o vídeo toca e pausa por clique/teclado');
+  assert.ok(!/Pico de audiência\./.test(html), 'a justificativa saiu do card');
+  assert.ok(/class="yt-card-media">[\s\S]*class="yt-card-acts">[\s\S]*<\/div><\/div><div class="yt-card-body">/.test(html),
+    'Editar e Baixar moram SOBRE a prévia');
+  assert.ok(/data-act="yt-open"[^>]*aria-label="Editar" data-dica="Editar"><svg/.test(html), 'Editar = ícone com nome acessível');
+  assert.ok(/data-act="yt-dl-menu"[^>]*aria-label="Baixar" data-dica="Baixar"[^>]*><svg/.test(html), 'Baixar = ícone com nome acessível');
   yt.dlMenu = '';
   ops.__setCandidates([]);
 });

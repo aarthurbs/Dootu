@@ -30,7 +30,7 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
 | `video-ops.js` / `.css` (tela do Estúdio) | `.claude/rules/estudio-ui.md` | `HISTORICO-estudio-video.md` |
 | `video-results.js` (Resultados dos cortes) | `.claude/rules/estudio-resultados.md` | — |
 | `baixador/**` (extensão + helper) | `.claude/rules/baixador.md` | `HISTORICO-estudio-video.md` |
-| `web/**` (lançamento Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
+| `publicar.mjs` / `vercel.json` (site publicado = `dist/`) · `web/**` (Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
 | `index.html`, `empreendedor.js` | `.claude/rules/modulos-index-html.md` | — |
 
 # Domínio do Negócio (Multi-marketplace)
@@ -204,7 +204,7 @@ Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 ## Validação do Estúdio — um comando só
 **Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**213**) · `test_serve.py` (**505**) · `test_ytclip.py` (**282**) · `test_worker.py` (**118**) · `test_muapi.py` (**81**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**465**) · `test-video-ops.js` (**188**) · `test-video-ops-dom.js` (**349**) · `test-video-results.js` (**46**) — **2479 verificações nas dez, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**213**) · `test_serve.py` (**509**) · `test_ytclip.py` (**294**) · `test_worker.py` (**118**) · `test_muapi.py` (**81**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**465**) · `test-video-ops.js` (**190**) · `test-video-ops-dom.js` (**355**) · `test-video-results.js` (**46**) — **2503 verificações nas dez, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

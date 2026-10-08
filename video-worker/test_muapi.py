@@ -299,7 +299,7 @@ def main():
         pedidos.append(num_highlights)
         return [], ""
 
-    serve.ytclip.probe = lambda url: dict(falso)
+    serve.ytclip.probe = lambda url, **_: dict(falso)
     muapi.highlights = pedir
     os.environ[muapi.ENV_KEY] = "chave-de-teste"
     try:

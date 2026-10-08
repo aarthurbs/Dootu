@@ -660,6 +660,15 @@
       </section>
       <section id="view-video-ops" hidden>
         <div id="video-ops-root"></div>
+        <!-- Fora do motor local (site publicado): o Estúdio vira este link. Ver "ESTÚDIO FORA DO MOTOR". -->
+        <div id="estudio-local" hidden>
+          <div class="hub-grid">
+            <a class="hub-card" href="http://127.0.0.1:8765/index.html">
+              <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2z"/><path d="m8 9 4 3-4 3z"/></svg></span>
+              <span class="hub-card-txt"><span class="hub-card-name">Abrir o Estúdio de Vídeos</span><span class="hub-card-desc">Roda no seu computador: abra o estudio.ps1 antes de clicar.</span></span>
+            </a>
+          </div>
+        </div>
       </section>
 
 
@@ -688,6 +697,7 @@
         .hub-card:nth-child(1) {animation-delay:.03s} .hub-card:nth-child(2) {animation-delay:.07s} .hub-card:nth-child(3) {animation-delay:.11s} .hub-card:nth-child(4) {animation-delay:.15s} .hub-card:nth-child(5) {animation-delay:.19s}
         @media (hover: hover) and (pointer: fine) { .hub-card:hover { transform: translateY(-2px); border-color: var(--border-hover); box-shadow: 0 8px 22px rgba(0,0,0,.35); } }
         .hub-card:active { transform: scale(.98); }
+        a.hub-card { text-decoration: none; }
         .hub-card-ico { flex-shrink: 0; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--accent-dim); color: var(--accent); }
         .hub-card-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
         .hub-card-name { font-size: 14px; font-weight: 700; }
@@ -936,6 +946,18 @@
       // o campo mostra o estado real, não o pedido.
       apSelect.value = window.Appearance.set(apSelect.value);
     });
+  }
+
+  // ═══════════════════════════════
+  //  ESTÚDIO FORA DO MOTOR
+  // ═══════════════════════════════
+  // O Estúdio só funciona servido pelo motor (video-worker/serve.py, porta 8765): é ele que
+  // atende /api/*, /sources/ e /clips/. Aberto de outro lugar (o site publicado, ver
+  // PASSO-A-PASSO.md), a tela vira um link para o motor. Sem o #video-ops-root o video-ops.js
+  // não monta, então nenhuma chamada falha calada.
+  if (location.port !== '8765') {
+    document.getElementById('video-ops-root').remove();
+    document.getElementById('estudio-local').hidden = false;
   }
 
   // ═══════════════════════════════

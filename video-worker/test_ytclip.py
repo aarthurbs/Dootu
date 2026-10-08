@@ -27,6 +27,7 @@ Uso:
 """
 
 import json
+import math
 import os
 import shutil
 import sys
@@ -994,8 +995,8 @@ def main():
           and abs(com_pico[0]["score"] - sem_pico[0]["score"]) <= ytclip.INTERESSE_PESO)
     check("20e. a nota nao e mais o unico rotulo: sai a PALAVRA da faixa",
           all(c["qualityLabel"] and c["quality"] in ("forte", "bom", "fraco") for c in com_pico))
-    check("20f. e a decomposicao rastreavel vem com ela (seis fatores, com peso e frase)",
-          bool(com_pico) and len(com_pico[0]["factors"]) == len(ytclip.FATORES) + 1
+    check("20f. e a decomposicao rastreavel vem com ela (seis fatores + publico + apelo)",
+          bool(com_pico) and len(com_pico[0]["factors"]) == len(ytclip.FATORES) + 2
           and all(f["note"] and f["weight"] > 0 for f in com_pico[0]["factors"]))
     check("20g. o fator de audiencia nunca pesa mais que os editoriais somados",
           ytclip.INTERESSE_PESO < sum(peso for _, peso, _ in ytclip.FATORES))
@@ -1355,6 +1356,97 @@ def main():
     check("27i. o segundo nivel so SOMA: nenhuma janela antiga muda borda nem nota",
           bool(sem) and all((c["inSec"], c["outSec"], c["score"]) in chaves for c in sem)
           and len(com) > len(sem))
+
+    # ------------------------------------------- 28. silencio do audio, comentarios, apelo
+    # (2026-10-07) Podcast de 73 min com legenda automatica sem pontuacao saia com 2 cortes:
+    # a grade por palavra nao tem pausa. O silencio MEDIDO no audio devolve a pausa.
+    corrida = [{"start": 0.0, "end": 0.5, "text": "a"}, {"start": 0.5, "end": 2.0, "text": "b"},
+               {"start": 2.0, "end": 2.4, "text": "c"}]
+    puxada = ytclip._palavras_com_silencio(corrida, [[0.9, 1.05]])
+    check("28a. o silencio medido vira o fim da palavra (e a entrada nao muda)",
+          puxada[1]["end"] == 0.9 and puxada[0]["end"] == 0.5 and corrida[1]["end"] == 2.0)
+
+    def corrido(inicio, n, passo=0.3):
+        return [{"start": round(inicio + i * passo, 3), "end": round(inicio + (i + 1) * passo, 3),
+                 "text": "palavra%d" % i} for i in range(n)]
+    duas = corrido(0.0, 10) + corrido(3.4, 10)
+    for i in range(len(duas) - 1):
+        duas[i]["end"] = duas[i + 1]["start"]          # como o parse_json3_words entrega
+    cue_unica = [{"start": 0.0, "end": 6.4, "text": "x"}]
+    sem_audio = ytclip.sentences_from(cue_unica, duas)
+    com_audio = ytclip.sentences_from(cue_unica, duas, [[2.8, 0.6]])
+    check("28b. polaridade: sem o audio a fala corrida e UMA frase; com ele a 2a abre firme",
+          len(sem_audio) == 1 and len(com_audio) == 2 and com_audio[1]["hardStart"]
+          and com_audio[1]["start"] == 3.4)
+
+    marcas = ytclip.comentarios_marcados([
+        {"text": '51:04 "frase forte"', "like_count": 228},
+        {"text": "1:10:10 e tambem 2:03", "like_count": 2},
+        {"text": "nota 10:5 e 99:99", "like_count": 5},
+        {"text": "0:10 0:20 0:30 0:40", "like_count": 8}], 4400)
+    check("28c. minutagem de comentario: h:mm:ss, fora do video e mal formada caem",
+          [m["sec"] for m in marcas][:3] == [3064.0, 4210.0, 123.0]
+          and all(m["sec"] < 4400 for m in marcas))
+    check("28c2. comentario-indice (4 marcas) divide as curtidas entre elas",
+          [m["likes"] for m in marcas if m["sec"] == 10.0] == [2.0])
+
+    citado = video_de(ideia, ["Quase sempre a fisica e contraintuitiva demais.",
+                              "Se ela fosse intuitiva iria ser senso comum para todo mundo.",
+                              "E por isso que demoraram seculos para perceber o movimento.",
+                              "Essa regra mudou como eu ensino matematica."])
+    alvo = [c for c in citado["cues"] if c["text"].startswith("Quase")][0]
+    citado["comments"] = [{"sec": alvo["start"] - 20, "likes": 228,
+                           "text": "Quase sempre a fisica e contraintuitiva, iria ser senso comum"}]
+    com_coment = ytclip.candidates(citado, limit=10**6)
+    do_coment = [c for c in com_coment if "comments" in c["signals"]]
+    check("28d. o comentario acha a frase CITADA (20 s depois da minutagem) e o corte abre nela",
+          len(do_coment) == 1 and alvo["start"] - 1 <= do_coment[0]["inSec"] <= alvo["start"]
+          and "frase citada no comentário" in do_coment[0]["reason"])
+    citado.pop("comments")
+    check("28d2. polaridade: sem o comentario o trecho nao cita comentario nenhum",
+          not [c for c in ytclip.candidates(citado, limit=10**6) if "comments" in c["signals"]])
+
+    chamada = video_de(["Deixe o seu like e se inscreva no canal para ajudar."] + ideia)
+    lista_ch, resumo_ch = ytclip.candidates_report(chamada, 10**6)
+    cta = chamada["cues"][0]["start"]
+    check("28e. janela que abre na chamada do canal e descartada e o resumo diz",
+          ytclip.REPROVA_LABEL["chamada"] in resumo_ch
+          and all(c["inSec"] > cta for c in lista_ch))
+    check("28e2. uma marca solta no meio do trecho e dita de passagem (nao derruba)",
+          not ytclip._chamada({"text": " ".join(ideia[:2]) + " link na descrição " + ideia[2],
+                               "frases": [{"text": t} for t in ideia]}))
+
+    jan = ytclip._window(None, 2.0, 60.0, (), None, ytclip.sentences_from(video_de(ideia)["cues"]))
+    check("28f. sem apelo a nota e identica a de sempre",
+          ytclip.avaliar(jan, 0.5) == ytclip.avaliar(jan, 0.5, None))
+    ap = ytclip._apelo("o maior erro foi perder dinheiro com o lucro", {"lucro"}, {"lucro": 2.0})
+    nada = ytclip._apelo("bom dia a todos", {"lucro"}, {"lucro": 2.0})
+    check("28f2. titulo + palavra que prende somam apelo; sem nada, zero e a frase diz",
+          ap["value"] > 0 and "Toca no tema" in ap["note"] and "dinheiro" in ap["note"]
+          and nada["value"] == 0 and nada["note"])
+    com_ap = ytclip.avaliar(jan, 0.5, {"value": 1.0, "note": "x"})
+    check("28f3. o apelo so ORDENA: no maximo APELO_PESO a mais, mesmo veto e mesmo rotulo",
+          0 <= com_ap["score"] - ytclip.avaliar(jan, 0.5)["score"] <= ytclip.APELO_PESO
+          and com_ap["reject"] == ytclip.avaliar(jan, 0.5)["reject"]
+          and com_ap["quality"] == ytclip.avaliar(jan, 0.5)["quality"])
+
+    chamadas_run = []
+    def run_falso(args, timeout, on_line=None):
+        chamadas_run.append(list(args))
+        if "--write-comments" in args:
+            raise worker.WorkerError("job_invalid", "comentarios fora do ar")
+        return json.dumps({"title": "t", "duration": 100}).encode()
+    antes_run, antes_cues = ytclip._run, ytclip.fetch_cues
+    ytclip._run = run_falso
+    ytclip.fetch_cues = lambda info: {"cues": [], "words": [], "language": "", "kind": "",
+                                      "note": ""}
+    try:
+        sondado = ytclip.probe("https://youtu.be/dQw4w9WgXcQ", comentarios=True)
+    finally:
+        ytclip._run, ytclip.fetch_cues = antes_run, antes_cues
+    check("28g. comentario fora do ar nao derruba a analise: refaz sem eles",
+          len(chamadas_run) == 2 and "--write-comments" not in chamadas_run[1]
+          and sondado["comments"] == [])
 
     # ---------------------------------------------------------------- relatório
     print("\n--- verificacoes ---")
