@@ -317,7 +317,10 @@ async function main() {
   await tick(); await tick();
   html = b.html();
   ok('abrir o projeto carrega os candidatos na aba YouTube', html.indexOf('O erro que custou caro') > 0);
-  ok('o aviso de contexto do detector não é engolido', /Começa com/.test(html));
+  /* MUDOU EM 2026-10-08: o card ficou compacto (pedido do usuário) e o aviso saiu da tela —
+     mas não é engolido: continua guardado no projeto, como a nota da análise abaixo. */
+  ok('o aviso de contexto do detector sai do card e continua guardado no projeto',
+    !/Começa com/.test(html) && /Começa com/.test(b.store['pp_video_projects_v1'] || ''));
   /* A nota da analise sai da tela (decisao do usuario, 2026-10-01) e FICA no dado. */
   ok('a nota da análise nao aparece na tela, e continua guardada no projeto',
     !/sem legenda em pt-BR/.test(html) && /sem legenda em pt-BR/.test(b.store['pp_video_projects_v1'] || ''));
@@ -482,6 +485,14 @@ async function main() {
   ok('o botao principal chama /api/yt-import', chamadas['/api/yt-import'] === 1);
   ok('e a fonte segue pronta (a rota e idempotente: arquivo no disco volta pronto)',
     /<video[^>]*data-src-video/.test(b.html()));
+  // Carregador do palco (2026-10-07): preto enquanto carrega era o defeito relatado.
+  ok('carregador: antes do 1o quadro o palco NAO esta pronto (mostra o carregador)',
+    !/data-src-stage[^>]*data-pronto/.test(b.html()));
+  b.video.getAttribute = n => (n === 'src' ? '/sources/abcdefghijk.mp4' : null);
+  b.root._listeners.loadeddata({ target: b.video });
+  b.aba('youtube');
+  ok('carregador: depois do 1o quadro o palco segue pronto mesmo apos re-render (nao pisca)',
+    /data-src-stage[^>]*data-pronto/.test(b.html()));
 
   // ---- previa = SEEK no player interno ------------------------------------------------
   b.video.currentTime = 0;
@@ -526,8 +537,9 @@ async function main() {
 
   // Os controles de producao vivem na TELA DE DETALHE. `Editar` e a acao primaria do card,
   // e e ela que abre esta tela com o trecho, as bordas e as escolhas salvas.
+  // Desde 2026-10-08 e o botao de vidro (claquete) sobre a previa, com nome acessivel.
   ok('o card tem Editar como acao primaria',
-    /class="vop-btn vop-btn-primary"[^>]*data-act="yt-open"/.test(html));
+    /class="yt-glass"[^>]*data-act="yt-open"[^>]*aria-label="Editar"/.test(html));
   b.clique({ act: 'yt-open', id: clipId });
   // Reabrir o MESMO corte reaproveita a prévia pronta ("não recodifica"), então aqui ela
   // pode já estar pronta. O que não pode é o editor mostrar o original INTEIRO.
@@ -1678,6 +1690,53 @@ async function main() {
     ok('a tela ' + t + ' tem dica escrita', dicas[t].length > 20);
   });
   ok('cada tela tem a sua dica', new Set(Object.values(dicas)).size === 4);
+
+  /* ------------------------- análise de novo com o ÁUDIO da fonte (2026-10-07)
+     A 1ª análise roda junto com o download, antes de existir áudio (`audioPausas: false`).
+     Quando a fonte chega, a tela analisa UMA vez de novo — com o silêncio medido — antes do
+     primeiro corte. Sem o campo (servidor antigo) nada muda. */
+  async function reanalise(audioPausas) {
+    const bb = bancada();
+    bb.aba('youtube');
+    const n = { probe: 0 };
+    global.fetch = function (rota) {
+      const caminho = String(rota).split('?')[0];
+      const cab = { get() { return null; } };
+      if (caminho === '/api/yt-probe') {
+        n.probe += 1;
+        const corpo = { title: 'Podcast', durationSec: 3600, note: '',
+          candidates: [{ inSec: 600, outSec: 640, topic: 'Trecho ' + n.probe, score: 88,
+            signals: ['transcript'], boundary: 'palavra', factors: [] }] };
+        if (audioPausas !== undefined) corpo.audioPausas = n.probe > 1 ? true : audioPausas;
+        return Promise.resolve({ ok: true, headers: cab, json: () => Promise.resolve(corpo) });
+      }
+      if (caminho === '/api/yt-import' || caminho === '/api/yt-import-state') {
+        return Promise.resolve({ ok: true, headers: cab, json: () => Promise.resolve({
+          state: 'ready', videoId: 'abcdefghijk', percent: 100, stage: 'preparando',
+          sourceToken: 'abcdefghijk', sourceName: 'abcdefghijk.mp4',
+          sourceUrl: '/sources/abcdefghijk.mp4', bytes: 1, durationSec: 3600,
+          width: 1920, height: 1080, hasAudio: true, error: '' }) });
+      }
+      return Promise.resolve({ ok: false, status: 500, headers: cab,
+        json: () => Promise.resolve({ message: 'fora do teste' }) });
+    };
+    bb.digita('[data-yt-url]', 'https://www.youtube.com/watch?v=abcdefghijk');
+    bb.clique({ act: 'yt-probe' });
+    for (let i = 0; i < 4; i++) await tick();
+    bb.muda('[data-yt-rights]', { checked: true });
+    for (let i = 0; i < 8; i++) await tick();
+    bb.muda('[data-yt-rights]', { checked: false });
+    bb.muda('[data-yt-rights]', { checked: true });
+    for (let i = 0; i < 8; i++) await tick();
+    return { n: n.probe, html: bb.html() };
+  }
+  const semAudio = await reanalise(false);
+  ok('fonte pronta + análise feita sem áudio = analisa de novo, UMA vez só',
+    semAudio.n === 2);
+  ok('e a lista na tela passa a ser a da análise com áudio',
+    semAudio.html.indexOf('Trecho 2') > 0 && semAudio.html.indexOf('Trecho 1') < 0);
+  ok('polaridade: análise que já veio com áudio não é refeita', (await reanalise(true)).n === 1);
+  ok('polaridade: servidor antigo (sem o campo) também não', (await reanalise(undefined)).n === 1);
 
   console.log(provas + ' provas OK — DOM do Estúdio de Vídeos (' + path.basename(__filename) + ')');
 }

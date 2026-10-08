@@ -889,6 +889,54 @@ def medir_audio(path: str, timeout: float = 120.0):
     return {"durationSec": round(segundos, 2), "lufs": max(-70.0, float(lufs[-1]))}
 
 
+# Silêncio que conta como pausa de fala. MEDIDO no podcast de 73 min do pedido: -32 dB por
+# 0,25 s acha 1057 silêncios em 12 s de decode só do áudio (o vídeo não é decodificado).
+SILENCIO_DB = -32
+SILENCIO_MIN_SEC = 0.25
+_SILENCIO_RE = re.compile(r"silence_end: ([\d.]+) \| silence_duration: ([\d.]+)")
+
+
+def silencios_da_fonte(path: str, timeout: float = 600.0):
+    """[[início, duração], ...] dos silêncios do áudio da fonte, ou `None` se não deu para
+    medir. Guarda ao lado do vídeo (`<id>.silencios.json`) com o tamanho do arquivo: medir é
+    uma vez por fonte, e um arquivo trocado no disco invalida a medida sozinho.
+
+    É a pausa que a legenda automática apaga (ver `ytclip.AUDIO_FECHO_PAUSA_SEC`). Falhar
+    aqui NUNCA derruba importação nem análise: sem a medida a análise usa a legenda, como
+    sempre usou."""
+    cache = os.path.splitext(path)[0] + ".silencios.json"
+    try:
+        tamanho = os.path.getsize(path)
+    except OSError:
+        return None
+    try:
+        with open(cache, encoding="utf-8") as handle:
+            guardado = json.load(handle)
+        if guardado.get("bytes") == tamanho and isinstance(guardado.get("silencios"), list):
+            return guardado["silencios"]
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        proc = subprocess.run(
+            [worker.FFMPEG, "-hide_banner", "-nostats", "-i", path, "-vn", "-af",
+             "silencedetect=noise=%ddB:d=%s" % (SILENCIO_DB, SILENCIO_MIN_SEC),
+             "-f", "null", "-"], capture_output=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    saida = proc.stderr.decode("utf-8", "replace")
+    if proc.returncode != 0 or "Audio:" not in saida:
+        return None
+    silencios = [[round(float(fim) - float(dur), 3), round(float(dur), 3)]
+                 for fim, dur in _SILENCIO_RE.findall(saida)]
+    try:
+        with open(cache, "w", encoding="utf-8") as handle:
+            json.dump({"bytes": tamanho, "db": SILENCIO_DB, "minSec": SILENCIO_MIN_SEC,
+                       "silencios": silencios}, handle)
+    except OSError:
+        pass
+    return silencios
+
+
 def ganho_musica(voz_lufs, faixa_lufs, nivel):
     """Ganho LINEAR da faixa para ela ficar `MUSICA_DB[nivel]` dB ABAIXO da voz. PURA; dono
     ÚNICO da conta (a tela manda intenção, nunca dB). Teto 1: a faixa nunca é AMPLIFICADA —
@@ -2252,7 +2300,12 @@ class CutHandler(SimpleHTTPRequestHandler):
         Sem trava de render de propósito: isto é leitura de metadados, não trabalho pesado,
         e enfileirar análise atrás de um corte de 4K deixaria a tela parada à toa.
         """
-        info = ytclip.probe(self._json_body().get("url"))
+        info = ytclip.probe(self._json_body().get("url"), comentarios=True)
+        # Fonte já no disco (importada depois da declaração de direito): a pausa sai do ÁUDIO
+        # medido, não da legenda. Antes da importação não há áudio, e nada é baixado aqui —
+        # `audioPausas: false` diz isso à tela, que analisa de novo quando a fonte chega.
+        caminho, _nome = source_media_on_disk(_sidecar_dir(), info["videoId"])
+        info["silencios"] = silencios_da_fonte(caminho) if caminho else None
         # Detector externo OPCIONAL. Sem `MUAPI_KEY` no ambiente nada é chamado: a análise
         # não fica um milissegundo mais lenta nem um centavo mais cara para quem não ligou.
         # Ligado, o que volta é ÂNCORA — o `candidates_report` ainda resolve a borda na fala
@@ -2280,6 +2333,7 @@ class CutHandler(SimpleHTTPRequestHandler):
             "storyboard": info.get("storyboard") or {},
             "mostReplayed": _most_replayed_safe(info["heatmap"], info["videoId"]),
             "candidates": sugestoes,
+            "audioPausas": bool(info["silencios"]),
         })
 
     def _handle_most_replayed(self) -> None:
@@ -2498,6 +2552,9 @@ class CutHandler(SimpleHTTPRequestHandler):
             # O sidecar ANTES de anunciar pronto: é ele que carrega a legenda e a miniatura, e
             # anunciar a fonte antes dele faria o primeiro corte sair sem legenda, calado.
             write_source_sidecar(pasta, nome, dados)
+            # Mede os silêncios agora, ainda em "preparando": a análise de novo que a tela pede
+            # quando a fonte fica pronta já os acha no cache. Falha aqui não derruba nada.
+            silencios_da_fonte(got["path"])
             self._register_source(video_id, got["path"], got["media"])
         except worker.WorkerError as err:
             self._import_set(video_id, state=IMPORT_ERROR, error=err.message)

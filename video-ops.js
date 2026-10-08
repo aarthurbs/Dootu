@@ -143,6 +143,10 @@
   var CARDS_OPEN = false;
   var CARD_EDIT = '';
   var CARD_DEL = '';
+  /* Exclusão de projeto e seleção da Central: estado de TELA (sessão), confirmados no lugar. */
+  var PROJ_DEL = '';
+  var LIB_SEL = {};
+  var LIB_SEL_DEL = false;
   var CARD_MSG = '';
   /* A última escrita na biblioteca foi RECUSADA (cota, logo, arquivo): o painel acende
      `aria-invalid` até a próxima ação (editor sem frase, decisão do usuário, 2026-10-01). */
@@ -1459,7 +1463,7 @@
   /* Sinais que o /api/yt-probe devolve por trecho. Slug desconhecido aparece como veio,
      nunca some: é evidência (audiência medida, capítulo, fala), não palpite. */
   var SIGNAL_LABEL = { heatmap: 'Mais reproduzidos', chapter: 'Capítulo', transcript: 'Fala',
-                       muapi: 'Detector externo' };
+                       muapi: 'Detector externo', comments: 'Comentários', titulo: 'Título' };
   function signalLabel(id) { return SIGNAL_LABEL[id] || String(id || ''); }
 
   function uid(prefix) {
@@ -1787,6 +1791,15 @@
     if (!PROJECTS || !id) return null;
     return PROJECTS.projects.find(function (p) { return p.id === id; }) || null;
   }
+  /* Tira o projeto da lista salva e devolve o que saiu (ou null). Só o REGISTRO sai: o vídeo
+     importado e os cortes no disco ficam, e os clips da Central continuam na Central. */
+  function projectRemove(id) {
+    var project = projectFindById(id);
+    if (!project) return null;
+    PROJECTS.projects = PROJECTS.projects.filter(function (p) { return p !== project; });
+    projectsPersist();
+    return project;
+  }
   /* Cria ou atualiza projeto com status analyzing. */
   function projectCreateOrReserve(videoId, url, title, thumbnail, durationSec) {
     var existing = projectFindByVideoId(videoId);
@@ -1872,6 +1885,16 @@
     libPersist();
     return true;
   }
+  /* Remove vários registros de uma vez; devolve quantos saíram. O arquivo em disco fica. */
+  function libRemoveMany(ids) {
+    var fora = {};
+    (ids || []).forEach(function (id) { fora[id] = true; });
+    var before = LIB.clips.length;
+    LIB.clips = LIB.clips.filter(function (clip) { return !fora[clip.id]; });
+    var saiu = before - LIB.clips.length;
+    if (saiu) libPersist();
+    return saiu;
+  }
   /* O arquivo em disco é servido pelo helper local em /clips/<arquivo>. Só o nome base
      entra na URL: caminho completo não é rota, e basename mata travessia. */
   function savedClipUrl(clip) {
@@ -1941,6 +1964,16 @@
   var SRC_SEQ = 0;
   /* O nó `<video>` da fonte, PRESERVADO entre renders (ver srcAdopt). */
   var SRC_NODE = null;
+  /* URL do `<video>` que já desenhou o primeiro quadro. Até lá o palco mostra o carregador
+     (o vídeo fica preto enquanto carrega). Mora no MÓDULO porque o `render()` recria o palco:
+     no atributo do nó, o carregador piscaria a cada re-render de um vídeo já carregado. */
+  var SRC_PRONTO = '';
+  function srcProntoMarca(video) {
+    if (!video || !video.getAttribute) return;
+    SRC_PRONTO = video.getAttribute('src') || '';
+    var palco = video.closest && video.closest('[data-src-stage]');
+    if (palco && palco.setAttribute) palco.setAttribute('data-pronto', '');
+  }
   // Uma prévia local por vez; o original continua sendo a fonte dos exports.
   var SRC_PREVIEW = { key: '', url: '', state: 'idle', error: '' };
   var SRC_PREVIEW_BUSY = false;
@@ -3259,7 +3292,10 @@
     var url = savedClipUrl(clip);
     var span = num(clip.outSec) - num(clip.inSec);
     return '<article class="vop-entity-card vop-lib-card">'
-      + '<div class="vop-lib-card-head"><h4>' + esc(clip.clipName) + '</h4>'
+      + '<div class="vop-lib-card-head">'
+      + '<label class="vop-lib-check"><input type="checkbox" data-act="lib-sel" data-id="' + esc(clip.id) + '"'
+      + (LIB_SEL[clip.id] ? ' checked' : '') + ' aria-label="Selecionar ' + esc(clip.clipName) + '"></label>'
+      + '<h4>' + esc(clip.clipName) + '</h4>'
       + (clip.origin === 'youtube' ? chip('vop-chip-quiet', 'YouTube') : '') + '</div>'
       + (url ? '<video class="vop-lib-video" controls preload="metadata" src="' + esc(url) + '"></video>' : '')
       + '<p class="vop-lib-meta"><code>' + esc(fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec)) + '</code>'
@@ -3296,6 +3332,7 @@
       + '<div class="vop-section-head"><div><span class="vop-eyebrow">Central de Clips</span>'
       + '<h2>' + LIB.clips.length + ' clip(s) em ' + groups.length + ' vídeo(s)</h2>'
       + '<p class="vop-form-note">Os arquivos ficam no seu computador, em <code>~/Videos/Cortes Estudio</code>. Esta tela é o índice deles.</p></div></div>'
+      + '<div class="vop-lib-selbar" data-lib-selbar>' + libSelBarHTML() + '</div>'
       + ttStripHTML()
       + groups.map(function (group) {
         return '<div class="vop-lib-group">'
@@ -3307,6 +3344,34 @@
           + '</div>';
       }).join('')
       + '</section>';
+  }
+  /* Ids selecionados que AINDA estão no histórico (um clip removido sozinho sai da conta). */
+  function libSelIds() {
+    return LIB.clips.filter(function (clip) { return LIB_SEL[clip.id]; })
+      .map(function (clip) { return clip.id; });
+  }
+  /* Barra da seleção. Confirmação no lugar, nunca `confirm()`, e a pergunta diz o que a
+     remoção custa: o registro sai, o arquivo fica. */
+  function libSelBarHTML() {
+    var n = libSelIds().length;
+    if (LIB_SEL_DEL && n) {
+      return '<span class="vop-card-confirm" role="alert">Remover ' + n + ' clip(s) do histórico? Os arquivos continuam no seu computador.'
+        + '<button class="vop-btn vop-btn-danger" type="button" data-act="lib-sel-del-yes">Remover</button>'
+        + '<button class="vop-btn vop-btn-quiet" type="button" data-act="lib-sel-del-no">Cancelar</button></span>';
+    }
+    var todos = n === LIB.clips.length;
+    return '<button class="vop-btn vop-btn-quiet" type="button" data-act="' + (todos ? 'lib-sel-none' : 'lib-sel-all') + '">'
+      + (todos ? 'Limpar seleção' : 'Selecionar todos') + '</button>'
+      + '<span class="vop-lib-selcount">' + (n ? n + ' selecionado(s)' : 'Nenhum selecionado') + '</span>'
+      + '<button class="vop-btn vop-btn-danger" type="button" data-act="lib-sel-del"' + (n ? '' : ' disabled') + '>Remover selecionados</button>';
+  }
+  /* Repinta caixas e barra NO LUGAR: re-renderizar recarregaria todos os <video> da Central. */
+  function libSelPaint() {
+    var bar = document.querySelector('[data-lib-selbar]');
+    if (bar) bar.innerHTML = libSelBarHTML();
+    document.querySelectorAll('[data-act="lib-sel"]').forEach(function (box) {
+      box.checked = !!LIB_SEL[box.dataset.id];
+    });
   }
   /* --- Tela Meus Projetos ----------------------------------------------------------- */
   function projectsHTML() {
@@ -3332,7 +3397,17 @@
     var created = project.createdAt ? fmtDateTime(project.createdAt) : '—';
     var clipCount = project.clipCount || 0;
     var title = project.title || ('YouTube ' + project.videoId);
-    return '<article class="vop-project-card" data-act="open-project" data-project-id="' + esc(project.id) + '" tabindex="0" role="button" aria-label="' + esc(title + ', ' + statusLabel + ', ' + clipCount + ' trechos') + '">'
+    /* O botão de excluir é IRMÃO do cartão, não filho: o cartão inteiro já é um botão, e
+       botão dentro de botão não tem semântica válida. */
+    return '<div class="vop-project-item">'
+      + (PROJ_DEL === project.id
+        /* Só as duas opções, sem frase (pedido do usuário); o cartão embaça por baixo. */
+        ? '<div class="vop-project-confirm" role="group" aria-label="Excluir ' + esc(title) + '?">'
+          + '<button class="vop-btn vop-btn-danger" type="button" data-act="proj-del-yes" data-project-id="' + esc(project.id) + '">Excluir</button>'
+          + '<button class="vop-btn vop-btn-quiet" type="button" data-act="proj-del-no">Cancelar</button>'
+          + '</div>'
+        : '<button class="vop-project-del" type="button" data-act="proj-del" data-project-id="' + esc(project.id) + '" aria-label="Excluir projeto ' + esc(title) + '">Excluir</button>')
+      + '<article class="vop-project-card" data-act="open-project" data-project-id="' + esc(project.id) + '" tabindex="0" role="button" aria-label="' + esc(title + ', ' + statusLabel + ', ' + clipCount + ' trechos') + '">'
       + '<div class="vop-project-thumb">'
       + (thumb ? '<img src="' + esc(thumb) + '" alt="" loading="lazy" onerror="this.onerror=null;this.src=\'' + esc(thumbFallback) + '\';">'
         : (thumbFallback ? '<img src="' + esc(thumbFallback) + '" alt="" loading="lazy">'
@@ -3347,7 +3422,7 @@
       + '</div>'
       + (project.error ? '<p class="vop-project-error">' + esc(project.error) + '</p>' : '')
       + '</div>'
-      + '</article>';
+      + '</article></div>';
   }
   function emptyHTML(title, message, actionType, actionLabel, actionAttrs) {
     return '<section class="vop-empty">'
@@ -3481,9 +3556,9 @@
     var aberto = YT.dlMenu === clip.id;
     var renderizando = !!YT_BUSY['render:' + clip.id];
     return '<div class="yt-dl' + (aberto ? ' open' : '') + '">'
-      + '<button class="vop-btn vop-btn-quiet yt-dl-trigger" type="button" data-act="yt-dl-menu"'
-      + ' data-id="' + esc(clip.id) + '" aria-expanded="' + aberto + '" aria-haspopup="true">'
-      + 'Baixar<span class="yt-dl-caret" aria-hidden="true"></span></button>'
+      + '<button class="yt-glass" type="button" data-act="yt-dl-menu" data-id="' + esc(clip.id) + '"'
+      + ' aria-label="Baixar" data-dica="Baixar" aria-expanded="' + aberto + '" aria-haspopup="true">'
+      + YT_CARD_ICO.baixar + '</button>'
       + (aberto
         ? '<div class="yt-dl-menu" role="menu">'
           + (clip.clipSaved
@@ -3507,42 +3582,44 @@
         : '')
       + '</div>';
   }
+  /* Ícones dos botões do card, brancos com volume (referência do usuário, 2026-10-08):
+     claquete aberta — braço listrado erguido, barra listrada, corpo e dobradiça com dois
+     rebites — e o download clássico do Material, com os cantos arredondados pelo traço. */
+  var YT_CARD_ICO = {
+    editar: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">'
+      + '<g transform="rotate(-18 4.6 9.4)"><rect x="4" y="6.6" width="16.6" height="2.8" rx="1" fill="#F6F7F9"/>'
+      + '<path fill="#C5CAD3" d="M7.9 6.6h2.3l-1.5 2.8H6.4zM12.5 6.6h2.3l-1.5 2.8H11zM17.1 6.6h2.3l-1.5 2.8h-2.3z"/></g>'
+      + '<rect x="3.5" y="9.9" width="17" height="2.7" rx=".9" fill="#F6F7F9"/>'
+      + '<path fill="#C5CAD3" d="M7.9 9.9h2.3l-1.5 2.7H6.4zM12.4 9.9h2.3l-1.5 2.7h-2.3zM16.9 9.9h2.3l-1.5 2.7h-2.3z"/>'
+      + '<rect x="3.5" y="13.2" width="17" height="7.6" rx="1.9" fill="#F6F7F9"/>'
+      + '<rect x="3.5" y="7.8" width="3.4" height="4.8" rx="1" fill="#E4E7EC"/>'
+      + '<circle cx="5.2" cy="9.1" r=".6" fill="#A9B0BB"/><circle cx="5.2" cy="11.3" r=".6" fill="#A9B0BB"/></svg>',
+    baixar: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">'
+      + '<path fill="#F6F7F9" stroke="#F6F7F9" stroke-width="1.2" stroke-linejoin="round"'
+      + ' d="M5.6 19.4h12.8V18H5.6zM18.4 9.4h-3.8V3.6H9.4v5.8H5.6l6.4 6.4z"/></svg>'
+  };
+  /* Card compacto (pedido de 2026-10-08): a prévia manda; embaixo só a recomendação e o
+     título. Editar e Baixar são botões de vidro sobre a prévia; o corte salvo toca sem a
+     barra nativa — clique, Espaço ou Enter alternam (`yt-card-play`). Faixa, horários,
+     justificativa e avisos saíram do card; a falha do corte automático segue nas etapas. */
   function ytCandidateCardHTML(clip, videoId, gate) {
     var status = clipStatusOf(clip, gate);
-    /* A faixa de qualidade aparece só quando NÃO é a melhor: elogio em todo card é ruído,
-       e a informação que muda decisão é a ressalva. A nota numérica saiu do card de
-       propósito — número de 0 a 100 num card lê como probabilidade de sucesso, que este
-       sistema não mede. Ela e a decomposição continuam na tela de detalhe. */
-    var faixa = clip.quality && clip.quality !== 'forte'
-      ? chip('yt-q-' + clip.quality, clip.qualityLabel) : '';
     var pos = ytRank(clip);
     var arquivo = clip.clipSaved ? '/clips/' + encodeURIComponent(clip.clipSaved) : '';
-    var gerando = AUTO_CUT === clip.id || !!YT_BUSY['fetch:' + clip.id];
-    var falhou = !arquivo && !gerando ? AUTO_CUT_FAIL[clip.id] : '';
-    /* Justificativa = a evidência do detector; sem ela, o motivo. Sem os dois, a tela diz. */
-    var porque = clip.evidence || clip.reason || 'O detector não registrou justificativa para este trecho.';
     return '<article class="yt-card" data-clip="' + esc(clip.id) + '">'
+      + '<div class="yt-card-media">'
       + (arquivo
-        ? '<video class="yt-card-video" data-cut-video src="' + esc(arquivo) + '" controls preload="metadata" playsinline></video>'
+        ? '<video class="yt-card-video" data-cut-video data-act="yt-card-play" src="' + esc(arquivo) + '"'
+          + ' preload="metadata" playsinline tabindex="0" aria-label="Tocar ou pausar o corte"></video>'
         : ytThumbHTML(clip))
+      + '<div class="yt-card-acts">'
+      + '<button class="yt-glass" type="button" data-act="yt-open" data-id="' + esc(clip.id) + '"'
+      + ' aria-label="Editar" data-dica="Editar">' + YT_CARD_ICO.editar + '</button>'
+      + ytDownloadHTML(clip, status)
+      + '</div></div>'
       + '<div class="yt-card-body">'
       + '<p class="yt-card-pos">' + (pos ? '<strong>#' + pos + '</strong> recomendado' : 'Sem classificação do detector') + '</p>'
       + '<h3 class="yt-card-title">' + esc(clip.topic) + '</h3>'
-      + '<div class="yt-card-meta">'
-      + '<span class="yt-range">' + esc(fmtClock(clip.inSec) + ' → ' + fmtClock(clip.outSec)) + '</span>'
-      + faixa + status.chip + '</div>'
-      + '<p class="yt-card-why">' + esc(porque) + '</p>'
-      + (gerando ? '<p class="yt-card-gen" role="status">Gerando o corte…</p>' : '')
-      + (falhou ? '<p class="yt-card-warn">O corte falhou: ' + esc(falhou)
-        + ' <button class="vop-btn vop-btn-quiet" type="button" data-act="yt-cuts-retry">Tentar novamente</button></p>' : '')
-      + (clip.contextWarning ? '<p class="yt-card-warn">' + esc(clip.contextWarning) + '</p>' : '')
-      /* `status.nota` NÃO entra no card da grade: ela fala da FONTE (não importada / falhou),
-         que é a mesma para todos os cards e já é dita uma vez nas etapas e na faixa da
-         importação. Repetida em cada card virava ruído amarelo. O editor continua mostrando. */
-      + '</div>'
-      + '<div class="yt-card-acts">'
-      + '<button class="vop-btn vop-btn-primary" type="button" data-act="yt-open" data-id="' + esc(clip.id) + '">Editar</button>'
-      + ytDownloadHTML(clip, status)
       + '</div>'
       + '</article>';
   }
@@ -4928,6 +5005,17 @@
     YT_TOOL = valor;
     if (corpo) corpo.scrollTop = YT_TOOL_SCROLL[valor] || 0;
   }
+  /* Ícone de cada ferramenta (traço, `currentColor`): a cor vem do estado no CSS — âmbar na
+     ativa, a identidade da barra (decisão do usuário, 2026-10-07). */
+  var YT_TOOL_ICO = {
+    enquadrar: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>',
+    legenda: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/>',
+    card: '<rect x="3" y="3" width="18" height="7" rx="1"/><rect x="3" y="14" width="9" height="7" rx="1"/><rect x="16" y="14" width="5" height="7" rx="1"/>',
+    texto: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
+    zoom: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/>',
+    musica: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    analise: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>'
+  };
   function ytToolBarHTML(clip, ativa) {
     var dots = ytToolDots(clip);
     return '<div class="yt-tools" role="radiogroup" aria-label="Ferramentas">'
@@ -4935,7 +5023,9 @@
         var id = 'yt-tool-' + clip.id + '-' + f[0];
         return '<input type="radio" id="' + esc(id) + '" name="yt-tool-' + esc(clip.id) + '"'
           + ' data-yt-tool data-id="' + esc(clip.id) + '" value="' + f[0] + '"' + (ativa === f[0] ? ' checked' : '') + '>'
-          + '<label for="' + esc(id) + '">' + esc(f[1])
+          + '<label for="' + esc(id) + '">'
+          + '<svg class="yt-tool-ico" viewBox="0 0 24 24" aria-hidden="true">' + (YT_TOOL_ICO[f[0]] || '') + '</svg>'
+          + '<span>' + esc(f[1]) + '</span>'
           + '<i class="yt-tool-dot" data-tool-dot="' + f[0] + '" aria-hidden="true"' + (dots[f[0]] ? '' : ' hidden') + '></i>'
           + '</label>';
       }).join('') + '</div>';
@@ -5108,6 +5198,7 @@
          altura real da coluna (tela fixa, 2026-10-01). Na grade não há área. */
       + (aberto ? '<div class="yt-src-area">' : '')
       + '<div class="yt-src-stage" data-src-stage tabindex="0" data-modo="' + (aberto ? PREVIA_MODO : 'original') + '"'
+      + (SRC_PRONTO && SRC_PRONTO === (previa ? SRC_PREVIEW.url : SRC.url) ? ' data-pronto' : '')
       + (aberto ? ' data-reframe="' + esc(reframeOf(aberto)) + '"' + legPalcoAttrs() : '') + '>'
       + '<div class="yt-src-quadro">'
       + (aberto ? '<div class="yt-src-fundo" aria-hidden="true"><span></span><span></span></div>' : '')
@@ -5666,7 +5757,10 @@
   }
   /* Analisa: metadados, capítulos, legenda e heatmap. NÃO baixa mídia — por isso não
      passa pelo portão de direitos. */
-  function ytProbe(button) {
+  /* Vídeos já analisados de novo NESTA sessão porque a 1ª análise rodou sem o áudio. Uma vez
+     por vídeo: se o servidor ainda não conseguir medir, a lista da legenda fica. */
+  var YT_REANALISE = {};
+  function ytProbe(button, forcar) {
     var url = safeUrl(YT.url);
     var videoId = ytVideoId(url);
     if (!videoId) { toast('Cole o link de um vídeo do YouTube.', 'error'); return; }
@@ -5679,7 +5773,7 @@
        operador para "Meus projetos" (um clique entre ele e o resultado) e, pior, o caminho
        de lá zera a declaração que ele acabou de dar para importar. O fluxo pedido é colar,
        importar e ver os trechos na MESMA tela. */
-    if (project.status === PROJECT_STATUS.ready && (project.candidates || []).length) {
+    if (!forcar && project.status === PROJECT_STATUS.ready && (project.candidates || []).length) {
       YT.videoId = videoId;
       YT.title = project.title;
       YT.duration = num(project.durationSec) || YT.duration;
@@ -5720,6 +5814,9 @@
       YT.note = note;
       YT.candidates = fresh;
       YT.state = 'ready';
+      /* `false` EXPLÍCITO = a fonte ainda não estava no disco, então as pausas vieram só da
+         legenda (que no podcast automático não tem pausa nenhuma). Ausente = servidor antigo. */
+      YT.semAudio = !!(payload && payload.audioPausas === false);
       /* Atualiza projeto com os resultados. */
       projectSetCandidates(project.id, fresh, title, thumbnail, duration, note);
       ytBusy(key, false);
@@ -5933,6 +6030,17 @@
   function autoCutsKick() {
     if (AUTO_CUT || typeof fetch !== 'function') return false;
     if (!srcReady() || !ytFetchGate(YT).allowed) return false;
+    /* A fonte chegou e a análise foi feita sem ela: analisa de novo com o silêncio MEDIDO no
+       áudio antes do primeiro corte. Só enquanto nenhum corte saiu — depois disso a lista é
+       do operador. O fim do `ytProbe` chama esta função de novo. */
+    var vid = ytVideoId(YT.url);
+    if (YT.semAudio && SRC.hasAudio && SRC.videoId === vid && !YT_REANALISE[vid]
+        && !YT_BUSY['probe:url'] && !YT.candidates.some(function (c) { return c.clipSaved; })) {
+      YT_REANALISE[vid] = true;
+      YT.semAudio = false;
+      ytProbe(null, true);
+      return false;
+    }
     var proximo = autoCutsQueue().filter(function (c) {
       return !AUTO_CUT_FAIL[c.id] && !YT_BUSY['fetch:' + c.id];
     })[0];
@@ -7295,8 +7403,18 @@
   }
   /* Enter numa frase termina a correção em vez de quebrar a linha: a quebra entraria no
      texto da legenda e não é algo que o operador quis dizer. */
+  /* O corte do card não tem barra nativa: o próprio vídeo é o botão de tocar/pausar. */
+  function cutPlayToggle(v) {
+    if (v.paused) v.play(); else v.pause();
+  }
   function onRootKey(event) {
     var el = event.target;
+    if ((event.key === ' ' || event.key === 'Spacebar' || event.key === 'Enter')
+      && el && el.matches && el.matches('[data-cut-video]')) {
+      event.preventDefault();
+      cutPlayToggle(el);
+      return;
+    }
     /* Espaço toca/pausa com o foco no quadro ou na barra do 9:16 (botão e busca incluídos:
        o botão ativaria sozinho e tocaria duas vezes, por isso o `preventDefault`). */
     if ((event.key === ' ' || event.key === 'Spacebar') && el && el.matches
@@ -7440,6 +7558,39 @@
       if (projectId) openProject(projectId);
       return;
     }
+    else if (action === 'proj-del') { PROJ_DEL = button.dataset.projectId; renderKeepingScroll(); }
+    else if (action === 'proj-del-no') { PROJ_DEL = ''; renderKeepingScroll(); }
+    else if (action === 'proj-del-yes') {
+      var saiu = projectRemove(button.dataset.projectId);
+      PROJ_DEL = '';
+      /* Projeto aberto na tela Clips: as sugestões saem com ele, como no "Limpar". A fonte
+         importada fica — ela é o arquivo no disco, não o registro. */
+      if (saiu && YT.videoId === saiu.videoId) {
+        YT.candidates = []; YT.note = ''; YT.state = 'idle'; YT.detail = ''; YT.dlMenu = '';
+      }
+      renderKeepingScroll();
+      toast(saiu ? 'Projeto excluído. O vídeo e os cortes no seu computador continuam lá.'
+        : 'Este projeto já não estava na lista.', saiu ? '' : 'warn');
+    }
+    else if (action === 'lib-sel') {
+      if (button.checked) LIB_SEL[button.dataset.id] = true;
+      else delete LIB_SEL[button.dataset.id];
+      LIB_SEL_DEL = false;
+      libSelPaint();
+    }
+    else if (action === 'lib-sel-all') {
+      LIB.clips.forEach(function (clip) { LIB_SEL[clip.id] = true; });
+      libSelPaint();
+    }
+    else if (action === 'lib-sel-none') { LIB_SEL = {}; LIB_SEL_DEL = false; libSelPaint(); }
+    else if (action === 'lib-sel-del') { LIB_SEL_DEL = true; libSelPaint(); }
+    else if (action === 'lib-sel-del-no') { LIB_SEL_DEL = false; libSelPaint(); }
+    else if (action === 'lib-sel-del-yes') {
+      var removidos = libRemoveMany(libSelIds());
+      LIB_SEL = {}; LIB_SEL_DEL = false;
+      renderKeepingScroll();
+      if (removidos) toast(removidos + ' clip(s) removido(s) do histórico. Os arquivos continuam no seu computador.');
+    }
     else if (action === 'yt-import') srcImport(button);
     else if (action === 'yt-probe') ytProbe(button);
     else if (action === 'yt-cuts-retry') { AUTO_CUT_FAIL = {}; autoPaint(''); autoCutsKick(); renderKeepingScroll(); }
@@ -7579,6 +7730,7 @@
       YT.dlMenu = YT.dlMenu === button.dataset.id ? '' : button.dataset.id;
       renderKeepingScroll();
     }
+    else if (action === 'yt-card-play') cutPlayToggle(button);
     else if (action === 'yt-nudge') {
       var empurrar = findById(YT.candidates, button.dataset.id);
       if (!empurrar) { toast('Este trecho não está mais na lista.', 'error'); return; }
@@ -7742,8 +7894,21 @@
       }, true);
     });
     root.addEventListener('loadedmetadata', function (e) {
-      if (e.target && e.target.matches && e.target.matches('[data-src-video]')) { legQuadroMapear(); legBarraPaint(); }
+      if (e.target && e.target.matches && e.target.matches('[data-src-video]')) {
+        legQuadroMapear(); legBarraPaint();
+        /* Rede: com `preload="metadata"` há navegador que não chega a pintar o 1º quadro
+           antes do play. O carregador não pode girar para sempre sobre um vídeo pronto. */
+        var alvo = e.target;
+        if (typeof setTimeout === 'function') setTimeout(function () { srcProntoMarca(alvo); }, 1500);
+      }
     }, true);
+    /* Primeiro quadro (ou falha): o carregador do palco sai. Falha também tira — o rótulo do
+       controle é quem diz que falhou; spinner eterno seria pior que preto. */
+    ['loadeddata', 'canplay', 'play', 'error'].forEach(function (tipo) {
+      root.addEventListener(tipo, function (e) {
+        if (e.target && e.target.matches && e.target.matches('[data-src-video]')) srcProntoMarca(e.target);
+      }, true);
+    });
     /* Esc fecha a prévia e o menu de baixar. No DOCUMENTO e não na raiz: o foco pode estar
        dentro do iframe do YouTube, e aí a tecla nunca chegaria a um ouvinte da raiz.
        Diálogo sem Esc é armadilha de teclado — sair dele exigiria achar o botão. */
@@ -7794,6 +7959,9 @@
          vídeo e vídeo diferente. O ramo que quebra calado é o de quem já tinha o projeto
          salvo, e ele é justamente o que um teste de perfil limpo nunca alcança. */
       openProject: openProject,
+      projectRemove: projectRemove,
+      libRemoveMany: libRemoveMany,
+      __setLib: function (clips) { LIB = clips ? { clips: clips } : null; return LIB; },
       /* `null` devolve o módulo ao estado de antes do `init` — é o que o teste usa para
          não deixar `PROJECTS` carregado para os casos seguintes, que contam com a guarda
          `if (!PROJECTS) return false` do `projectsPersist`. */
