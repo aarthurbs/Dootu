@@ -1748,6 +1748,11 @@
       var capa = capaTikTokOf(c.capaTikTok);
       if (capa) c.capaTikTok = capa; else delete c.capaTikTok;
     }
+    /* Legenda do post (2026-10-14): texto livre com teto; tipo errado ou vazio some. */
+    if ('postTikTok' in c) {
+      var post = typeof c.postTikTok === 'string' ? cleanText(c.postTikTok, POST_MAX) : '';
+      if (post) c.postTikTok = post; else delete c.postTikTok;
+    }
     return c;
   }
   function projectsSanitize(data) {
@@ -3578,6 +3583,14 @@
           + '<small>' + esc(status.podeBaixar
             ? '9:16 com legenda e enquadramento — ' + renderEta(num(clip.outSec) - num(clip.inSec))
             : (status.motivo || 'importe o vídeo primeiro')) + '</small></button>'
+          + ['', 'drive'].map(function (destino) {
+            return '<button type="button" role="menuitem" data-act="yt-picote" data-id="' + esc(clip.id) + '"'
+              + (destino ? ' data-destino="drive"' : '')
+              + (status.podeBaixar && !YT_BUSY[ytPicoteChave(clip.id, destino)] ? '' : ' disabled') + '>'
+              + esc(ytPicoteRotulo(clip.id, destino))
+              + '<small>' + (destino ? 'a mesma pasta, dentro do Google Drive' : 'clipes de 1–2 s numa pasta, qualidade original')
+              + '</small></button>';
+          }).join('')
           + '</div>'
         : '')
       + '</div>';
@@ -4939,17 +4952,20 @@
      "Criar capa" só abre depois do clique em "Baixar vídeo editado" que de fato começou o
      render (ou se o corte já tem capa salva — edição do usuário não some). Estado de SESSÃO,
      por corte, sem localStorage. */
-  var YT_ETAPAS = [['trecho', 'Marcar trecho'], ['editar', 'Editar vídeo'], ['capa', 'Criar capa']];
+  /* "Legenda do post" (decisão do usuário, 2026-10-14) vem depois da capa e abre com ela. */
+  var YT_ETAPAS = [['trecho', 'Marcar trecho'], ['editar', 'Editar vídeo'], ['capa', 'Criar capa'],
+    ['post', 'Legenda do post']];
   var YT_ETAPA = Object.create(null);
   var YT_CAPA_LIBERADA = Object.create(null);
   function ytCapaLiberada(clip) { return !!(YT_CAPA_LIBERADA[clip.id] || clip.capaTikTok); }
+  function ytEtapaTravada(clip, e) { return (e === 'capa' || e === 'post') && !ytCapaLiberada(clip); }
   function ytEtapaDe(clip) {
     var e = YT_ETAPA[clip.id] || 'trecho';
-    return e === 'capa' && !ytCapaLiberada(clip) ? 'editar' : e;
+    return ytEtapaTravada(clip, e) ? 'editar' : e;
   }
   function ytEtapasHTML(clip, ativa) {
     return '<nav class="yt-etapas" aria-label="Etapas">' + YT_ETAPAS.map(function (e, i) {
-      var travada = e[0] === 'capa' && !ytCapaLiberada(clip);
+      var travada = ytEtapaTravada(clip, e[0]);
       return '<button type="button" data-act="yt-etapa" data-id="' + esc(clip.id) + '" data-etapa="' + e[0] + '"'
         + (ativa === e[0] ? ' aria-current="step"' : '') + (travada ? ' disabled' : '') + '>'
         + '<span class="yt-etapa-n">' + (i + 1) + '</span>' + esc(e[1]) + '</button>';
@@ -5047,7 +5063,9 @@
   /* O rótulo do gatilho: um dono só, usado na montagem e na repintura no lugar. */
   function ytExportRotulo(id) {
     return YT_BUSY['render:' + id] ? 'Renderizando…' : YT_BUSY['fetch:' + id] ? 'Gerando…'
-      : (YT_FALHA['render:' + id] || YT_FALHA['fetch:' + id]) ? ROTULO_FALHOU : 'Baixar';
+      : (YT_BUSY['picote:' + id] || YT_BUSY['picote-drive:' + id]) ? 'Picotando…'
+      : (YT_FALHA['render:' + id] || YT_FALHA['fetch:' + id] || YT_FALHA['picote:' + id]
+        || YT_FALHA['picote-drive:' + id]) ? ROTULO_FALHOU : 'Baixar';
   }
   /* O export começa SEM re-render (o `ytBusy` só mexe no item clicado): sem isto o gatilho
      dizia "Baixar" durante os minutos de render — achado no Chrome em 2026-10-01. */
@@ -5075,6 +5093,12 @@
           + '<button type="button" role="menuitem" data-act="yt-render-limpo" data-id="' + esc(clip.id) + '"'
           + (travado || renderizando ? ' disabled' : '') + '>'
           + esc(falha === 'limpo' ? ROTULO_FALHOU : 'Editado, sem legenda') + '</button>'
+          + ['', 'drive'].map(function (destino) {
+            return '<button type="button" role="menuitem" data-act="yt-picote" data-id="' + esc(clip.id) + '"'
+              + (destino ? ' data-destino="drive"' : '')
+              + (travado || YT_BUSY[ytPicoteChave(clip.id, destino)] ? ' disabled' : '') + '>'
+              + esc(ytPicoteRotulo(clip.id, destino)) + '</button>';
+          }).join('')
           + '</div>'
         : '')
       + '</div>';
@@ -5097,6 +5121,10 @@
     } else if (etapa === 'capa') {
       lado = '<div class="yt-detail-side" data-etapa-lado><div class="yt-tool-body" data-tool-body>'
         + '<section class="yt-tool yt-etapa" data-tool="capa" aria-label="Criar capa">' + capaPanelHTML(clip) + '</section>'
+        + '</div></div>';
+    } else if (etapa === 'post') {
+      lado = '<div class="yt-detail-side" data-etapa-lado><div class="yt-tool-body" data-tool-body>'
+        + '<section class="yt-tool yt-etapa" data-tool="post" aria-label="Legenda do post">' + postPanelHTML(clip) + '</section>'
         + '</div></div>';
     }
     return '<section class="yt-detail" data-clip="' + esc(clip.id) + '" data-etapa="' + etapa + '">'
@@ -5326,6 +5354,7 @@
          para a coluna da esquerda, ao lado dos controles — então aqui ele sai, senão a tela
          declararia DOIS `<video>` do mesmo arquivo e o `srcAdopt` adotaria só o primeiro. */
       + (emEdicao ? '' : srcPanelHTML())
+      + (emEdicao || !srcReady() ? '' : picoteLoteHTML())
       + (emEdicao ? ytDetailHTML(emEdicao, videoId, gate)
         : (lista.length
           ? '<div class="yt-results-head">'
@@ -5684,6 +5713,93 @@
       if (TAB === 'central') renderKeepingScroll();
     });
   }
+  /* --- Legenda do post (decisão do usuário, 2026-10-14) -------------------------------
+     Exceção ESCRITA ao "nada de legenda de publicação, hashtag": só SUGESTÃO, pelo Claude
+     (`/api/legenda-post`, `legenda_post.py`). O rascunho do TikTok continua sendo só o MP4 —
+     a API de inbox não aceita texto —, então o operador copia daqui e cola no celular.
+     Mora no corte (`clip.postTikTok`, chave de projeto de sempre, sem migração). A IA lê o
+     MESMO texto que sai queimado: a correção do operador quando existe, senão o do YouTube. */
+  var POST_MAX = 2200;            // teto do campo de legenda do TikTok, hashtags incluídas
+  var POST_SEM_CHAVE = false;     // o worker não tem ANTHROPIC_API_KEY: tentar de novo não adianta
+  function postTextoDoCorte(clip) {
+    return (capEdited(clip) || clip.clipCues || []).map(function (c) { return c.text; }).join(' ').trim();
+  }
+  function postJuntar(payload) {
+    var tags = Array.isArray(payload && payload.hashtags) ? payload.hashtags : [];
+    tags = tags.map(function (t) { return cleanText(t, 60); }).filter(Boolean);
+    return cleanText(cleanText(payload && payload.legenda, POST_MAX)
+      + (tags.length ? '\n\n' + tags.join(' ') : ''), POST_MAX);
+  }
+  function postRotulo(clip) {
+    var chave = 'post:' + clip.id;
+    if (YT_BUSY[chave]) return 'Gerando…';
+    if (POST_SEM_CHAVE) return 'Sem chave da IA';
+    if (YT_FALHA[chave]) return ROTULO_FALHOU;
+    return clip.postTikTok ? 'Gerar de novo' : 'Gerar legenda';
+  }
+  /* Mesmo visual do painel da capa, a etapa vizinha. */
+  function postPanelHTML(clip) {
+    var id = esc(clip.id);
+    return '<section class="vop-capa" data-post-painel data-id="' + id + '">'
+      + '<div class="vop-capa-cab"><span class="vop-capa-tit">Legenda do post</span></div>'
+      + '<div class="vop-capa-corpo">'
+      + '<label class="vop-capa-campo"><span class="vop-leg-lab">Legenda e hashtags</span>'
+      + '<textarea rows="9" maxlength="' + POST_MAX + '" data-post-field data-id="' + id + '">'
+      + esc(clip.postTikTok || '') + '</textarea></label>'
+      + '<div class="yt-etapa-acoes">'
+      + '<button class="vop-btn" type="button" data-act="post-gerar" data-id="' + id + '"'
+      + (YT_BUSY['post:' + clip.id] ? ' disabled aria-busy="true"' : '') + '>' + esc(postRotulo(clip)) + '</button>'
+      + '<button class="vop-btn vop-btn-quiet" type="button" data-act="post-copiar" data-id="' + id + '"'
+      + (clip.postTikTok ? '' : ' disabled') + '>Copiar</button>'
+      + '</div></div></section>';
+  }
+  function postGerar(clipId) {
+    var clip = findById(YT.candidates, clipId);
+    var chave = 'post:' + clipId;
+    if (!clip || YT_BUSY[chave]) return;
+    ytBusy(chave, true);
+    renderKeepingScroll();
+    /* Quem chega aqui direto, sem ter aberto a legenda, ainda não tem as falas lidas. */
+    var falas = postTextoDoCorte(clip) ? Promise.resolve() : srcCuesLoad(clip);
+    falas.then(function () {
+      return ytPost('/api/legenda-post', { texto: postTextoDoCorte(clip), titulo: YT.title || '' });
+    }).then(function (payload) {
+      POST_SEM_CHAVE = !!(payload && payload.desligada);
+      if (!payload || payload.motivo) throw new Error((payload && payload.motivo) || 'resposta vazia');
+      clip.postTikTok = postJuntar(payload);
+      projectsPersist();
+    }).catch(function (error) {
+      /* Sem frase na tela (editor em ferramentas): o rótulo do botão diz, o motivo vai ao console. */
+      YT_FALHA[chave] = true;
+      if (typeof console !== 'undefined') console.warn('[video-ops] legenda do post:', error && error.message);
+    }).then(function () {
+      ytBusy(chave, false);
+      renderKeepingScroll();
+    });
+  }
+  function postCopiar(button, clipId) {
+    var clip = findById(YT.candidates, clipId);
+    if (!clip || !clip.postTikTok) return;
+    var volta = function (rotulo) {
+      button.textContent = rotulo;
+      setTimeout(function () { button.textContent = 'Copiar'; }, 1600);
+    };
+    var area = typeof navigator !== 'undefined' && navigator.clipboard;
+    if (!area) { volta(ROTULO_FALHOU); return; }
+    area.writeText(clip.postTikTok).then(function () { volta('Copiado'); },
+      function () { volta(ROTULO_FALHOU); });
+  }
+  /* Digitar grava no corte sem re-render (BP-001); o `change` é quem persiste. */
+  function postFieldWrite(input, grava) {
+    var clip = findById(YT.candidates, input.dataset.id);
+    if (!clip) return;
+    var texto = cleanText(input.value, POST_MAX);
+    if (texto) clip.postTikTok = texto; else delete clip.postTikTok;
+    var raiz = typeof document !== 'undefined' && document.getElementById('video-ops-root');
+    var copiar = raiz && raiz.querySelector('[data-act="post-copiar"][data-id="' + clip.id + '"]');
+    if (copiar) copiar.disabled = !texto;
+    if (grava) projectsPersist();
+  }
   /* Abre um projeto existente: mostra os trechos sugeridos sem re-analisar. */
   function openProject(projectId) {
     var project = projectFindById(projectId);
@@ -6015,6 +6131,146 @@
         ytBusy(key, false);
         throw error;
       });
+  }
+  /* "Picotar para edit" (pedido do usuário, 2026-10-13): o trecho vira clipes de 1–2 s
+     numa pasta (`/api/picotar`), um FFmpeg só, qualidade original com áudio. O servidor abre
+     a pasta no Explorer — essa é a entrega. "Picotar no Drive" grava a mesma pasta dentro do
+     Google Drive sincronizado (`destino=drive`). Mesmo portão de direitos do trecho cru,
+     conferido duas vezes. */
+  function ytPicoteChave(id, destino) {
+    return (destino === 'drive' ? 'picote-drive:' : 'picote:') + id;
+  }
+  function ytPicoteRotulo(id, destino) {
+    var chave = ytPicoteChave(id, destino);
+    return YT_BUSY[chave] ? 'Picotando…' : YT_FALHA[chave] ? ROTULO_FALHOU
+      : destino === 'drive' ? 'Picotar no Drive' : 'Picotar para edit';
+  }
+  function ytPicotar(button, clipId, destino) {
+    var clip = findById(YT.candidates, clipId);
+    if (!clip) { toast('Este trecho não está mais na lista.', 'error'); return null; }
+    if (!srcReady()) { toast('Importe o vídeo antes de picotar.', 'error'); return null; }
+    var gate = ytFetchGate(YT);
+    if (!gate.allowed) { toast('Picotar está bloqueado: ' + gate.reason + '.', 'error'); return null; }
+    var key = ytPicoteChave(clipId, destino);
+    if (YT_BUSY[key]) return null;
+    var inicio = num(clip.inSec);
+    var fim = num(clip.outSec);
+    if (!(fim > inicio)) { toast('Este trecho não tem um intervalo válido.', 'error'); return null; }
+    var query = '?token=' + encodeURIComponent(SRC.token)
+      + '&name=' + encodeURIComponent(SRC.name)
+      + '&start=' + encodeURIComponent(inicio) + '&end=' + encodeURIComponent(fim)
+      + '&output=' + encodeURIComponent(safeName(String(clip.topic || 'corte')
+        + '-' + inicio + 's-' + fim + 's', 80) + '-picote')
+      + (destino === 'drive' ? '&destino=drive' : '');
+    ytBusy(key, true, button, 'Picotando…');
+    return ytPost('/api/picotar' + query, {}).then(function (payload) {
+      var revisto = ytFetchGate(YT);
+      if (!revisto.allowed) throw new Error('Os clipes saíram, mas o direito mudou no caminho: ' + revisto.reason + '.');
+      ytBusy(key, false);
+      renderKeepingScroll();
+      toast(payload.clipes + ' clipes de ' + payload.segundos + ' s em ' + payload.pasta + '.');
+    }).catch(function (error) { ytFail(key, error); });
+  }
+  /* --- Picote em LOTE (pedido do usuário, 2026-10-13): "Só os recomendados" (todos os
+     cortes de uma vez) ou "Vídeo inteiro" (o vídeo todo em blocos). Os trechos vão UM de
+     cada vez ao MESMO /api/picotar, para a MESMA pasta, com numeração contínua (`numero`):
+     nenhum pedido passa do teto do servidor e a barra diz "3 de 12". Só o último trecho abre
+     a pasta (`abrir=0` nos outros). */
+  var PICOTE_MODO = 'recomendados';
+  var PICOTE_LOTE = null;          /* {destino, feito, total} enquanto roda */
+  var PICOTE_LOTE_FALHA = '';      /* destino cujo último lote falhou */
+  /* Bloco do vídeo inteiro: múltiplo do `serve.PICOTE_SEC` (2 s), para nenhum clipe nascer
+     curto no meio, e abaixo do `max_seconds` (900 s) da rota. */
+  var PICOTE_BLOCO = 600;
+  function picoteFaixas(modo) {
+    if (modo === 'inteiro') {
+      var dur = num(SRC.durationSec);
+      var faixas = [];
+      /* `>= 1` espelha o `serve.PICOTE_MIN_SEC`: um resto menor não daria clipe nenhum. */
+      for (var t = 0; dur - t >= 1; t += PICOTE_BLOCO) faixas.push([t, Math.min(dur, t + PICOTE_BLOCO)]);
+      return faixas;
+    }
+    return ytRanked().map(function (c) { return [num(c.inSec), num(c.outSec)]; })
+      .filter(function (f) { return f[1] - f[0] >= 1; });
+  }
+  function picoteLoteRotulo(destino) {
+    var base = destino ? 'Picotar no Drive' : 'Picotar';
+    if (PICOTE_LOTE && PICOTE_LOTE.destino === destino) {
+      return 'Picotando ' + Math.min(PICOTE_LOTE.feito + 1, PICOTE_LOTE.total) + ' de ' + PICOTE_LOTE.total + '…';
+    }
+    return PICOTE_LOTE_FALHA === (destino || 'local') ? ROTULO_FALHOU : base;
+  }
+  function picoteLoteHTML() {
+    return '<div class="yt-results-head" data-picote-lote>'
+      + '<h3>Picotar para edit</h3>'
+      + '<div class="yt-results-tools">'
+      + '<div class="vop-leg-seg" role="radiogroup" aria-label="O que picotar">'
+      + [['recomendados', 'Só os recomendados'], ['inteiro', 'Vídeo inteiro']].map(function (m) {
+        var id = 'picote-modo-' + m[0];
+        return '<input type="radio" id="' + id + '" name="picote-modo" data-picote-modo value="' + m[0] + '"'
+          + (PICOTE_MODO === m[0] ? ' checked' : '') + (PICOTE_LOTE ? ' disabled' : '') + '>'
+          + '<label for="' + id + '">' + m[1] + '</label>';
+      }).join('') + '</div>'
+      + ['', 'drive'].map(function (destino) {
+        return '<button class="vop-btn vop-btn-quiet" type="button" data-act="yt-picote-lote"'
+          + (destino ? ' data-destino="drive"' : '') + (PICOTE_LOTE ? ' disabled' : '') + '>'
+          + esc(picoteLoteRotulo(destino)) + '</button>';
+      }).join('')
+      + '</div></div>';
+  }
+  /* Repinta só a barra (como o `autoPaint`): um render() a cada bloco remontaria os players. */
+  function picoteLotePaint() {
+    if (typeof document === 'undefined' || !document.querySelector) return;
+    var barra = document.querySelector('[data-picote-lote]');
+    if (barra && 'outerHTML' in barra) barra.outerHTML = picoteLoteHTML();
+  }
+  function ytPicotarLote(destino) {
+    destino = destino === 'drive' ? 'drive' : '';
+    if (PICOTE_LOTE) return null;
+    if (!srcReady()) { toast('Importe o vídeo antes de picotar.', 'error'); return null; }
+    var gate = ytFetchGate(YT);
+    if (!gate.allowed) { toast('Picotar está bloqueado: ' + gate.reason + '.', 'error'); return null; }
+    var modo = PICOTE_MODO;
+    var faixas = picoteFaixas(modo);
+    if (!faixas.length) {
+      toast(modo === 'inteiro' ? 'A duração do vídeo importado é desconhecida.' : 'Não há cortes recomendados para picotar.', 'error');
+      return null;
+    }
+    var fonte = SRC.token;
+    var nome = safeName(String(YT.title || SRC.name || 'video'), 80) + '-picote-' + modo;
+    var numero = 1;
+    var pasta = '';
+    PICOTE_LOTE = { destino: destino, feito: 0, total: faixas.length };
+    PICOTE_LOTE_FALHA = '';
+    picoteLotePaint();
+    function passo(i) {
+      if (i >= faixas.length) return Promise.resolve();
+      if (SRC.token !== fonte) return Promise.reject(new Error('O vídeo foi trocado no meio do picote.'));
+      var query = '?token=' + encodeURIComponent(fonte)
+        + '&name=' + encodeURIComponent(SRC.name)
+        + '&start=' + encodeURIComponent(faixas[i][0]) + '&end=' + encodeURIComponent(faixas[i][1])
+        + '&output=' + encodeURIComponent(nome) + '&numero=' + numero
+        + (destino ? '&destino=drive' : '') + (i < faixas.length - 1 ? '&abrir=0' : '');
+      return ytPost('/api/picotar' + query, {}).then(function (p) {
+        numero += num(p.clipes);
+        pasta = p.pasta || pasta;
+        PICOTE_LOTE.feito = i + 1;
+        picoteLotePaint();
+        return passo(i + 1);
+      });
+    }
+    return passo(0).then(function () {
+      var revisto = ytFetchGate(YT);
+      if (!revisto.allowed) throw new Error('Os clipes saíram, mas o direito mudou no caminho: ' + revisto.reason + '.');
+      PICOTE_LOTE = null;
+      picoteLotePaint();
+      toast((numero - 1) + ' clipes em ' + pasta + '.');
+    }).catch(function (error) {
+      PICOTE_LOTE = null;
+      PICOTE_LOTE_FALHA = destino || 'local';
+      picoteLotePaint();
+      toast(error && error.message ? error.message : 'O picote falhou.', 'error');
+    });
   }
   /* --- Geração AUTOMÁTICA dos cortes (decisão do usuário, 2026-09-23) -----------------
      Fonte pronta + declaração + análise feita = cada trecho vira um MP4 na pasta permanente,
@@ -7308,6 +7564,7 @@
       renderKeepingScroll();
       return;
     }
+    if (event.target.matches('[data-post-field]')) { postFieldWrite(event.target, true); return; }
     if (event.target.matches('[data-capa-field]')) {
       if (!capaFieldWrite(event.target, true)) return;
       if (event.target.type === 'radio') renderKeepingScroll();
@@ -7316,6 +7573,7 @@
     }
     if (event.target.matches('[data-leg-combo]')) { legendaComboPick(event.target); return; }
     if (event.target.matches('[data-src-modo]')) { legModoTroca(event.target.value); return; }
+    if (event.target.matches('[data-picote-modo]')) { PICOTE_MODO = event.target.value === 'inteiro' ? 'inteiro' : 'recomendados'; return; }
     /* Ferramenta e subaba: só o estado de módulo muda; o `:checked` + CSS já mostrou o painel. */
     if (event.target.matches('[data-yt-tool]')) { ytToolTroca(event.target.value); return; }
     if (event.target.matches('[data-leg-aba]')) {
@@ -7376,6 +7634,7 @@
       if (capaFieldWrite(event.target, false)) capaPaint(findById(YT.candidates, event.target.dataset.id));
       return;
     }
+    if (event.target.matches('[data-post-field]')) { postFieldWrite(event.target, false); return; }
     /* O campo de texto e o seletor de cor disparam `input` a cada tecla e a cada pixel do
        arrasto: a previa acompanha em tempo real, sem re-render (BP-001) e SEM gravar. Quem
        grava e o `change` -- gravar a cada letra reescreveria a biblioteca inteira (com os
@@ -7596,6 +7855,8 @@
     else if (action === 'yt-cuts-retry') { AUTO_CUT_FAIL = {}; autoPaint(''); autoCutsKick(); renderKeepingScroll(); }
     else if (action === 'yt-manual') ytManualClip();
     else if (action === 'yt-fetch') ytFetchClip(button, button.dataset.id);
+    else if (action === 'yt-picote') ytPicotar(button, button.dataset.id, button.dataset.destino);
+    else if (action === 'yt-picote-lote') ytPicotarLote(button.dataset.destino);
     else if (action === 'yt-render') {
       var renderId = button.dataset.id;
       ytRenderClip(button, renderId, 'legenda');
@@ -7609,11 +7870,13 @@
     else if (action === 'yt-etapa') {
       var etapaClip = findById(YT.candidates, button.dataset.id);
       if (!etapaClip || !YT_ETAPAS.some(function (e) { return e[0] === button.dataset.etapa; })) return;
-      if (button.dataset.etapa === 'capa' && !ytCapaLiberada(etapaClip)) return;
+      if (ytEtapaTravada(etapaClip, button.dataset.etapa)) return;
       YT_ETAPA[etapaClip.id] = button.dataset.etapa;
       YT.dlMenu = '';
       render();
     }
+    else if (action === 'post-gerar') postGerar(button.dataset.id);
+    else if (action === 'post-copiar') postCopiar(button, button.dataset.id);
     else if (action === 'yt-render-limpo') ytRenderClip(button, button.dataset.id, 'limpo');
     else if (action === 'yt-mark') {
       var marcar = findById(YT.candidates, button.dataset.id);
@@ -8087,6 +8350,7 @@
       cardPreviewHTML: cardPreviewHTML,
       cardsPanelHTML: cardsPanelHTML,
       candidateSanitize: candidateSanitize,
+      postJuntar: postJuntar,
       CARD_PESOS: CARD_PESOS,
       CARD_LOGO_MAX: CARD_LOGO_MAX,
       CARD_PADROES: CARD_PADROES,

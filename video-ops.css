@@ -3377,12 +3377,15 @@
 #view-video-ops .vop-capa-corpo { display: grid; gap: 8px; padding: 4px 0 8px; }
 #view-video-ops .vop-capa-corpo > .vop-btn { justify-self: start; }
 #view-video-ops .vop-capa-campo { display: grid; gap: 4px; }
-#view-video-ops .vop-capa-campo input {
+#view-video-ops .vop-capa-campo input,
+#view-video-ops .vop-capa-campo textarea {
   min-width: 0; padding: 6px 8px; border-radius: 6px; font: inherit; font-size: 12.5px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
   transition: border-color 160ms var(--vop-ease-out);
 }
-#view-video-ops .vop-capa-campo input:focus-visible { outline: 2px solid var(--accent, #D9A441); outline-offset: 1px; }
+#view-video-ops .vop-capa-campo textarea { resize: vertical; line-height: 1.5; }
+#view-video-ops .vop-capa-campo input:focus-visible,
+#view-video-ops .vop-capa-campo textarea:focus-visible { outline: 2px solid var(--accent, #D9A441); outline-offset: 1px; }
 #view-video-ops .vop-capa-linha { display: grid; gap: 4px; }
 #view-video-ops .vop-capa-linha .vop-leg-seg { position: relative; justify-self: start; }
 

@@ -110,7 +110,7 @@ seguida e qual é o próximo passo". A funcionalidade não mudou; mudou QUANDO c
 Pedido: "Marcar trecho → Editar vídeo → Baixar vídeo editado → Criar capa"; cortar só em Marcar
 trecho, capa numa etapa própria no fim, aberta só depois do clique em "Baixar vídeo editado".
 - **Etapas no topo** (`ytEtapasHTML`, botões `data-act="yt-etapa"` + `aria-current="step"`):
-  `trecho` · `editar` · `capa`. Estado de SESSÃO por corte (`YT_ETAPA`, sem localStorage); todo
+  `trecho` · `editar` · `capa` · `post` (2026-10-14, ver abaixo). Estado de SESSÃO por corte (`YT_ETAPA`, sem localStorage); todo
   corte abre em `trecho`. Trocar de etapa chama `render()` (o `srcAdopt` mantém o `<video>`).
 - **Marcar trecho** = `ytTrimHTML` + Remover trechos + "Marcar trecho daqui" + `Editar vídeo`.
   É o ÚNICO lugar com começo/fim e remoções; aqui o menu Baixar não aparece.
@@ -121,6 +121,21 @@ trecho, capa numa etapa própria no fim, aberta só depois do clique em "Baixar 
   `capaTikTok` salvo (edição antiga não some). Render falhando não trava de novo.
 - Lado de etapa única: `.yt-detail-side[data-etapa-lado]` com uma coluna de **528 px** (= 96 + 12 +
   420): o vídeo não muda de tamanho entre etapas. Os testes leem `class="yt-detail-side"` exato.
+
+### Legenda do post (decisão do usuário, 2026-10-14)
+Quarta etapa, `post` ("Legenda do post"), depois da capa e travada JUNTO com ela
+(`ytEtapaTravada`). Painel `postPanelHTML` (mesmo visual da capa): campo editável, "Gerar
+legenda" e "Copiar".
+- **A IA lê o texto que sai queimado:** `capEdited(clip) || clip.clipCues` (`postTextoDoCorte`);
+  sem falas lidas ainda, o `postGerar` chama o `srcCuesLoad` antes. Vai junto o `YT.title`.
+- **Mora no corte** (`clip.postTikTok`, texto ≤ `POST_MAX` 2200, validado no
+  `candidateSanitize`), na chave de projeto de sempre, sem migração. `postJuntar` = legenda +
+  linha em branco + hashtags.
+- **Sem texto na tela** (editor em ferramentas): o rótulo do botão é o estado — `Gerando…` ·
+  `Sem chave da IA` (`POST_SEM_CHAVE`, vem do `desligada` da rota) · `Falhou · tentar de novo` ·
+  `Gerar de novo`. O motivo vai ao console. Copiar vira `Copiado` por 1,6 s.
+- **O rascunho do TikTok continua só o MP4**: a API de inbox não aceita texto. Não mandar a
+  legenda pelo `tiktok.py`, nem trocar para o post direto, por causa disto.
 
 ## Barra com identidade âmbar e carregador do palco (decisão do usuário, 2026-10-07)
 - **Âmbar dourado é a cor da marca do editor** (`--vop-marca` #E8B04B; claro #9A6408). Cor de
@@ -195,6 +210,9 @@ coluna.**
 `publicationPackage` · `buildReport` · `applyResult` · `renderJobFor` ·
 `adoptSessionVideo` · `openPromoteDialog`. Nada de post, descrição, legenda de
 publicação, hashtag, aprovação por hash, métrica, Drive, CSV ou backup.
+**Exceção ÚNICA (decisão do usuário, 2026-10-14): a etapa "Legenda do post"** — SUGESTÃO de
+legenda + hashtags por corte, que o operador edita e copia. Não publica, não agenda, não mede,
+não reabre nada da lista acima. Ver "Legenda do post" abaixo.
 **A chave antiga `pp_video_ops_v1` NÃO é lida nem apagada** — apagar dado do
 usuário não é papel de um refactor de tela.
 
@@ -399,6 +417,21 @@ invisíveis. Regressão entrada em `b41107b` e consertada em 2026-09-22 com
 esticada da grade e o manda medir pelo conteúdo, que com contenção é ZERO — medido, o palco
 voltou a 2×2 px nas oito larguras. Tirar o `aspect-ratio` sem tirar o `container-type: size`
 apaga a tela: os dois andam juntos.
+- **`Picotar para edit` e `Picotar no Drive` (2026-10-13)** são os dois últimos itens dos DOIS
+  menus Baixar (card e editor): `ytPicotar` → `/api/picotar` (o do Drive com `data-destino` →
+  `&destino=drive`), chaves `picote:<id>` / `picote-drive:<id>` (`ytPicoteChave`) no
+  `YT_BUSY`/`YT_FALHA` (rótulo `ytPicoteRotulo`; o gatilho do editor diz "Picotando…"). Mesmo
+  portão duplo do trecho cru. A entrega é a pasta aberta pelo servidor; não entra na Central nem
+  no projeto.
+- **Picote em LOTE (2026-10-13)** — barra `[data-picote-lote]` abaixo do player, só na grade e
+  com `srcReady()` (`picoteLoteHTML`, reaproveita `.yt-results-head` + `.vop-leg-seg`, sem CSS
+  novo): radio `Só os recomendados | Vídeo inteiro` (`PICOTE_MODO`, sessão; trocar não
+  re-renderiza) + `Picotar` / `Picotar no Drive` (`yt-picote-lote`). `picoteFaixas`: os
+  recomendados na ordem do `ytRanked`, ou o vídeo em blocos de `PICOTE_BLOCO` 600 s (múltiplo
+  de 2 s e abaixo do teto de 900 s da rota). Um trecho por vez, mesma pasta
+  (`<título>-picote-<modo>`), `numero` contínuo, `abrir=0` menos no último; o botão diz
+  "Picotando N de M…" (repinta só a barra, `picoteLotePaint`). Falha = rótulo `ROTULO_FALHOU` +
+  toast (a barra não existe no editor).
 - **`Baixar` é um menu de dois destinos com nome**: `Baixar trecho original` (recorte cru,
   pelo `/api/video-cut` com `profile=horizontal`) e `Baixar vídeo editado` (9:16 do Remotion).
   "Baixar" sozinho não diz qual arquivo sai, e entregar o antigo sob esse rótulo é o defeito.

@@ -2275,6 +2275,19 @@ import(require('url').pathToFileURL(require('path').join(__dirname, 'studio', 's
       assert.ok(!('capaTikTok' in ops.candidateSanitize({ id: 'c', capaTikTok: 'lixo' })));
       assert.ok(!('capaTikTok' in ops.candidateSanitize({ id: 'd' })));
     });
+    ok('post: candidateSanitize guarda a legenda do post (texto fica, vazio/tipo errado some, ausente não cria)', () => {
+      assert.strictEqual(ops.candidateSanitize({ id: 'a', postTikTok: '  Legenda\n\n#a #b  ' }).postTikTok, 'Legenda\n\n#a #b');
+      assert.ok(!('postTikTok' in ops.candidateSanitize({ id: 'b', postTikTok: '   ' })));
+      assert.ok(!('postTikTok' in ops.candidateSanitize({ id: 'c', postTikTok: 42 })));
+      assert.ok(!('postTikTok' in ops.candidateSanitize({ id: 'd' })));
+      assert.strictEqual(ops.candidateSanitize({ id: 'e', postTikTok: 'x'.repeat(3000) }).postTikTok.length, 2200);
+    });
+    ok('post: postJuntar = legenda + linha em branco + hashtags; sem hashtag, só a legenda', () => {
+      assert.strictEqual(ops.postJuntar({ legenda: 'Oi', hashtags: ['#a', '', '#b'] }), 'Oi\n\n#a #b');
+      assert.strictEqual(ops.postJuntar({ legenda: 'Oi', hashtags: [] }), 'Oi');
+      assert.strictEqual(ops.postJuntar({ legenda: 'Oi', hashtags: 'lixo' }), 'Oi');
+      assert.strictEqual(ops.postJuntar(null), '');
+    });
     ok('capa: o destaque da prévia é o trecho digitado (sem diferenciar maiúsculas), escapado', () => {
       assert.strictEqual(ops.capaTextoHTML('Perdi 40 mil no ano', '40 MIL'),
         'Perdi <b class="vop-capa-destaque">40 mil</b> no ano');

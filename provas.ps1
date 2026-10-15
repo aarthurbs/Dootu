@@ -30,6 +30,7 @@ $suites = @(
   @{ rotulo = 'test_ytclip.py';        cmd = 'py';   args = @('-3.12', 'video-worker/test_ytclip.py') },
   @{ rotulo = 'test_worker.py';        cmd = 'py';   args = @('-3.12', 'video-worker/test_worker.py') },
   @{ rotulo = 'test_muapi.py';         cmd = 'py';   args = @('-3.12', 'video-worker/test_muapi.py') },
+  @{ rotulo = 'test_legenda_post.py';  cmd = 'py';   args = @('-3.12', 'video-worker/test_legenda_post.py') },
   @{ rotulo = 'test_helper.py';        cmd = 'py';   args = @('-3.12', 'baixador/local-helper/test_helper.py') },
   @{ rotulo = 'studio/test-preset.mjs';cmd = 'node'; args = @('studio/test-preset.mjs') },
   @{ rotulo = 'test-video-ops.js';     cmd = 'node'; args = @('test-video-ops.js') },
