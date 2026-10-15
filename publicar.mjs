@@ -19,4 +19,8 @@ for (const f of new Set(['index.html', 'assets', ...locais])) {
   cpSync(f, `dist/${f}`, { recursive: true });
   copiados.push(f);
 }
+// Termos e privacidade do app do TikTok: o portal de desenvolvedor exige URL pública
+// (decisão do usuário, 2026-10-14). Vai na RAIZ para o "voltar" (index.html) funcionar.
+cpSync('web/tiktok-legal.html', 'dist/tiktok-legal.html');
+copiados.push('tiktok-legal.html');
 console.log(`dist/ pronto com ${copiados.length} itens: ${copiados.join(', ')}`);
