@@ -2,7 +2,7 @@
 // A lista sai do próprio index.html (todo <script src> e <link href> local) + a pasta assets/:
 // script novo entra sozinho, e nada além disso vai ao ar (docs, vídeos, testes, motor, .env).
 // Uso: node publicar.mjs — a Vercel roda isto a cada push (vercel.json; ver PASSO-A-PASSO.md).
-import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 
 const html = readFileSync('index.html', 'utf8');
 const locais = [...html.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"/g)]
@@ -23,4 +23,10 @@ for (const f of new Set(['index.html', 'assets', ...locais])) {
 // (decisão do usuário, 2026-10-14). Vai na RAIZ para o "voltar" (index.html) funcionar.
 cpSync('web/tiktok-legal.html', 'dist/tiktok-legal.html');
 copiados.push('tiktok-legal.html');
+// Arquivo de assinatura do TikTok (prova de que o prefixo https://dootu1.vercel.app/ é nosso).
+// Tem de responder 200 na raiz, sem redirecionamento. Um novo pedido do portal = outro arquivo aqui.
+for (const f of readdirSync('web').filter(n => /^tiktok\w+\.txt$/.test(n))) {
+  cpSync(`web/${f}`, `dist/${f}`);
+  copiados.push(f);
+}
 console.log(`dist/ pronto com ${copiados.length} itens: ${copiados.join(', ')}`);
