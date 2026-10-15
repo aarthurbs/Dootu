@@ -14,6 +14,27 @@
 $ErrorActionPreference = 'Stop'
 $PORTA = 'http://127.0.0.1:8765/index.html'
 
+# QuickEdit: um clique nesta janela a poe em modo "Selecionar", e enquanto isso o console nao
+# aceita escrita. O serve.py escreve neste console a linha de log de CADA requisicao, entao
+# toda requisicao trava esperando - o site para de responder sem erro nenhum, e o navegador
+# mostra o que tinha em cache. Medido em 2026-10-13: titulo "Selecionar Estudio de Videos",
+# servidor vivo, nenhuma resposta. Desligar o QuickEdit desta janela tira o clique do caminho.
+try {
+    Add-Type -Namespace Win32 -Name Console -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h);
+[DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m);
+[DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);
+'@
+    $entrada = [Win32.Console]::GetStdHandle(-10)   # STD_INPUT_HANDLE
+    $modo = [uint32]0
+    if ([Win32.Console]::GetConsoleMode($entrada, [ref]$modo)) {
+        # tira ENABLE_QUICK_EDIT_MODE (0x40); ENABLE_EXTENDED_FLAGS (0x80) e obrigatorio para isso valer
+        [void][Win32.Console]::SetConsoleMode($entrada, [uint32](($modo -band 0xFFFFFFBF) -bor 0x80))
+    }
+} catch {
+    Write-Host "Nao consegui desligar o QuickEdit ($($_.Exception.Message)). Nao clique dentro desta janela."
+}
+
 function Get-Renderizadores {
     @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*video-worker\serve.py*' })
@@ -50,7 +71,16 @@ if ($rodando.Count -eq 1 -and (Test-Responde)) {
     # conta: so o codigo do servidor precisa de reinicio.
     $maisNovo = Get-ChildItem "$PSScriptRoot\video-worker\*.py" |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($maisNovo -and $maisNovo.LastWriteTime -gt $rodando[0].CreationDate) {
+    # Outra copia do projeto (outra pasta) tambem roda um serve.py na 8765. Aceitar esse abria
+    # o site VELHO dela - medido em 2026-10-11: o atalho abriu uma copia de agosto, com telas
+    # ja removidas. Mesmo nome de arquivo nao e o mesmo projeto.
+    $nosso = "$PSScriptRoot\video-worker\serve.py"
+    if ($rodando[0].CommandLine.IndexOf($nosso, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        Write-Host "O renderizador na 8765 (PID $($rodando[0].ProcessId)) e de outra pasta: $($rodando[0].CommandLine). Trocando pelo desta."
+        Stop-Renderizadores $rodando
+        $rodando = @()
+    }
+    elseif ($maisNovo -and $maisNovo.LastWriteTime -gt $rodando[0].CreationDate) {
         Write-Host "Renderizador (PID $($rodando[0].ProcessId)) esta com codigo velho: $($maisNovo.Name) mudou depois que ele subiu. Reiniciando."
         Stop-Renderizadores $rodando
         $rodando = @()
