@@ -221,7 +221,7 @@ levanta. **O libass NÃO falha quando não acha a fonte — ele troca calado par
 - **`POST /api/capa-tiktok`**: `capa_tiktok_of` → quadro EXATO por FFmpeg (`-ss` antes do `-i`)
   → `npx remotion still CapaTikTok` → `<vídeo>-<in>-<out>-capa-tiktok.png` na pasta dos cortes
   (`capa_name`, mesmo radical do MP4). Quadro e PNG com nome pelo CONTEÚDO (cache). Entra no
-  `_render_slot` — por isso o 29i conta CINCO. Recusas com código próprio (`CAPA_ERROS`:
+  `_render_slot` (com o picote, o 29i conta SEIS). Recusas com código próprio (`CAPA_ERROS`:
   `capa_sem_fonte` · `capa_sem_quadro` · `capa_quadro_fora`), cada uma com frase na tela (37f).
   Os códigos moram no `worker.ERROR_CODES` (conjunto fechado com assert).
 - **Música:** biblioteca em `default_music_dir()` (`~/Music/Estudio Musicas`), `POST
@@ -249,6 +249,35 @@ levanta. **O libass NÃO falha quando não acha a fonte — ele troca calado par
   remoção): parcial apara e fica contínuo, inteiro removido sai. Props `textos`/`zooms` só com
   itens (corte sem eles = props de sempre). `ASS_NAO_REPRODUZ` declara música, remoções, texto e
   zoom (33j2).
+
+## Picote para edit (decisão do usuário, 2026-10-13)
+`POST /api/picotar` (mesma query do `/api/video-cut`, só fonte em cache) fatia o trecho em
+`0001.mp4`, `0002.mp4`… de `PICOTE_SEC` 2 s numa pasta `<pasta de cortes>/<output>/`. `numero`
+(padrão 1) é o primeiro número — o lote da tela manda vários trechos para a MESMA pasta com
+numeração contínua, e o `picote_aparar` só conta os arquivos de `numero` em diante. `abrir=0`
+não abre a pasta (o lote abre só no último trecho). **UM** FFmpeg
+(`picote_args`: muxer `segment` + keyframe forçado a cada 2 s). **Qualidade ORIGINAL com áudio**
+("não precisa ser rápido"): resolução da fonte e os encoders do `clip_args`; SEM o passe de -14
+LUFS e sem `_send_video`. A sobra do fim < `PICOTE_MIN_SEC` 1 s é apagada pela CONTA
+(`picote_aparar`, sem ffprobe). Responde JSON `{pasta, clipes, segundos}`; o servidor real abre a
+pasta no Explorer (`abrir_pasta`, ligado só no `main` — suíte nunca abre janela). Teto =
+`max_seconds` (900 s = 450 clipes). Medido: 17,5 s de 1080p → 9 clipes 1080p em ~5 s. Checks 7p–7p5.
+- **`-segment_time_delta 0.05` é obrigatório.** Sem ele o keyframe forçado "exatamente" no limite
+  se perde por arredondamento e o 1º clipe sai com 4,02 s (medido com `veryfast`; com `ultrafast`
+  passava por sorte). Com o defeito, a conta do `picote_aparar` deixa uma sobra de 0,5 s viva.
+- **`destino=drive`** grava a mesma pasta em `pasta_do_drive()` = `<letra>:\Meu Drive\Cortes
+  Estudio` do **Google Drive para computador** (pasta sincronizada: gravar nela É mandar para o
+  Drive). Sem conta, token nem API — o pipeline de publicação com Drive apagado em 2026-08-21
+  continua apagado. Sem Drive = `job_invalid` com o motivo. Na suíte, `build_server(drive=...)`.
+
+## Legenda do post (decisão do usuário, 2026-10-14)
+`POST /api/legenda-post` `{texto, titulo}` → `legenda_post.sugerir` → Claude (`claude-opus-5-5`,
+esforço `low`, saída presa a esquema JSON, `fallbacks: "default"`) por `urllib` — stdlib, como a
+MuAPI. Chave em `ANTHROPIC_API_KEY` no ambiente do worker; sem ela nada é chamado. Sempre 200
+com `{legenda, hashtags, motivo, desligada}`: nenhuma exceção sobe, falha vira `motivo`, e
+**nunca** há hashtag genérica de reserva (o MoneyPrinterTurbo, de onde veio, inventa). Sem
+`_render_slot` (é rede, não FFmpeg). Checks: `test_legenda_post.py` (rede trocada pela costura
+`_open`).
 
 ## Prazos (botões de calibragem)
 `RENDER_SEC_PER_CLIP_SEC` (guarda o DOBRO do medido) · `DEFAULT_RENDER_TIMEOUT` é

@@ -255,8 +255,10 @@ def main():
     cortes = os.path.join(trabalho, "cortes-salvos")
     # A biblioteca de músicas também: a prova nunca escreve em ~/Music.
     musicas_dir = os.path.join(trabalho, "musicas")
+    # E o Google Drive do picote também: um temporário no lugar do `G:\Meu Drive`.
+    drive_dir = os.path.join(trabalho, "meu-drive")
     servidor = serve.build_server(site, port=0, max_seconds=60.0, clips=cortes,
-                                  musicas=musicas_dir)
+                                  musicas=musicas_dir, drive=drive_dir)
     temporario = servidor.temp_folder
     threading.Thread(target=servidor.serve_forever, daemon=True).start()
     base = "http://127.0.0.1:%d" % servidor.server_address[1]
@@ -758,6 +760,51 @@ def main():
                   medido["durationSec"] is not None
                   and abs(medido["durationSec"] - 3.0) <= worker.TOLERANCE_SEC)
 
+            # --------------------------- 7p: picote para edit (pedido do usuário, 2026-10-13)
+            # UM FFmpeg fatia o trecho em clipes de 2 s numa pasta; a sobra < 1 s é descartada.
+            def picotar(fim, saida, extra=""):
+                r = pedir(base + serve.ROUTE_PICOTE + "?token=tok_quente&name=fonte.mp4"
+                          "&start=0&end=%s&output=%s%s" % (fim, saida, extra),
+                          data=b"{}", headers={"Content-Type": "application/json"})
+                corpo = json.loads(r.body.decode("utf-8")) if r.status == 200 else {}
+                pasta = corpo.get("pasta", "")
+                return corpo, pasta, sorted(os.listdir(pasta)) if os.path.isdir(pasta) else [], r
+            corpo, pasta, arquivos, _ = picotar(7.5, "edit")
+            check("7p. 7,5 s viram 4 clipes numerados na pasta de cortes (3 de 2 s + 1,5 s)",
+                  corpo.get("clipes") == 4 and pasta == os.path.join(cortes, "edit")
+                  and arquivos == ["0001.mp4", "0002.mp4", "0003.mp4", "0004.mp4"])
+            primeiro = worker.probe(os.path.join(pasta, "0001.mp4")) if arquivos else {}
+            check("7p2. o clipe tem 2 s, na resolução da fonte (1280x720) e com áudio",
+                  abs((primeiro.get("durationSec") or 0) - 2.0) <= worker.TOLERANCE_SEC
+                  and primeiro.get("width") == 1280 and primeiro.get("height") == 720
+                  and primeiro.get("audioCodec") == "aac")
+            corpo, pasta, arquivos, _ = picotar(6.5, "edit-curto")
+            check("7p3. a sobra menor que 1 s é descartada (6,5 s = 3 clipes)",
+                  corpo.get("clipes") == 3 and len(arquivos) == 3)
+            corpo, pasta, arquivos, _ = picotar(4, "edit-drive", "&destino=drive")
+            check("7p4. destino=drive grava a pasta dentro do Google Drive",
+                  pasta == os.path.join(drive_dir, "edit-drive") and len(arquivos) == 2)
+            classe = servidor.RequestHandlerClass.func
+            classe.drive_folder = ""
+            try:
+                _, _, _, sem_drive = picotar(4, "edit-sem-drive", "&destino=drive")
+            finally:
+                classe.drive_folder = drive_dir
+            check("7p5. sem Google Drive no computador, recusa dizendo por quê",
+                  sem_drive.status == 400 and "Google Drive" in sem_drive.erro)
+            # Lote da tela: dois trechos na MESMA pasta, numeração contínua pelo `numero`.
+            picotar(4, "lote", "&abrir=0")
+            pedir(base + serve.ROUTE_PICOTE + "?token=tok_quente&name=fonte.mp4"
+                  "&start=4&end=7.5&output=lote&numero=3", data=b"{}",
+                  headers={"Content-Type": "application/json"})
+            em_lote = sorted(os.listdir(os.path.join(cortes, "lote")))
+            check("7p6. o lote continua a numeração na mesma pasta (0001–0004)",
+                  em_lote == ["0001.mp4", "0002.mp4", "0003.mp4", "0004.mp4"]
+                  and abs((worker.probe(os.path.join(cortes, "lote", "0004.mp4"))
+                           .get("durationSec") or 0) - 1.5) <= worker.TOLERANCE_SEC)
+            _, _, _, torto = picotar(4, "lote-torto", "&numero=0")
+            check("7p7. número inicial inválido é recusado", torto.status == 400)
+
             # ------------------------------------- 18: legenda QUEIMADA de verdade no 9:16
             # `fonte.mp4` tem sidecar com falas em 25-55s; o vídeo sintético tem 8s, então
             # o corte 0-3 fica FORA da faixa e o 9:16 sai sem legenda — com o motivo dito.
@@ -1049,7 +1096,8 @@ def main():
                   erro_fila is not None and erro_fila.code == "render_busy")
             # Guarda de regressão: reverter QUALQUER dos quatro pontos para o `with` cru
             # devolve a espera sem prazo calada, e os checks acima só passam pelo video-cut.
-            # Os CINCO (a capa do TikTok entrou em 2026-09-30: FFmpeg + Chrome, disputa a
+            # Os SEIS (o picote para edit entrou em 2026-10-13: FFmpeg de verdade). Os CINCO
+            # (a capa do TikTok entrou em 2026-09-30: FFmpeg + Chrome, disputa a
             # máquina com um export e por isso entra na fila de propósito). Os quatro de
             # antes: /api/video-cut, /api/yt-fetch, /api/remotion-render e o
             # `_cut_for_render` (o recorte da fonte importada que alimenta o Remotion, que é
@@ -1060,7 +1108,7 @@ def main():
                               encoding="utf-8").read()
             check("29i. nenhuma rota voltou ao `with self.render_lock` cru",
                   "with self.render_lock" not in fonte_fila
-                  and fonte_fila.count("with self._render_slot():") == 5)
+                  and fonte_fila.count("with self._render_slot():") == 6)
 
             # 16: o corte PRONTO fica no computador e é servido de volta. É o que faz a
             # revisão abrir com o vídeo na tela depois de fechar o site — antes o MP4 só

@@ -48,6 +48,7 @@ import ytclip  # noqa: E402  (descoberta de cortes por URL; mesma pasta)
 import captions  # noqa: E402  (cues -> ASS para queimar a legenda no 9:16)
 import muapi  # noqa: E402  (detector externo OPCIONAL de trechos; inerte sem MUAPI_KEY)
 import tiktok  # noqa: E402  (publica o MP4 pronto na caixa de entrada do TikTok)
+import legenda_post  # noqa: E402  (sugestão de legenda do post; inerte sem ANTHROPIC_API_KEY)
 
 ROUTE = "/api/video-cut"
 # Descoberta e aquisição por URL. Separadas de propósito: ANALISAR não baixa vídeo nenhum,
@@ -105,6 +106,8 @@ ROUTE_CLIP_STATUS = "/api/clip-status"  # verifica se o MP4 do clip existe na pa
 # porque o download leva minutos e uma resposta HTTP não tem como contar isso enquanto corre.
 ROUTE_IMPORT = "/api/yt-import"
 ROUTE_IMPORT_STATE = "/api/yt-import-state"
+# Picote para edit (pedido do usuário, 2026-10-13): o trecho vira clipes de 1–2 s numa pasta.
+ROUTE_PICOTE = "/api/picotar"
 # Estados da importação. Conjunto FECHADO, pela mesma regra do CAPTION_STATES: cada um tem
 # frase correspondente no `video-ops.js` (IMPORT_MSG), e um check do test_serve.py LÊ o JS e
 # reprova quem acrescentar estado aqui sem dizer o que ele significa na tela.
@@ -141,6 +144,9 @@ ROUTE_TT_STATUS = "/api/tiktok/status"
 ROUTE_TT_PUBLISH = "/api/tiktok/publish"
 ROUTE_TT_PUBLISH_STATUS = "/api/tiktok/publish-status"
 ROUTE_TT_LOGOUT = "/api/tiktok/logout"
+# Sugestão de legenda + hashtags pelo Claude (decisão do usuário, 2026-10-14). Só texto: o
+# rascunho do TikTok continua sendo só o MP4. Ver `legenda_post.py`.
+ROUTE_LEGENDA_POST = "/api/legenda-post"
 # Tetos da legenda editada. Um corte de 90 s tem umas 40 falas; 400 e folga larga e impede
 # que a rota vire deposito. O texto e de UMA fala, nao de um paragrafo.
 MAX_EDIT_CUES = 400
@@ -279,6 +285,20 @@ def default_clips_dir() -> str:
     return os.path.join(os.path.expanduser("~"), "Videos", "Cortes Estudio")
 
 
+def pasta_do_drive() -> str:
+    """`<letra>:/Meu Drive/Cortes Estudio` do Google Drive para computador, ou '' sem ele.
+
+    O Drive é uma pasta sincronizada: gravar nela É mandar para o Drive, sem conta, token nem
+    API (o pipeline de publicação com Drive apagado em 2026-08-21 continua apagado — isto é só
+    um destino de pasta, pedido do usuário em 2026-10-13)."""
+    for letra in "DEFGHIJKLMNOPQRSTUVWXYZ":
+        for nome in ("Meu Drive", "My Drive"):
+            raiz = "%s:\\%s" % (letra, nome)
+            if os.path.isdir(raiz):
+                return os.path.join(raiz, "Cortes Estudio")
+    return ""
+
+
 def content_disposition(name: str) -> str:
     """Cabeçalho de download que aguenta qualquer título.
 
@@ -388,6 +408,56 @@ def horizontal_args(src: str, dest: str, start: float, duration: float,
     # "-f mp4" é obrigatório: escrevendo em ".part" o FFmpeg não deduz o container.
     args += ["-movflags", "+faststart", "-f", "mp4", dest]
     return args
+
+
+PICOTE_SEC = 2.0      # cada clipe do picote (decisão do usuário, 2026-10-13: entre 1 e 2 s)
+PICOTE_MIN_SEC = 1.0  # a sobra do fim abaixo disto é descartada
+
+
+def picote_args(src: str, pasta: str, start: float, duration: float,
+                has_audio: bool, numero: int = 1) -> List[str]:
+    """UM FFmpeg fatia o trecho inteiro em `0001.mp4`, `0002.mp4`… de PICOTE_SEC, a partir de
+    `numero` (o lote da tela manda vários trechos para a MESMA pasta, numeração contínua).
+
+    Qualidade ORIGINAL com áudio (decisão do usuário, 2026-10-13 — "não precisa ser rápido"):
+    resolução da fonte e os encoders do `clip_args` (o recorte acurado na resolução nativa),
+    sem o passe de -14 LUFS — o áudio fica como veio. N clipes custam UM decode, não N
+    processos. O keyframe forçado a cada PICOTE_SEC é o que faz o muxer `segment` cortar no
+    tempo certo (ele só corta em keyframe). Mesmo `-ss` antes do `-i` do `clip_args`: seek
+    rápido e, recodificando, começo no quadro exato.
+    """
+    args = ["-hide_banner", "-loglevel", "error", "-y",
+            "-ss", "%.3f" % start, "-i", src, "-t", "%.3f" % duration,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+            "-force_key_frames", "expr:gte(t,n_forced*%g)" % PICOTE_SEC]
+    args += (["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+             if has_audio else ["-an"])
+    # `-segment_time_delta`: sem ele o keyframe forçado "exatamente" no limite é perdido por
+    # arredondamento e o clipe sai com o DOBRO (medido: 4,02 s no 1º clipe com veryfast; a doc
+    # do muxer pede 1/(2·fps) — 0,05 cobre qualquer fonte a partir de 10 fps).
+    args += ["-f", "segment", "-segment_time", "%g" % PICOTE_SEC, "-segment_time_delta", "0.05",
+             "-reset_timestamps", "1",
+             "-segment_start_number", str(numero), "-segment_format", "mp4",
+             "-segment_format_options", "movflags=+faststart",
+             os.path.join(pasta, "%04d.mp4")]
+    return args
+
+
+def picote_aparar(pasta: str, duration: float, numero: int = 1) -> int:
+    """Apaga a sobra do fim menor que PICOTE_MIN_SEC e devolve quantos clipes ficaram.
+
+    A duração de cada arquivo vem da CONTA, não de leitura (sem ffprobe, CONTRATO §9): os
+    keyframes forçados caem a cada PICOTE_SEC, então só o último pode ser curto. Só conta os
+    arquivos deste pedido (`numero` em diante): os de antes são de outro trecho do mesmo lote,
+    e os de depois são sobra de uma rodada antiga — apagados, e o lote os refaz."""
+    inteiros = int(duration // PICOTE_SEC)
+    manter = inteiros + (1 if duration - inteiros * PICOTE_SEC >= PICOTE_MIN_SEC else 0)
+    arquivos = sorted((n for n in os.listdir(pasta)
+                       if re.fullmatch(r"\d+\.mp4", n) and int(n[:-4]) >= numero),
+                      key=lambda n: int(n[:-4]))
+    for nome in arquivos[manter:]:
+        remove_quietly(os.path.join(pasta, nome))
+    return min(len(arquivos), manter)
 
 
 def check_horizontal(path: str, expect_duration: float, expect_audio: bool) -> dict:
@@ -1970,6 +2040,11 @@ class CutHandler(SimpleHTTPRequestHandler):
     # Pasta dos cortes salvos. Atributo de classe (como os limites) para o teste apontar
     # um temporário em vez de sujar a pasta pessoal de quem roda.
     clips_folder: Optional[str] = None
+    # O picote abre a pasta pronta no Explorer. Desligado por padrão: só o `main` liga, então
+    # nenhuma suíte abre janela na máquina de quem roda.
+    abrir_pasta = False
+    # `pasta_do_drive()` no servidor real; '' = sem Drive (o teste aponta um temporário).
+    drive_folder = ""
     # Legenda corrigida pelo operador, por trecho (ver edit_key). Vive na SESSÃO do servidor,
     # como o cache da fonte: o sidecar em disco continua sendo a verdade do que o YouTube
     # detectou, e a correção é uma camada por cima dele. build_server dá um dicionário novo a
@@ -2244,10 +2319,12 @@ class CutHandler(SimpleHTTPRequestHandler):
             ROUTE_CLIP_STATUS: self._handle_clip_status,
             ROUTE_IMPORT: self._handle_import,
             ROUTE_IMPORT_STATE: self._handle_import_state,
+            ROUTE_PICOTE: self._handle_picote,
             ROUTE_TT_STATUS: self._handle_tiktok_status,
             ROUTE_TT_PUBLISH: self._handle_tiktok_publish,
             ROUTE_TT_PUBLISH_STATUS: self._handle_tiktok_publish_status,
             ROUTE_TT_LOGOUT: self._handle_tiktok_logout,
+            ROUTE_LEGENDA_POST: self._handle_legenda_post,
         }
         handler = handlers.get(urlparse(self.path).path)
         if handler is None:
@@ -2541,6 +2618,8 @@ class CutHandler(SimpleHTTPRequestHandler):
             # legenda, heatmap): é dela que sai o sidecar, e sem sidecar a fonte nasce sem
             # legenda e sem miniatura.
             dados = ytclip.probe(url)
+            # PC novo não tem a pasta do baixador, e medir o disco dela antes dava WinError 3.
+            os.makedirs(pasta, exist_ok=True)
             worker.ensure_space(pasta, 0, int(float(dados.get("durationSec") or 0.0)
                                               * IMPORT_BYTES_PER_SEC))
             self._import_set(video_id, stage=IMPORT_STAGE_DOWNLOAD,
@@ -3305,6 +3384,52 @@ class CutHandler(SimpleHTTPRequestHandler):
             if ass_file:
                 remove_quietly(ass_file)
 
+    def _handle_picote(self) -> None:
+        """Picota o trecho da fonte JÁ importada em clipes de 1–2 s numa pasta (material de edit).
+
+        Responde JSON, não vídeo: são dezenas de arquivos, e quem os entrega é a pasta — que o
+        servidor real abre no Explorer (`abrir_pasta`; o teste nunca abre janela). Com
+        `destino=drive` a pasta nasce dentro do Google Drive sincronizado (`drive_folder`).
+        """
+        self._json_body()  # consome o corpo: a conexão é reaproveitada
+        req = parse_cut_query(urlparse(self.path).query, self.max_seconds)
+        cached = self.cache.get(req.token)
+        if not cached:
+            raise worker.WorkerError(
+                "input_missing",
+                "A fonte desta sessão não está mais no servidor; importe o vídeo de novo.")
+        src, media = cached
+        consulta = parse_qs(urlparse(self.path).query)
+        numero = (consulta.get("numero") or ["1"])[0]
+        if not re.fullmatch(r"[1-9]\d{0,5}", numero):
+            raise worker.WorkerError("job_invalid", "Número inicial do picote inválido.")
+        numero = int(numero)
+        base = self._clips_dir()
+        if consulta.get("destino") == ["drive"]:
+            base = self.drive_folder
+            if not base:
+                raise worker.WorkerError(
+                    "job_invalid",
+                    "Google Drive para computador não encontrado (pasta Meu Drive).")
+        pasta = os.path.join(base, os.path.splitext(req.output)[0])
+        os.makedirs(pasta, exist_ok=True)
+        worker.ensure_space(pasta, req.duration)
+        with self._render_slot():
+            worker.run_ffmpeg(picote_args(src, pasta, req.start, req.duration,
+                                          bool(media.get("audioCodec")), numero),
+                              timeout=self.ffmpeg_timeout)
+        clipes = picote_aparar(pasta, req.duration, numero)
+        if not clipes:
+            raise worker.WorkerError(
+                "cut_invalid", "Trecho curto demais para picotar (mínimo %g s)." % PICOTE_MIN_SEC)
+        # `abrir=0`: o lote só abre a pasta no último trecho (uma janela, não uma por bloco).
+        if self.abrir_pasta and consulta.get("abrir") != ["0"] and hasattr(os, "startfile"):
+            try:
+                os.startfile(pasta)
+            except OSError as err:
+                self.log_message("nao consegui abrir a pasta do picote: %s", err)
+        self._send_json({"pasta": pasta, "clipes": clipes, "segundos": PICOTE_SEC})
+
     # ---------------------------------------------------------------- corpo
     # ---------------------------------------------------- TikTok (caixa de entrada)
     # Sem trava de render nas quatro: isto é espera de REDE, não trabalho de CPU. Enfileirar
@@ -3338,6 +3463,21 @@ class CutHandler(SimpleHTTPRequestHandler):
 
     def _handle_tiktok_publish_status(self) -> None:
         self._send_json(tiktok.estado(self._json_body().get("publishId")))
+
+    def _handle_legenda_post(self) -> None:
+        """Texto falado do corte -> sugestão de legenda + hashtags. Sempre 200 com motivo.
+
+        Sem trava de render: é uma chamada de rede curta, não FFmpeg. `desligada` separa
+        "falta a chave" (tentar de novo não adianta) de falha passageira.
+        """
+        body = self._json_body()
+        sugestao, motivo = legenda_post.sugerir(body.get("texto"), body.get("titulo"))
+        if motivo:
+            self.log_message("legenda do post: %s", motivo)
+        self._send_json({"legenda": (sugestao or {}).get("legenda", ""),
+                         "hashtags": (sugestao or {}).get("hashtags", []),
+                         "motivo": motivo,
+                         "desligada": not os.environ.get(legenda_post.ENV_KEY)})
 
     def _content_length(self) -> int:
         raw = self.headers.get("Content-Length")
@@ -3513,7 +3653,9 @@ def build_server(root: str, port: int = 0, max_seconds: float = DEFAULT_MAX_SECO
                  ffmpeg_timeout: Optional[float] = DEFAULT_FFMPEG_TIMEOUT,
                  folder: Optional[str] = None,
                  clips: Optional[str] = None,
-                 musicas: Optional[str] = None) -> ThreadingHTTPServer:
+                 musicas: Optional[str] = None,
+                 abrir_pasta: bool = False,
+                 drive: str = "") -> ThreadingHTTPServer:
     """port=0 pega porta livre — é assim que o teste sobe o servidor sem brigar pela 8765.
 
     Todo temporário fica num mkdtemp fora da pasta do projeto: nenhuma requisição escreve
@@ -3533,6 +3675,8 @@ def build_server(root: str, port: int = 0, max_seconds: float = DEFAULT_MAX_SECO
         "render_lock_wait": RENDER_LOCK_WAIT,
         "clips_folder": clips or default_clips_dir(),
         "musicas_folder": musicas or default_music_dir(),
+        "abrir_pasta": abrir_pasta,
+        "drive_folder": drive,
         "caption_edits": {},
         "caption_lock": threading.Lock(),
         "imports": {},
@@ -3573,7 +3717,8 @@ def main(argv=None) -> int:
 
     server = build_server(root, port=args.port, max_seconds=args.max_seconds,
                           max_upload_bytes=args.max_upload_bytes,
-                          ffmpeg_timeout=args.ffmpeg_timeout, clips=args.clips)
+                          ffmpeg_timeout=args.ffmpeg_timeout, clips=args.clips,
+                          abrir_pasta=True, drive=pasta_do_drive())
     host, bound_port = server.server_address[0], server.server_address[1]
     print("Estúdio de Vídeos servindo em http://%s:%d/index.html" % (host, bound_port))
     print("Corte de 1 clique ativo em POST %s (só 127.0.0.1). Ctrl+C encerra." % ROUTE)

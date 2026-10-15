@@ -69,11 +69,6 @@
   --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
-/* O tema Copa (score-bar.js) troca as IMAGENS do placar e nada mais. Este bloco existia so
-   para re-declarar, IDENTICOS, os tokens de interface do :root — duplicata que competiria de
-   igual para igual com os blocos de aparencia abaixo (mesma especificidade). Herdar do :root
-   da o mesmo resultado e deixa a aparencia mandar sozinha na cor da interface. */
-
 html,
 body {
   background: var(--bg);
@@ -83,8 +78,7 @@ body {
 }
 
 body::before,
-body::after,
-html[data-theme="brasil"] body::before {
+body::after {
   background: none;
   background-image: none;
 }
@@ -237,22 +231,6 @@ button:active:not(:disabled),
 
 
 
-#match-score,
-#nba-fav {
-  background: transparent;
-  border-color: var(--border);
-  border-radius: var(--radius);
-  box-shadow: none;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-}
-
-#match-score { height: 36px; padding: 0 10px; }
-#match-score.is-live {
-  background: var(--accent-dim);
-  border-color: rgba(240, 160, 160, .5);
-}
-#nba-fav { width: 36px; height: 36px; }
-
 .btn-primary,
 .btn-danger,
 .btn-ghost {
@@ -392,107 +370,8 @@ button:active:not(:disabled),
 
 
 
-/* Central and prompt library */
+/* Cards (.hub-card — o link "Abrir o Estúdio" do site publicado) */
 
-.wizards-feature {
-  display: grid;
-  grid-template-columns: minmax(240px, .7fr) minmax(0, 1.3fr);
-  gap: 28px;
-  width: min(100%, 1200px);
-  margin: 0 auto 40px;
-  padding: 24px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
-}
-
-.wizards-feature-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  min-width: 0;
-  padding: 8px;
-}
-
-.wizards-feature-kicker {
-  margin: 0 0 10px;
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.wizards-feature h1 {
-  max-width: 10ch;
-  margin: 0 0 12px;
-  font-size: clamp(30px, 4vw, 48px);
-  font-weight: 650;
-  line-height: 1.02;
-  letter-spacing: -.045em;
-}
-
-.wizards-feature-copy > p:not(.wizards-feature-kicker) {
-  max-width: 34ch;
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 14px;
-}
-
-.wizards-feature-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 22px;
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-decoration: none;
-  transition:
-    color var(--ease),
-    transform var(--dur-1) var(--spring-soft);
-}
-
-.wizards-feature-link:active { transform: scale(.97); }
-
-.wizards-feature-media {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(120px, .85fr);
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  min-height: 310px;
-}
-
-.wizards-feature-photo {
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-  overflow: hidden;
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-}
-
-.wizards-feature-photo-main { grid-row: 1 / -1; }
-
-.wizards-feature-photo img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .wizards-feature-link:hover { color: var(--accent); }
-}
-
-.hub-head {
-  max-width: 760px;
-  margin: 8px 0 40px;
-}
-
-.hub-kicker,
 .scanner-lab-kicker,
 .curso-hero-kicker {
   color: var(--text-muted);
@@ -500,29 +379,6 @@ button:active:not(:disabled),
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-}
-
-.hub-title {
-  margin: 4px 0 8px;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(28px, 4vw, 36px);
-  font-weight: 600;
-  letter-spacing: -.035em;
-}
-
-.hub-sub {
-  max-width: 64ch;
-  color: var(--text-dim);
-  font-size: 15px;
-}
-
-.hub-block { margin-bottom: 36px; }
-.hub-block-head { margin-bottom: 12px; }
-.hub-block-head h2 { font-size: 14px; font-weight: 600; }
-.hub-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--text-muted);
 }
 
 .hub-grid {
@@ -742,24 +598,12 @@ tbody tr { transition: background-color var(--ease); }
 }
 #site-credits b { color: #737379; }
 
-/* The rare basketball event keeps its meaning, but loses decorative glow. */
-
-#wiz-roundstart.wz-rs.show { background: rgba(4, 6, 10, .78); }
-#wiz-roundstart .wz-rs-card {
-  background: var(--surface);
-  border-color: var(--border-hover);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 24px 72px rgba(0, 0, 0, .42);
-}
-#wiz-roundstart .wz-rs-card::before { background: var(--accent); }
-
 /* Responsive shell */
 
 @media (max-width: 1120px) {
   #header { padding-right: 14px; padding-left: 14px; }
   .world-seg { gap: 14px; }
   .world-seg-btn { font-size: 12px; }
-  #match-score { display: none; }
   .hub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -776,8 +620,6 @@ tbody tr { transition: background-color var(--ease); }
 
   .logo { grid-column: 1; grid-row: 1; }
 
-  #nba-fav { grid-column: 3; grid-row: 1; }
-
 
   .world-seg {
     grid-column: 1 / -1;
@@ -791,14 +633,6 @@ tbody tr { transition: background-color var(--ease); }
   .world-seg-btn { min-height: 55px; }
   #main { padding: 28px 20px 76px; }
 
-  .wizards-feature {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .wizards-feature-copy { padding: 0; }
-  .wizards-feature h1 { max-width: 13ch; }
-  .wizards-feature-media { min-height: 300px; }
 }
 
 @media (max-width: 600px) {
@@ -808,20 +642,6 @@ tbody tr { transition: background-color var(--ease); }
 
 
   #main { padding-right: 16px; padding-left: 16px; }
-  .wizards-feature {
-    margin-bottom: 32px;
-    padding: 16px;
-  }
-  .wizards-feature-media {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: 190px 105px;
-    min-height: 0;
-  }
-  .wizards-feature-photo-main {
-    grid-column: 1 / -1;
-    grid-row: auto;
-  }
-  .hub-head { margin-bottom: 32px; }
   .hub-grid { grid-template-columns: 1fr; }
   .hub-card { min-height: auto; }
 

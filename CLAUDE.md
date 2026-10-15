@@ -1,5 +1,5 @@
 # Contexto do Projeto
-Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localStorage`): Painel do Empreendedor e Estúdio de Vídeos, mais widgets pessoais (placar NBA/Copa ao vivo). Módulos REMOVIDOS: **Amazon FBA** (2026-06-29), **Precificação**, **Inventário Amazon** e **Shooting Range** (2026-08-17), e **Prompts salvos**, **Planilha de Faturador**, **Radar** e **Fluxos** (2026-09-08) - ver Domínio do Negócio. O backend full-stack (Supabase/SP-API) está planejado, mas PAUSADO.
+Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localStorage`): **só o Estúdio de Vídeos** (o placar NBA/Copa saiu em 2026-10-11; a Central e o Painel do Empreendedor, em 2026-10-13). Módulos REMOVIDOS: **Amazon FBA** (2026-06-29), **Precificação**, **Inventário Amazon** e **Shooting Range** (2026-08-17), e **Prompts salvos**, **Planilha de Faturador**, **Radar** e **Fluxos** (2026-09-08) - ver Domínio do Negócio. O backend full-stack (Supabase/SP-API) está planejado, mas PAUSADO.
 
 ## Arquitetura alvo (ver `docs/01-Wiki/ARQUITETURA.md`)
 - Frontend: site Vanilla JS atual (`index.html`) — NÃO reescrever; evoluir incrementalmente.
@@ -11,7 +11,7 @@ Plataforma client-side do vendedor (Vanilla JS, `index.html`, dados em `localSto
 - Toda tabela com RLS escopada por `user_id = auth.uid()`. `amazon_credentials` não tem policy de cliente (só service_role).
 
 ## Transição (importante)
-- Os módulos vivos ainda usam `localStorage` (`pp_empreendedor_v1`, `pp_video_projects_v1`). Migração para Postgres é incremental e não pode quebrar o que já funciona.
+- O Estúdio ainda usa `localStorage` (`pp_video_projects_v1`). Migração para Postgres é incremental e não pode quebrar o que já funciona.
 - Não criar servidores Node próprios nem dependências npm no frontend; o backend é o Supabase.
 
 # Onde estão as regras (leia antes de procurar)
@@ -31,11 +31,10 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
 | `video-results.js` (Resultados dos cortes) | `.claude/rules/estudio-resultados.md` | — |
 | `baixador/**` (extensão + helper) | `.claude/rules/baixador.md` | `HISTORICO-estudio-video.md` |
 | `publicar.mjs` / `vercel.json` (site publicado = `dist/`) · `web/**` (Fase 1; `cloud/` **aposentada** em 2026-09-14) | `.claude/rules/lancamento-cloud.md` | `HISTORICO-lancamento-fase1.md` |
-| `index.html`, `empreendedor.js` | `.claude/rules/modulos-index-html.md` | — |
+| `index.html` | `.claude/rules/modulos-index-html.md` | — |
 
 # Domínio do Negócio (Multi-marketplace)
-- **Módulos ATIVOS** (nenhum é código morto — BP-007): Central (home) · Painel do Empreendedor ·
-  Estúdio de Vídeos · widgets pessoais (placar NBA/Copa). Detalhes de cada um nas regras por caminho.
+- **Módulo ATIVO** (BP-007): só o Estúdio de Vídeos. Detalhes nas regras por caminho.
 - **Módulos REMOVIDOS — não recriar nem referenciar** (inventário completo em
   `docs/01-Wiki/archive/HISTORICO-modulos-removidos.md`):
   - **Prompts salvos, Planilha de Faturador, Radar e Fluxos** (2026-09-08, decisão do usuário —
@@ -53,6 +52,18 @@ Este arquivo guarda só o que vale para **todo** o projeto. O resto é carregado
     - **Sobrou de propósito:** `#toast` (usado por `supabase-client.js`) · `.world-seg*` e `.hub-*`
       (Central) · `scanner.py`/`sacanner-0.1.py` (independentes do fluxo-exemplo) ·
       `night-agent.ps1`/`register-night-agent.ps1` (runner genérico, hoje sem payload).
+  - **Placar ao vivo NBA/Copa** (2026-10-11, decisão do usuário — "pode arrancar esse placar"):
+    `score-bar.js` · `nba-teams.js` · `period-intro.js` · `#match-score` · `#nba-fav` ·
+    `#theme-veil` · `#wiz-roundstart` · `html[data-theme="brasil"]` · `window.NBA` ·
+    `triggerPeriodIntro` · `nba_fav_v1` · `assets/flags/` · `assets/themes/` · logos
+    `assets/nba/*.png`. **FICOU:** `assets/nba/wizards/` (o `login.html` usa uma foto).
+  - **Central (home) e Painel do Empreendedor** (2026-10-13, decisão do usuário — "quero o que só
+    tenha o estúdio"): `#view-central` · `#view-empreendedor` · `#emp-root` · `empreendedor.js` ·
+    `test-empreendedor.js` · `VIEW_GROUP` · `setWorld` · `.wizards-feature*` · `.hub-head` ·
+    `.hub-kicker` · `.hub-title` · `.hub-sub` · `.hub-block*` · `.hub-dot` · os itens Empreendedor e
+    Central da sidebar. **FICOU:** `.hub-grid`/`.hub-card*` (o `#estudio-local` do site publicado
+    usa), `activateView` com `VIEWS = ['video-ops']`, e a chave `pp_empreendedor_v1` no navegador
+    (nada a apaga). A aba "Central" DENTRO do Estúdio é outra coisa e continua.
   - **Precificação** (2026-08-17): `Calc5` · `RATES` · `prc*` · `#prc-*` · `.plat-*` · `.pdv-*` ·
     `#view-precificacao` · `pricing_v1`. O modelo anterior (margem-alvo / "Bater concorrente")
     também não volta.
@@ -83,9 +94,10 @@ Quatro telas: `Clips` (inicial, chave `youtube`), `Meus projetos`, `Central` e `
 usuário. Não reabrir essas rotas; a edição dos trechos do YouTube e os dados salvos permanecem.
 **Editor em ferramentas (2026-10-01, decisão do usuário):** barra fixa de ferramentas entre o vídeo e o painel, tela que não rola, e só ferramentas na tela (nada de explicação, dica ou aviso; falha = rótulo do próprio controle). Regras em `.claude/rules/estudio-ui.md`; decisão em `docs/03-Decisions/2026-10-01-editor-em-ferramentas.md`.
 **Fluxo em etapas (2026-10-05, decisão do usuário):** Marcar trecho → Editar vídeo → Baixar vídeo editado → Criar capa. Começo/fim e remoções só em "Marcar trecho"; Corte e Capa saíram da barra; "Criar capa" só abre depois do clique que começou o download editado. Regras em `.claude/rules/estudio-ui.md` ("Fluxo em etapas no editor").
+**Legenda do post (2026-10-14, decisão do usuário) — exceção ÚNICA ao "nada de legenda de publicação, hashtag":** quarta etapa do editor, depois da capa. O Claude (`/api/legenda-post`, `legenda_post.py`, chave `ANTHROPIC_API_KEY` no ambiente do worker) SUGERE legenda + hashtags a partir do texto queimado do corte; o operador edita e copia. Não publica nem agenda, e o rascunho do TikTok continua só o MP4 (a API de inbox não aceita texto). Regras em `estudio-ui.md` e `estudio-video-worker.md` ("Legenda do post").
 **Entrada direta em Clips (2026-09-23, decisão do usuário):** o site abre no Estúdio, na tela
-`Clips` (a barra "Central / Empreender" do header saiu; Central e Empreendedor ficam na
-sidebar). Ordem da tela: card da URL (+ declaração) → etapas Download · Análise · Cortes →
+`Clips` (a barra "Central / Empreender" do header saiu; desde 2026-10-13 a sidebar só tem
+`Clips`). Ordem da tela: card da URL (+ declaração) → etapas Download · Análise · Cortes →
 vídeo original → cortes recomendados; **desde 2026-09-25 (reformulação visual pedida pelo
 usuário) a entrada mostra só título, campo+`Iniciar`, declaração e três passos — etapas,
 fonte e cortes aparecem na fase `trabalho`** (`data-fase`, ver `estudio-ui.md`). `Iniciar` importa e analisa; com fonte + declaração +
@@ -103,6 +115,28 @@ PT-BR — *conteúdo forte → corte certo → comunicação clara → edição 
 **nunca** "efeito, efeito, efeito". Proibido por escrito: meme, emoji, texto em movimento
 constante, zoom agressivo, shake, música alta, cor neon, e **qualquer efeito disparado só
 porque o tempo passou**.
+**SEMANA DE TESTE — edits de drift (2026-10-14 a 2026-10-21, decisão do usuário).** Nesta
+semana a direção acima fica SUSPENSA e o Claude edita os vídeos: edit estético de drift (carro
+de lado, fumaça, estrada de montanha), vídeos do mesmo canal, com autorização confirmada pelo
+usuário. Ponto de partida: os dois primeiros posts, 173 e 181 visualizações (empate). Direção:
+- **15–20 s.** Os 2 primeiros segundos mostram o carro de lado com fumaça, nunca estrada vazia;
+  o título curto entra por cima dessa imagem.
+- **Preto e branco e a música da fonte SÃO o estilo.** Não há fala: legenda queimada, card de
+  fala e "Legenda do post" (que lê a fala) não se aplicam — a legenda do post é escrita à mão.
+- **O corte segue a música:** entra na virada (drop), não termina em silêncio seco, e o fim
+  emenda no começo (laço). "Música alta" não é defeito aqui: ela é o único áudio.
+- **Quadro 4:5 (`crop45`) por padrão**; 16:9 com faixa preta só quando o plano aberto pedir.
+- **Uma fonte só** em todos os vídeos da semana.
+- Continua proibido: meme, emoji, cor neon, shake e zoom agressivo.
+- **Postar = mandar o MP4 aos rascunhos do TikTok**, um por vez, com confirmação do usuário; quem
+  publica é o usuário, no celular (a API de rascunho não leva texto).
+- **Fluxo que funcionou (2026-10-14, 3 cortes):** trecho = pico de "Mais reproduzidos" conferido
+  quadro a quadro (nos três era uma batida; "movimento" sozinho escolhe câmera tremida de dentro
+  do carro) → `/api/remotion-render` com `reframe: crop45`, `preset: limpo`, sem card → preto e
+  branco depois do export (FFmpeg `hue=s=0`, o Estúdio não tem cor) → `-pb.mp4` aos rascunhos.
+  Título, som e legenda o usuário põe no app do TikTok (era assim nos dois posts anteriores).
+- **Fim da semana (2026-10-21):** comparar os números na aba Resultados e o usuário decide se
+  volta aos cortes de podcast. Até lá, nada do código de podcast é apagado.
 **A fonte é o VÍDEO INTEIRO importado (decisão do usuário, 2026-09-15).** Colar a URL +
 declarar o direito + `Importar vídeo` baixa o original completo uma vez (`/api/yt-import`,
 com progresso real em `/api/yt-import-state`); ele toca num `<video>` do próprio site
@@ -202,9 +236,9 @@ e frase tocando acesa. Regras em `.claude/rules/estudio-ui.md`.
 Precisa de `http://127.0.0.1:8765` (rode `estudio.ps1`).
 
 ## Validação do Estúdio — um comando só
-**Rode `.\provas.ps1`.** Ele roda as dez suítes, soma, e **confere o total contra a linha
+**Rode `.\provas.ps1`.** Ele roda as onze suítes, soma, e **confere o total contra a linha
 abaixo** (sai com erro se divergir — não some de cabeça, e não apague esta linha).
-    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**213**) · `test_serve.py` (**509**) · `test_ytclip.py` (**294**) · `test_worker.py` (**118**) · `test_muapi.py` (**81**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**465**) · `test-video-ops.js` (**190**) · `test-video-ops-dom.js` (**355**) · `test-video-results.js` (**46**) — **2503 verificações nas dez, zero falhas**.
+    - Checks — **rode `.\provas.ps1`**: `test_captions.py` (**213**) · `test_serve.py` (**516**) · `test_ytclip.py` (**294**) · `test_worker.py` (**118**) · `test_muapi.py` (**81**) · `test_legenda_post.py` (**31**) · `test_helper.py` (**232**) · `studio/test-preset.mjs` (**465**) · `test-video-ops.js` (**192**) · `test-video-ops-dom.js` (**369**) · `test-video-results.js` (**46**) — **2557 verificações nas onze, zero falhas**.
     - `test-video-ops-rec.js` existe e passa, mas **fica FORA do `provas.ps1`** — não é somado
       nem conferido por ele. Quem mexer na recomendação rode-o à mão: `node test-video-ops-rec.js`.
 

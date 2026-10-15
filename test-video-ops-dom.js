@@ -449,6 +449,11 @@ async function main() {
         grampeado: { posicaoPct: null, posicaoXPct: null }, fundoUrl: '/sources/abcdefghijk.webp'
       }) });
     }
+    if (caminho === '/api/legenda-post') {
+      return Promise.resolve({ ok: true, headers: cabecalhos, json: () => Promise.resolve(
+        global.__respostaPost || { legenda: 'Vender pra todo mundo quase quebrou a empresa.',
+          hashtags: ['#empreendedorismo', '#vendas'], motivo: '', desligada: false }) });
+    }
     // /api/video-cut e /api/remotion-render devolvem MP4, nao JSON.
     return Promise.resolve({
       ok: true, headers: cabecalhos,
@@ -535,6 +540,34 @@ async function main() {
   b.clique({ act: 'yt-back' });
   html = b.html();
 
+  // ---- Picote em lote (2026-10-13): recomendados de uma vez, ou o video inteiro em blocos
+  ok('a barra "Picotar para edit" aparece na grade com a fonte pronta',
+    html.indexOf('data-picote-lote') > 0 && html.indexOf('data-picote-modo') > 0);
+  const fetchLote = global.fetch;
+  let lote = [];
+  global.fetch = function (rota, opcoes) {
+    if (/^\/api\/picotar/.test(String(rota))) {
+      lote.push(String(rota));
+      return Promise.resolve({ ok: true, headers: { get() { return null; } },
+        json: () => Promise.resolve({ pasta: 'X', clipes: 300, segundos: 2 }) });
+    }
+    return fetchLote(rota, opcoes);
+  };
+  b.muda('[data-picote-modo]', { value: 'inteiro' });
+  b.clique({ act: 'yt-picote-lote' });
+  for (let i = 0; i < 30; i++) await tick();
+  ok('Video inteiro (3600 s) vai em 6 blocos de 600 s, numeracao continua, e so o ultimo abre a pasta',
+    lote.length === 6 && /&start=0&end=600&/.test(lote[0]) && /&numero=1&abrir=0$/.test(lote[0])
+    && /&start=3000&end=3600&/.test(lote[5]) && /&numero=1501$/.test(lote[5]));
+  const recomendados = Number((/Cortes recomendados · (\d+)/.exec(b.html()) || [])[1]);
+  lote = [];
+  b.muda('[data-picote-modo]', { value: 'recomendados' });
+  b.clique({ act: 'yt-picote-lote', destino: 'drive' });
+  for (let i = 0; i < 30; i++) await tick();
+  ok('So os recomendados manda um trecho por corte recomendado, todos para o Drive',
+    recomendados > 0 && lote.length === recomendados && lote.every(r => /&destino=drive/.test(r)));
+  global.fetch = fetchLote;
+
   // Os controles de producao vivem na TELA DE DETALHE. `Editar` e a acao primaria do card,
   // e e ela que abre esta tela com o trecho, as bordas e as escolhas salvas.
   // Desde 2026-10-08 e o botao de vidro (claquete) sobre a previa, com nome acessivel.
@@ -564,6 +597,7 @@ async function main() {
     && html.indexOf('class="yt-trim"') > 0 && html.indexOf('data-act="yt-manual"') > 0
     && html.indexOf('data-yt-tool') < 0 && html.indexOf('data-act="yt-dl-menu"') < 0);
   ok('Criar capa nasce travada', /data-etapa="capa" disabled/.test(html));
+  ok('Legenda do post nasce travada junto com a capa', /data-etapa="post" disabled/.test(html));
   b.clique({ act: 'yt-etapa', id: clipId, etapa: 'capa' });
   ok('e clicar nela travada nao muda de etapa', /data-etapa="trecho" aria-current="step"/.test(b.html()));
   b.clique({ act: 'yt-etapa', id: clipId, etapa: 'editar' });
@@ -714,6 +748,15 @@ async function main() {
   html = b.html();
   ok('o trecho original que falha tambem diz no proprio botao',
     /data-act="yt-fetch"[^>]*>Falhou · tentar de novo</.test(html));
+  b.clique({ act: 'yt-picote', id: clipId });
+  await tick(); await tick();
+  ok('Picotar para edit chama /api/picotar com a fonte e o intervalo do corte',
+    /^\/api\/picotar\?token=abcdefghijk&name=abcdefghijk\.mp4&start=\d+&end=\d+&output=.+-picote$/
+      .test(chamadas['_ultima:/api/picotar'] || ''));
+  b.clique({ act: 'yt-picote', id: clipId, destino: 'drive' });
+  await tick(); await tick();
+  ok('Picotar no Drive manda destino=drive',
+    /-picote&destino=drive$/.test(chamadas['_ultima:/api/picotar'] || ''));
   if (b.html().indexOf('role="menu"') > 0) b.clique({ act: 'yt-dl-menu', id: clipId });
   global.fetch = fetchOk;
   /* Campos que gravam NO LUGAR (sem re-render): a recusa marca o proprio campo. */
@@ -750,6 +793,54 @@ async function main() {
   b.clique({ act: 'yt-etapa', id: clipId, etapa: 'editar' });
   b.clique({ act: 'yt-etapa', id: clipId, etapa: 'capa' });
   ok('e depois de liberada a capa se abre de novo pela etapa', /data-etapa="capa" aria-current="step"/.test(b.html()));
+
+  /* ---- LEGENDA DO POST (decisao do usuario, 2026-10-14) ---------------------------------
+     Etapa depois da capa: gerar pelo Claude, editar, copiar. So sugestao -- nada sai daqui. */
+  b.clique({ act: 'yt-etapa', id: clipId, etapa: 'post' });
+  html = b.html();
+  ok('post 1: a etapa abre com o campo vazio, "Gerar legenda" e Copiar travado',
+    /data-etapa="post" aria-current="step"/.test(html) && html.indexOf('data-post-painel') > 0
+    && />Gerar legenda<\/button>/.test(html) && /data-act="post-copiar"[^>]*disabled/.test(html)
+    && html.indexOf('data-yt-tool') < 0);
+  const postAntes = chamadas['/api/legenda-post'] || 0;
+  b.clique({ act: 'post-gerar', id: clipId });
+  ok('post 2: enquanto espera, o botao diz "Gerando…" e trava', /data-act="post-gerar"[^>]*disabled[^>]*>Gerando…</.test(b.html()));
+  for (let i = 0; i < 6; i++) await tick();
+  html = b.html();
+  const corpoPost = JSON.parse(chamadas['_corpo:/api/legenda-post'] || '{}');
+  ok('post 3: UMA chamada, com a fala do corte e o titulo do video',
+    chamadas['/api/legenda-post'] === postAntes + 1 && /melhor negócio/.test(corpoPost.texto || '')
+    && typeof corpoPost.titulo === 'string');
+  ok('post 4: a sugestao vira legenda + hashtags no campo e fica SALVA no corte (sem chave nova)',
+    legSalvoPorId(b, clipId).postTikTok === 'Vender pra todo mundo quase quebrou a empresa.\n\n#empreendedorismo #vendas'
+    && html.indexOf('#empreendedorismo #vendas</textarea>') > 0
+    && Object.keys(b.store).every(k => k.indexOf('post') < 0));
+  ok('post 5: com texto, Copiar destrava e o botao vira "Gerar de novo"',
+    !/data-act="post-copiar"[^>]*disabled/.test(html) && />Gerar de novo<\/button>/.test(html));
+  /* O Node 21+ tem `navigator` proprio, so com getter: o `global.navigator = ...` do topo nao
+     pega. Redefinir a propriedade e o unico jeito de pôr a area de transferencia na bancada. */
+  const copiados = [];
+  const navAntes = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true,
+    value: { clipboard: { writeText: t => { copiados.push(t); return Promise.resolve(); } } } });
+  b.clique({ act: 'post-copiar', id: clipId });
+  await tick();
+  if (navAntes) Object.defineProperty(globalThis, 'navigator', navAntes); else delete globalThis.navigator;
+  ok('post 6: Copiar leva o texto do corte para a area de transferencia',
+    copiados.length === 1 && copiados[0] === legSalvoPorId(b, clipId).postTikTok);
+  global.__respostaPost = { legenda: '', hashtags: [], motivo: 'Sugestao desligada.', desligada: true };
+  b.clique({ act: 'post-gerar', id: clipId });
+  for (let i = 0; i < 6; i++) await tick();
+  html = b.html();
+  ok('post 7: sem chave no worker o PROPRIO botao diz, e o texto salvo nao some',
+    />Sem chave da IA<\/button>/.test(html) && !!legSalvoPorId(b, clipId).postTikTok);
+  global.__respostaPost = { legenda: '', hashtags: [], motivo: 'A Anthropic respondeu HTTP 529.', desligada: false };
+  b.clique({ act: 'post-gerar', id: clipId });
+  for (let i = 0; i < 6; i++) await tick();
+  ok('post 8: falha passageira = "Falhou · tentar de novo" no proprio botao, sem frase na tela',
+    />Falhou · tentar de novo<\/button>/.test(b.html()));
+  delete global.__respostaPost;
+  b.clique({ act: 'yt-etapa', id: clipId, etapa: 'capa' });
   /* Achado no Chrome (2026-10-01): o export comeca SEM re-render, e o gatilho do menu ficava
      dizendo "Baixar" durante minutos de render. O rotulo dele e repintado no lugar. */
   const rotuloVivo = fakeEl(); rotuloVivo.textContent = 'Baixar';
