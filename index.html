@@ -104,42 +104,6 @@
       }
     }
 
-    /* ── Tema Brasil (Copa) — ativado por <html data-theme="brasil"> via score-bar.js.
-       Verde/amarelo/azul da bandeira; cores E imagens trocam juntas no jogo da Copa. */
-    html[data-theme="brasil"] {
-      /* Cores da seleção — CONTEÚDO do placar ao vivo (#wiz-roundstart é quem as usa).
-         Não alimentam mais accent/gradiente/glow: a interface é Black + Ice sempre. */
-      --team-navy:        #0A3D24;
-      --team-navy-bright: #FFD43B;
-      --team-red:         #1FAE54;
-      --team-red-hot:     #27C964;
-      --team-silver:      #E6E2C3;
-      /* O tema Copa troca as IMAGENS do placar. A interface segue Black + Ice: sem
-         accent verde, sem gradiente verde-amarelo, sem glow. */
-      --accent-dim:  rgba(229,229,235,.10);
-      --accent-dim2: rgba(229,229,235,.07);
-      --gradient:        var(--bg-subtle);
-      --gradient-subtle: var(--surface-2);
-      --glow-blue:   none;
-      --glow-accent: none;
-      --img-bg:      url('assets/themes/brasil/bg.jpg');
-      --img-sidebar: url('assets/themes/brasil/sidebar.jpg');
-      --img-logo:    url('assets/themes/brasil/logo.png');
-    }
-    /* Transição suave de COR ao trocar de tema (a troca de IMAGEM é mascarada pelo véu) */
-    #main, #sidebar, .logo-icon { transition: background-color var(--dur-3) var(--spring-soft), border-color var(--dur-3) var(--spring-soft); }
-    /* Véu de transição estilo broadcast — score-bar.js liga/desliga .on na troca de time */
-    #theme-veil {
-      position: fixed; inset: 0; z-index: 99998; pointer-events: none;
-      opacity: 0; background: var(--gradient);
-      transition: opacity 320ms cubic-bezier(.16,1,.3,1);   /* reveal: gracioso */
-      will-change: opacity;
-    }
-    #theme-veil.on { opacity: .92; transition: opacity 130ms cubic-bezier(.16,1,.3,1); }  /* cobre: rápido */
-    @media (prefers-reduced-motion: reduce) {
-      #theme-veil { display: none !important; }
-      #main, #sidebar, .logo-icon { transition: none !important; }
-    }
 
     html, body {
       height: 100%;
@@ -239,49 +203,6 @@
 
 
 
-
-    /* ── PLACAR ÚNICO (header) — mostra só o jogo ativo; alterna NBA ↔ Copa ── */
-    #match-score {
-      display: flex; align-items: center; gap: 7px; flex-shrink: 0;
-      height: 36px; padding: 0 12px; max-width: 340px;
-      border: 1px solid var(--border); border-radius: var(--radius-xl);
-      background: var(--veil);
-      font-family: var(--font-display); font-weight: 700;
-      font-size: 13px; letter-spacing: .03em; color: var(--text-dim);
-      white-space: nowrap; user-select: none; overflow: hidden;
-      transition: border-color var(--ease), background-color var(--ease);
-    }
-    #match-score.is-live { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-dim); }
-    #match-score .ms-in {
-      display: flex; align-items: center; gap: 7px; min-width: 0;
-      transition: opacity var(--dur-2) cubic-bezier(.16,1,.3,1), filter var(--dur-2) cubic-bezier(.16,1,.3,1), transform var(--dur-2) cubic-bezier(.16,1,.3,1);
-    }
-    #match-score.swapping .ms-in { opacity: 0; filter: blur(4px); transform: translateY(-3px); }  /* Emil: blur mascara a troca */
-    #match-score .ms-crest { width: 18px; height: 18px; object-fit: contain; border-radius: 4px; background: rgba(255,255,255,.92); flex-shrink: 0; }
-    #match-score .ms-tm { color: var(--text); }
-    /* O placar e um numero que precisa ser lido nos tres presets: branco fixo sumia no Claro. */
-    #match-score .ms-sc { color: var(--text); font-variant-numeric: tabular-nums; }
-    #match-score .ms-x,
-#match-score .ms-vs { color: var(--text-muted); font-weight: 600; }
-    #match-score .ms-clk { color: var(--accent-2); font-weight: 600; letter-spacing: .02em; }
-    #match-score.is-live .ms-clk { color: var(--accent); }
-    #match-score .ms-fin { color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 11px; }
-    #match-score .ms-dot {
-      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-      background: var(--accent);
-      animation: msPulse 1.6s ease-out infinite;  /* indicador funcional de "ao vivo" */
-    }
-    @keyframes msPulse {
-      0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
-      70%  { box-shadow: 0 0 0 6px transparent; }
-      100% { box-shadow: 0 0 0 0 transparent; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      #match-score .ms-in { transition: opacity 140ms ease !important; }
-      #match-score.swapping .ms-in { filter: none !important; transform: none !important; }
-      #match-score .ms-dot { animation: none !important; }
-    }
-    @media (max-width: 760px) { #match-score { display: none; } }
 
     /* ── BUTTONS ── */
     .btn-primary {
@@ -566,8 +487,6 @@
       <span class="logo-icon" role="img" aria-label="Logo do time"></span>
       <span class="logo-name">Dootu</span>
     </button>
-    <div id="match-score" data-state="idle" title="Placar ao vivo · NBA + Copa · dados ESPN"><span class="ms-tm">JOGOS</span></div>
-    <button id="nba-fav" type="button" title="Escolher 2 times pra torcer (NBA)"><span aria-hidden="true">🏀</span></button>
     <div class="appearance">
       <label class="appearance-label" for="appearance-select">Aparência</label>
       <select id="appearance-select" aria-label="Aparência da interface">
@@ -590,74 +509,10 @@
           Clips
           <span class="nav-count" id="count-video-ops">0</span>
         </button>
-        <button class="nav-item" data-view="empreendedor" data-group="prog">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
-          Empreendedor
-        </button>
-        <button class="nav-item" data-view="central">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>
-          Central
-        </button>
       </div>
     </aside>
 
     <main id="main">
-      <section id="view-central" hidden>
-        <article class="wizards-feature" aria-labelledby="wizards-feature-title">
-          <div class="wizards-feature-copy">
-            <p class="wizards-feature-kicker">Washington Wizards · 2026</p>
-            <h1 id="wizards-feature-title">O futuro chegou em D.C.</h1>
-            <p>AJ Dybantsa, escolha número 1 do Draft, já vestindo o uniforme do Wizards.</p>
-            <a class="wizards-feature-link"
-               href="https://www.nba.com/wizards/news/wizardsselectaj-dybantsawithfirstoverall-pick-in-2026nba-draft"
-               target="_blank" rel="noopener noreferrer">
-              Ver notícia oficial <span aria-hidden="true">↗</span>
-            </a>
-          </div>
-          <div class="wizards-feature-media">
-            <figure class="wizards-feature-photo wizards-feature-photo-main">
-              <img src="assets/nba/wizards/2026/aj-dybantsa-summer-league-drive.jpg"
-                   alt="AJ Dybantsa atacando a cesta com o uniforme número 4 do Washington Wizards"
-                   width="1470" height="826" fetchpriority="high" decoding="async" />
-            </figure>
-            <figure class="wizards-feature-photo">
-              <img src="assets/nba/wizards/2026/aj-dybantsa-draft-night.jpg"
-                   alt="AJ Dybantsa com Adam Silver após ser escolhido pelo Washington Wizards no Draft de 2026"
-                   width="1470" height="826" loading="lazy" decoding="async" />
-            </figure>
-            <figure class="wizards-feature-photo">
-              <img src="assets/nba/wizards/2026/aj-dybantsa-summer-league-shot.jpg"
-                   alt="AJ Dybantsa arremessando com o uniforme número 4 do Washington Wizards"
-                   width="1470" height="826" loading="lazy" decoding="async" />
-            </figure>
-          </div>
-        </article>
-
-        <div class="hub-head">
-          <p class="hub-kicker">Central</p>
-          <h1 class="hub-title">Tudo em um lugar</h1>
-          <p class="hub-sub">Suas ferramentas separadas por mundo. Escolha por onde começar.</p>
-        </div>
-
-        <div class="hub-block" data-group="prog">
-          <div class="hub-block-head"><span class="hub-dot" style="--d:#6ea8fe"></span><h2>Empreender</h2></div>
-          <div class="hub-grid">
-            <button class="hub-card" data-view="empreendedor">
-              <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></span>
-              <span class="hub-card-txt"><span class="hub-card-name">Painel do Empreendedor</span><span class="hub-card-desc">Controle seus processos e a meta de 90 dias.</span></span>
-            </button>
-            <button class="hub-card" data-view="video-ops">
-              <span class="hub-card-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2z"/><path d="m8 9 4 3-4 3z"/></svg></span>
-              <span class="hub-card-txt"><span class="hub-card-name">Estúdio de Vídeos</span><span class="hub-card-desc">Corte o vídeo longo e baixe os clips prontos.</span></span>
-            </button>
-          </div>
-        </div>
-
-      </section>
-      <!-- ── PAINEL DO EMPREENDEDOR (empreendedor.js) ── -->
-      <section id="view-empreendedor" hidden>
-        <div id="emp-root"></div>
-      </section>
       <section id="view-video-ops" hidden>
         <div id="video-ops-root"></div>
         <!-- Fora do motor local (site publicado): o Estúdio vira este link. Ver "ESTÚDIO FORA DO MOTOR". -->
@@ -673,18 +528,7 @@
 
 
       <style>
-        /* ── Central (hub) ── */
-        #view-central[hidden] { display: none !important; }
-        #view-central { max-width: 1000px; }
-        .hub-head { margin: 4px 0 24px; }
-        .hub-kicker { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 0; }
-        .hub-title { font-family: var(--font-display); font-size: 34px; letter-spacing: -.01em; margin: 6px 0 4px; }
-        .hub-sub { font-size: 14px; color: var(--text-dim); margin: 0; }
-        .hub-block { margin: 0 0 28px; }
-        .hub-block[hidden] { display: none !important; }
-        .hub-block-head { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
-        .hub-block-head h2 { font-size: 15px; font-weight: 700; margin: 0; color: var(--text); }
-        .hub-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--d, #6ea8fe); }
+        /* ── Cards (.hub-card — o link "Abrir o Estúdio" do site publicado) ── */
         .hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
         .hub-card {
           display: flex; align-items: flex-start; gap: 12px; text-align: left;
@@ -885,28 +729,15 @@
 
 <!-- ── TOAST ── -->
 <div id="toast"></div>
-<div id="theme-veil" aria-hidden="true"></div>
 
 
 <script>
   // ═══════════════════════════════
-  //  NAVEGAÇÃO — Central (home) + ferramentas
+  //  NAVEGAÇÃO — só o Estúdio (Central e Empreendedor saíram em 2026-10-13)
   // ═══════════════════════════════
 
-  // Categoria ("mundo") de cada ferramenta — usado pela barra do header e pelo filtro da sidebar
-  const VIEW_GROUP = { empreendedor: 'prog', 'video-ops': 'prog' };
-  const VIEWS = ['central', 'empreendedor', 'video-ops'];
+  const VIEWS = ['video-ops'];
   let currentView = null;
-
-  // Ajusta o segmento ativo no header, filtra os itens da sidebar e os blocos da Central por mundo
-  function setWorld(world) {   // 'central' | 'prog'
-    document.querySelectorAll('.nav-item[data-group]').forEach(el => {
-      el.style.display = (world === 'central' || el.dataset.group === world) ? '' : 'none';
-    });
-    document.querySelectorAll('#view-central .hub-block').forEach(bl => {
-      bl.hidden = !(world === 'central' || bl.dataset.group === world);
-    });
-  }
 
   // Troca a tela visível (só existem telas de ferramenta)
   function activateView(view) {
@@ -916,7 +747,6 @@
     document.querySelectorAll('.nav-item').forEach(el => {
       el.classList.toggle('active', el.dataset.view === view);
     });
-    if (VIEW_GROUP[view]) setWorld(VIEW_GROUP[view]);   // ao abrir uma ferramenta, o header/sidebar seguem o mundo dela
     if (view === 'video-ops' && window.videoOpsRefresh) window.videoOpsRefresh();
   }
 
@@ -924,12 +754,6 @@
   document.getElementById('sidebar').addEventListener('click', e => {
     const item = e.target.closest('[data-view]');
     if (item) activateView(item.dataset.view);
-  });
-
-  // Central — cards abrem a ferramenta correspondente
-  document.getElementById('view-central').addEventListener('click', e => {
-    const card = e.target.closest('[data-view]');
-    if (card) activateView(card.dataset.view);
   });
 
   // ═══════════════════════════════
@@ -963,12 +787,8 @@
   // ═══════════════════════════════
   //  INIT
   // ═══════════════════════════════
-  // Entrada direta nos Clips (decisão do usuário, 2026-09-23). A Central saiu do fluxo
-  // inicial e ficou na sidebar; a barra "Central / Empreender" do header saiu.
   activateView('video-ops');
-  setWorld('central');       // 'central' = sidebar sem filtro de mundo
 </script>
-<script src="empreendedor.js"></script>
 <script src="video-results.js"></script>
 <script src="video-ops.js"></script>
 
@@ -977,30 +797,6 @@
 <script src="supabase-client.js"></script>
 <script src="supabase-sync.js"></script>
 
-<!-- Placar ao vivo (NBA Wizards + Copa FIFA) — dados públicos ESPN. Tema/imagens trocam por jogo. -->
-<script src="period-intro.js"></script>
-<script src="nba-teams.js"></script>
-<script src="score-bar.js"></script>
-<style id="wiz-roundstart-styles">
-#wiz-roundstart.wz-rs { position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:24px; cursor:pointer; background:rgba(4,9,18,0); -webkit-backdrop-filter:blur(0); backdrop-filter:blur(0); opacity:0; transition: opacity 340ms cubic-bezier(.23,1,.32,1), background-color 340ms ease, backdrop-filter 340ms ease, -webkit-backdrop-filter 340ms ease; }
-#wiz-roundstart.wz-rs.show { opacity:1; background:rgba(4,9,18,.72); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); transition: opacity 450ms cubic-bezier(.23,1,.32,1), background-color 450ms ease, backdrop-filter 450ms ease, -webkit-backdrop-filter 450ms ease; }
-#wiz-roundstart .wz-rs-card { position:relative; box-sizing:border-box; min-width:260px; max-width:86vw; padding:30px 46px; text-align:center; background:linear-gradient(155deg, var(--team-navy,#002B5C) 0%, #061523 72%); border:1px solid rgba(196,206,212,.22); border-radius:18px; box-shadow:0 24px 64px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07); transform:scale(.9) translateY(10px); opacity:0; transition: transform 340ms cubic-bezier(.23,1,.32,1), opacity 340ms cubic-bezier(.23,1,.32,1); }
-#wiz-roundstart.wz-rs.show .wz-rs-card { transform:scale(1) translateY(0); opacity:1; transition: transform 460ms cubic-bezier(.23,1,.32,1), opacity 460ms cubic-bezier(.23,1,.32,1); }
-#wiz-roundstart .wz-rs-card::before { content:''; position:absolute; left:0; right:0; top:0; height:3px; border-radius:18px 18px 0 0; background:linear-gradient(90deg, var(--team-red,#E31837), var(--team-navy-bright,#2E6FE0)); }
-#wiz-roundstart .wz-rs-kicker { font-size:11px; font-weight:800; letter-spacing:.34em; text-transform:uppercase; color:var(--team-red,#E31837); margin-bottom:6px; }
-#wiz-roundstart .wz-rs-ball { font-size:46px; line-height:1; margin:2px 0 6px; }
-#wiz-roundstart.wz-rs.show .wz-rs-ball { animation:wz-rs-pop 620ms cubic-bezier(.23,1,.32,1) 120ms both; }
-#wiz-roundstart .wz-rs-title { font-size:26px; font-weight:800; color:#fff; letter-spacing:.01em; }
-#wiz-roundstart .wz-rs-sub { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--team-silver,#C4CED4); opacity:.75; margin-top:3px; }
-#wiz-roundstart .wz-rs-match { margin-top:16px; display:flex; align-items:center; justify-content:center; gap:12px; font-size:19px; color:var(--team-silver,#C4CED4); }
-#wiz-roundstart .wz-rs-match b { color:#fff; font-weight:800; }
-#wiz-roundstart .wz-rs-match span { font-size:11px; letter-spacing:.1em; text-transform:uppercase; opacity:.55; }
-@keyframes wz-rs-pop{ 0%{ transform:scale(.4); opacity:0; } 60%{ transform:scale(1.12); opacity:1; } 100%{ transform:scale(1); } }
-@media (prefers-reduced-motion: reduce){
-  #wiz-roundstart .wz-rs-card, #wiz-roundstart.wz-rs.show .wz-rs-card { transition:opacity 220ms ease !important; transform:none !important; }
-  #wiz-roundstart.wz-rs.show .wz-rs-ball { animation:none !important; }
-}
-</style>
 
 <link rel="stylesheet" href="design-system.css" />
 <link rel="stylesheet" href="video-ops.css" />

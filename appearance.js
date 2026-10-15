@@ -5,9 +5,6 @@
  * Trocar de aparência só reescreve `<html data-appearance>` — nenhum componente é remontado,
  * então o vídeo continua tocando, o campo em edição mantém o valor e o foco fica onde estava.
  *
- * `data-theme` (score-bar.js) é OUTRA coisa e continua sendo dele: aquilo troca as imagens do
- * placar ao vivo. A interface é Black + Ice em qualquer time.
- *
  * Carregado no <head>, síncrono e minúsculo (~1KB, longe do teto do BP-005), porque o atributo
  * precisa existir ANTES do primeiro paint — senão a tela pisca no tema errado.
  */
